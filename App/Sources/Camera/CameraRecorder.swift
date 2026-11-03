@@ -30,7 +30,7 @@ final class CameraRecorder: NSObject, ObservableObject {
         let video = await AVCaptureDevice.requestAccess(for: .video)
         _ = await AVCaptureDevice.requestAccess(for: .audio)
         guard video else {
-            await MainActor.run { errorMessage = "カメラが許可されていません（設定アプリで許可してください）" }
+            report("カメラが許可されていません（設定アプリで許可してください）")
             return
         }
         queue.async { [self] in
