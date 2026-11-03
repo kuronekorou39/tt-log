@@ -24,6 +24,8 @@ final class ScoreboardModel: ObservableObject {
     @Published private(set) var log: SessionLog?
     @Published private(set) var state: MatchState?
     @Published private(set) var players: [PlayerRecord] = []
+    /// 「戻す」で取り消した操作（新しい操作をしたら捨てる）。
+    @Published private(set) var redoStack: [TimedEvent] = []
 
     let server = PeerServer()
     let listener = SpeechListener()
@@ -41,6 +43,7 @@ final class ScoreboardModel: ObservableObject {
         self.context = context
         listener.onCommand = { [weak self] command in self?.handle(command, source: .voice) }
         listener.onRejected = { [weak self] _ in self?.playTone(.rejected) }
+        listener.onUnmatched = { [weak self] reading in self?.handleScoreCall(reading) }
         server.start()
         resumeOrSplit()
     }
@@ -99,8 +102,11 @@ final class ScoreboardModel: ObservableObject {
             }
             playTone(log.state.phase == .playing ? .point : .gameOver)
         case .undo:
-            guard log.undo() else { return }
+            guard let undone = log.popLast() else { return }
+            redoStack.append(undone)
             playTone(.undo)
+            commit(log, keepRedo: true)
+            return
         case .nextGame:
             guard log.append(.startNextGame, at: now, source: source) else {
                 playTone(.rejected)
@@ -109,6 +115,61 @@ final class ScoreboardModel: ObservableObject {
             playTone(.nextGame)
         }
         commit(log)
+    }
+
+    /// 「戻す」で取り消した操作をやり直す。
+    func redo() {
+        guard var log, let event = redoStack.last else { return }
+        guard log.redo(event) else {
+            redoStack.removeAll()
+            playTone(.rejected)
+            return
+        }
+        redoStack.removeLast()
+        playTone(.redo)
+        commit(log, keepRedo: true)
+    }
+
+    /// いまのサーバーを入れ替える。
+    func toggleServer() {
+        guard var log else { return }
+        log.toggleServer()
+        playTone(.confirm)
+        commit(log, keepRedo: true)
+    }
+
+    /// 画面の左右（立ち位置）を入れ替える。
+    func swapEnds() {
+        guard var log else { return }
+        log.swapEnds()
+        playTone(.confirm)
+        commit(log, keepRedo: true)
+    }
+
+    /// 口で言ったスコア（「ななきゅう」など）を反映する。受け付けたら説明を返す。
+    private func handleScoreCall(_ reading: String) -> String? {
+        guard var log else { return nil }
+        let pairs = ScoreCallParser.pairs(in: reading)
+        guard !pairs.isEmpty else { return nil }
+        guard let resolution = ScoreCallResolver.resolve(pairs: pairs, log: log) else {
+            playTone(.rejected)
+            return nil
+        }
+        let now = Date()
+        switch resolution {
+        case .confirm:
+            playTone(.confirm)
+            return "スコア確認"
+        case .undo:
+            handle(.undo, source: .voice)
+            return "スコアから取り消し"
+        case .points(let p, let count):
+            for _ in 0..<count { log.append(.point(winner: p), at: now, source: .voice) }
+            playTone(log.state.phase == .playing ? .point : .gameOver)
+            commit(log)
+            let s = log.state.scores
+            return "スコア \(s[0])-\(s[1])（\(name(p)) +\(count)）"
+        }
     }
 
     /// 画面に出す名前。
@@ -127,7 +188,8 @@ final class ScoreboardModel: ObservableObject {
         commit(record.log, save: false)
     }
 
-    private func commit(_ newLog: SessionLog, save: Bool = true) {
+    private func commit(_ newLog: SessionLog, save: Bool = true, keepRedo: Bool = false) {
+        if !keepRedo { redoStack.removeAll() }
         log = newLog
         state = newLog.state
         session?.log = newLog

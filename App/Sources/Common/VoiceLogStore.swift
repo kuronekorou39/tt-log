@@ -66,7 +66,8 @@ final class VoiceLogStore {
     func append(_ u: SpeechListener.Utterance) {
         let result: String
         switch (u.command, u.accepted) {
-        case (nil, _): result = "－"
+        case (nil, true): result = "○ \(u.note ?? "")"
+        case (nil, false): result = "－"
         case (let c?, true): result = "○ \(SpeechListener.describe(c))"
         case (let c?, false): result = "× \(SpeechListener.describe(c))（二重）"
         }

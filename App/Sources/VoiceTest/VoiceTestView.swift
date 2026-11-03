@@ -198,6 +198,8 @@ struct VoiceTestView: View {
             } else {
                 Text("× \(text)（二重）").foregroundStyle(.orange)
             }
+        } else if u.accepted, let note = u.note {
+            Text("○ \(note)").foregroundStyle(.green)
         } else {
             Text("－").foregroundStyle(.secondary)
         }

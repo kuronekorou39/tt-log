@@ -184,6 +184,30 @@ struct ScoreboardView: View {
             .buttonStyle(.bordered)
             .controlSize(.large)
             .disabled(model.log?.events.isEmpty ?? true)
+            Button {
+                model.redo()
+            } label: {
+                Label("やり直し", systemImage: "arrow.uturn.forward").font(.title3)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .disabled(model.redoStack.isEmpty)
+            Spacer()
+            Button {
+                model.toggleServer()
+            } label: {
+                Label("サーブ交代", systemImage: "circle.lefthalf.filled").font(.title3)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .disabled(state.phase != .playing)
+            Button {
+                model.swapEnds()
+            } label: {
+                Label("左右入れ替え", systemImage: "arrow.left.arrow.right").font(.title3)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
             Spacer()
             PartialTextView(listener: model.listener)
             Spacer()

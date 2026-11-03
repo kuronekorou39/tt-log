@@ -23,6 +23,8 @@ final class SpeechListener: ObservableObject {
         let reading: String
         let command: VoiceCommand?
         let accepted: Bool
+        /// 操作語以外（スコアを口で言ったなど）で受け付けたときの説明。
+        let note: String?
         let audioFile: URL?
     }
 
@@ -35,6 +37,8 @@ final class SpeechListener: ObservableObject {
     var onCommand: ((VoiceCommand) -> Void)?
     /// 受け付けなかった操作（二重反応の抑止など）を受け取る。
     var onRejected: ((VoiceCommand) -> Void)?
+    /// 操作語に当てはまらなかった発話の読みを渡す。受け付けたら説明を返す（スコアを口で言った、など）。
+    var onUnmatched: ((String) -> String?)?
 
     var matcher = VoiceCommandMatcher(playerCallNames: [])
     var contextualStrings: [String] = []
@@ -68,7 +72,8 @@ final class SpeechListener: ObservableObject {
         }
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .mixWithOthers])
+            // .measurement は音声処理を切れるが再生音が小さくなるので、効果音が聞こえるよう .default にする
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .mixWithOthers])
             try session.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
             statusMessage = "マイクを開けません: \(error.localizedDescription)"
@@ -203,15 +208,26 @@ final class SpeechListener: ObservableObject {
             }
         }
         var accepted = false
+        var note: String?
         if let command {
             accepted = gate.accept(command, at: now)
             if accepted { onCommand?(command) } else { onRejected?(command) }
+        } else if let onUnmatched {
+            for text in texts {
+                let r = ReadingConverter.hiragana(text)
+                if let n = onUnmatched(r) {
+                    reading = r
+                    note = n
+                    accepted = true
+                    break
+                }
+            }
         }
 
         let audioFile = recordsAudio ? store.saveAudio(audio, at: now) : nil
         let u = Utterance(
             time: now, text: best, alternatives: Array(texts.dropFirst()), partials: partials,
-            reading: reading, command: command, accepted: accepted, audioFile: audioFile
+            reading: reading, command: command, accepted: accepted, note: note, audioFile: audioFile
         )
         store.append(u)
         log.insert(u, at: 0)

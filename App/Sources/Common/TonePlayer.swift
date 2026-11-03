@@ -7,7 +7,7 @@ import AVFoundation
 /// メインスレッドからだけ使う。
 final class TonePlayer {
     enum Kind {
-        case point, undo, nextGame, gameOver, rejected
+        case point, undo, redo, nextGame, gameOver, confirm, rejected
     }
 
     var volume: Float = 0.3
@@ -22,12 +22,15 @@ final class TonePlayer {
     }
 
     func play(_ kind: Kind) {
+        // 音声認識が音声の設定を切り替えると、エンジンが止まることがある。そのつど動かし直す
         if !engine.isRunning {
+            engine.stop()
             do { try engine.start() } catch { return }
         }
         player.volume = volume
         player.scheduleBuffer(buffer(for: kind), at: nil, options: .interrupts)
-        if !player.isPlaying { player.play() }
+        // エンジンが止まると再生も止まる。isPlaying が残っていても鳴らないことがあるので毎回呼ぶ
+        player.play()
     }
 
     /// (周波数 Hz, 長さ 秒) の並び。
@@ -35,8 +38,10 @@ final class TonePlayer {
         switch kind {
         case .point: return [(1046.5, 0.07)]                 // 短く1音
         case .undo: return [(784.0, 0.06), (523.3, 0.08)]    // 下がる2音
+        case .redo: return [(523.3, 0.06), (784.0, 0.08)]    // 上がる2音
         case .nextGame: return [(523.3, 0.06), (784.0, 0.06), (1046.5, 0.09)] // 上がる3音
         case .gameOver: return [(1318.5, 0.06), (1318.5, 0.06), (1046.5, 0.16)] // 高い音を2回、少し下げて長く
+        case .confirm: return [(880.0, 0.04)]                // ごく短く（言ったスコアが今と同じ）
         case .rejected: return [(330.0, 0.05)]               // 低く短く（聞き取ったが受け付けなかった）
         }
     }
