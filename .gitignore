@@ -1,2 +1,12 @@
 # 個人情報（実名など）は local/ に置き、コミットしない
 local/
+
+# XcodeGen が生成するもの（project.yml が正）
+*.xcodeproj/
+App/Info.plist
+
+# ビルド成果物
+build/
+.build/
+DerivedData/
+*.ipa

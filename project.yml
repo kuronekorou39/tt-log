@@ -1,0 +1,44 @@
+# Xcode プロジェクトの定義。TTLog.xcodeproj はここから CI で生成する（リポジトリには入れない）。
+name: TTLog
+options:
+  bundleIdPrefix: com.rou39
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+packages:
+  TTLogCore:
+    path: Packages/TTLogCore
+
+targets:
+  TTLog:
+    type: application
+    platform: iOS
+    sources:
+      - App/Sources
+    dependencies:
+      - package: TTLogCore
+    scheme: {}
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: TTLog
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSMicrophoneUsageDescription: 声で点数を操作するためにマイクを使います。
+        NSSpeechRecognitionUsageDescription: 「戻して」などの言葉を聞き取るために音声認識を使います。
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rou39.ttlog
+        TARGETED_DEVICE_FAMILY: "1,2"
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: "5.0"

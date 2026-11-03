@@ -34,8 +34,10 @@ iPad / iPhone（将来は Android も撮影側として）を使い、卓球の�
 - 開発機：Windows（手元に Mac なし）。
 - ビルド：**GitHub Actions の macOS ランナー**でビルドし、IPA を作る（koko-meshi / mobile-omniverse と同じ流れ）。
   - Xcode プロジェクトは手で編集せず、**XcodeGen**（`project.yml`）から CI 上で生成する。
-  - 有料 Developer 登録あり（有効）→ **CI で署名した IPA を作る**（証明書・プロファイルは Secrets に置く）。有効期限は1年なので、7日ごとの入れ直しは不要。
-  - private リポジトリでは macOS ランナーの消費が10倍なので、iOS 側を触ったときと手動起動のときだけ回す。
+  - CI は**署名なしの IPA** を作り、**Sideloadly** で端末に入れる。有料 Developer 登録（有効）の Apple ID で入れれば1年有効で、7日ごとの入れ直しは不要。
+  - TestFlight（mobile-omniverse と同じ App Store 用の署名＋アップロード）は、必要になったら足す。
+  - リポジトリは public（GitHub 上の `tt-log`）。macOS ランナーは無料だが、**実名などの個人情報は絶対にコミットしない**。
+  - アプリ名・バンドル ID（仮）：TTLog / `com.rou39.ttlog`。
 - ルールエンジンなどの純粋ロジックは、UI に依存しない Swift パッケージに分ける。これにより Linux ランナーでも `swift test` を回せる（安く速い）。
 - 将来の選択肢：手元ですぐビルドしたくなったら xtool（WSL）を追加する。
 
@@ -283,6 +285,7 @@ struct VideoSegment {
 - [ ] スコアボード UI（iPad / iPhone 両対応。タップ入力・Undo・サーバー/エンド表示）
 - [ ] 音声入力（2人の名前・「戻して」「次のゲーム」・話者を区別しない・即反映）
 - [ ] 体育館で音声認識を実測（Phase 1a の早い段階で、試作だけ先に作って確かめる）
+  - 試作画面（`VoiceTestView`）：聞き取った文・読み・結果をログに残し、共有ボタンで書き出せる。ログには発話がそのまま入るので、共有先に注意する。
 - [ ] 試合の保存と一覧・詳細（スコア推移、得点一覧）
 - [ ] 結果の共有（共有シートで画像・テキストを送る）
 
