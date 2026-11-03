@@ -7,7 +7,7 @@ import AVFoundation
 /// メインスレッドからだけ使う。
 final class TonePlayer {
     enum Kind {
-        case point, undo, nextGame, rejected
+        case point, undo, nextGame, gameOver, rejected
     }
 
     var volume: Float = 0.3
@@ -36,6 +36,7 @@ final class TonePlayer {
         case .point: return [(1046.5, 0.07)]                 // 短く1音
         case .undo: return [(784.0, 0.06), (523.3, 0.08)]    // 下がる2音
         case .nextGame: return [(523.3, 0.06), (784.0, 0.06), (1046.5, 0.09)] // 上がる3音
+        case .gameOver: return [(1318.5, 0.06), (1318.5, 0.06), (1046.5, 0.16)] // 高い音を2回、少し下げて長く
         case .rejected: return [(330.0, 0.05)]               // 低く短く（聞き取ったが受け付けなかった）
         }
     }
