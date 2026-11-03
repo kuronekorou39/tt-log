@@ -74,6 +74,11 @@ final class CameraController: ObservableObject {
         if recording != nil {
             pendingStop?.cancel()
             restartAfterStop = nil
+            if !manual, autoRecord {
+                // 自動録画を手で止めたら、すぐ始め直さないよう自動を切る
+                autoRecord = false
+                message = "自動録画を OFF にしました"
+            }
             recorder.stopRecording()
             return
         }
