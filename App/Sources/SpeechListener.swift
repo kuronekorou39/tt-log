@@ -4,17 +4,26 @@ import TTLogCore
 
 /// マイクの音声を端末内で認識し、発話ごとに操作へ変換する。
 ///
-/// 発話の区切り：認識結果の更新が `silenceInterval` 秒止まったら1発話とみなし、
+/// 発話の区切り：認識結果の更新が `silenceInterval` 止まったら1発話とみなし、
 /// 認識タスクを作り直す（1タスク = 1発話 にして、前の発話の文字が混ざらないようにする）。
+///
+/// 試作中は、発話ごとの音声（直前数秒）と認識結果をファイルに残す（`VoiceLogStore`）。
 @MainActor
 final class SpeechListener: ObservableObject {
     struct Utterance: Identifiable {
         let id = UUID()
         let time: Date
+        /// 認識の第1候補。
         let text: String
+        /// 第1候補以外の候補。
+        let alternatives: [String]
+        /// 発話の途中で認識結果がどう変わったか（古い順）。
+        let partials: [String]
+        /// 照合に使った読み（一致した候補、なければ第1候補の読み）。
         let reading: String
         let command: VoiceCommand?
         let accepted: Bool
+        let audioFile: URL?
     }
 
     @Published private(set) var isListening = false
@@ -31,13 +40,18 @@ final class SpeechListener: ObservableObject {
     var contextualStrings: [String] = []
     var gate = CommandGate(deadTime: 1.5)
     var silenceInterval: Duration = .milliseconds(600)
+    var taskHint: SFSpeechRecognitionTaskHint = .confirmation
+    var recordsAudio = true
+
+    let store = VoiceLogStore()
 
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "ja-JP"))
     private let engine = AVAudioEngine()
-    private let requestBox = RequestBox()
+    private let audioBox = AudioBox(keepSeconds: 5)
     private var task: SFSpeechRecognitionTask?
     private var generation = 0
-    private var currentText = ""
+    private var currentTexts: [String] = []
+    private var currentPartials: [String] = []
     private var silenceTask: Task<Void, Never>?
 
     private static let logLimit = 300
@@ -63,7 +77,7 @@ final class SpeechListener: ObservableObject {
 
         let input = engine.inputNode
         input.removeTap(onBus: 0)
-        Self.installTap(on: input, box: requestBox)
+        Self.installTap(on: input, box: audioBox)
         engine.prepare()
         do {
             try engine.start()
@@ -82,8 +96,8 @@ final class SpeechListener: ObservableObject {
         generation += 1
         task?.cancel()
         task = nil
-        requestBox.current?.endAudio()
-        requestBox.current = nil
+        audioBox.request?.endAudio()
+        audioBox.request = nil
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -91,22 +105,10 @@ final class SpeechListener: ObservableObject {
         statusMessage = "停止中"
     }
 
-    func clearLog() { log.removeAll() }
-
-    /// 共有用のテキスト（体育館で試した結果を送る用）。
-    func logText() -> String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss"
-        let lines = log.reversed().map { u in
-            let result: String
-            switch (u.command, u.accepted) {
-            case (nil, _): result = "－"
-            case (let c?, true): result = "○ \(Self.describe(c))"
-            case (let c?, false): result = "× \(Self.describe(c))（二重）"
-            }
-            return "\(f.string(from: u.time))\t\(u.text)\t\(u.reading)\t\(result)"
-        }
-        return (["時刻\t認識\t読み\t結果"] + lines).joined(separator: "\n")
+    /// 画面のログと、保存した音声・ログファイルを消す。
+    func clearLog() {
+        log.removeAll()
+        store.removeAll()
     }
 
     static func describe(_ c: VoiceCommand) -> String {
@@ -123,37 +125,40 @@ final class SpeechListener: ObservableObject {
         guard isListening, let recognizer else { return }
         generation += 1
         let gen = generation
-        currentText = ""
+        currentTexts = []
+        currentPartials = []
+        audioBox.clearRecent()
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = supportsOnDevice
-        request.taskHint = .confirmation
+        request.taskHint = taskHint
         request.addsPunctuation = false
         request.contextualStrings = contextualStrings
-        requestBox.current = request
+        audioBox.request = request
         statusMessage = supportsOnDevice ? "聞き取り中（端末内）" : "聞き取り中（端末内認識に未対応・ネット経由）"
 
-        task = Self.makeTask(recognizer: recognizer, request: request) { [weak self] text, isFinal, errorMessage in
+        task = Self.makeTask(recognizer: recognizer, request: request) { [weak self] texts, isFinal, errorMessage in
             Task { @MainActor in
-                self?.handle(text: text, isFinal: isFinal, errorMessage: errorMessage, generation: gen)
+                self?.handle(texts: texts, isFinal: isFinal, errorMessage: errorMessage, generation: gen)
             }
         }
     }
 
-    private func handle(text: String?, isFinal: Bool, errorMessage: String?, generation gen: Int) {
+    private func handle(texts: [String], isFinal: Bool, errorMessage: String?, generation gen: Int) {
         guard gen == generation, isListening else { return }
-        if let text, !text.isEmpty {
-            currentText = text
-            partialText = text
+        if let best = texts.first, !best.isEmpty {
+            currentTexts = texts
+            partialText = best
+            if currentPartials.last != best { currentPartials.append(best) }
         }
-        if let errorMessage, currentText.isEmpty {
+        if let errorMessage, currentTexts.isEmpty {
             // 無音が続いたときなどに認識タスクは失敗で終わる。すぐ作り直すと失敗が続いたときに
             // 空回りするので、少し待ってから再開する。
             statusMessage = "認識を再開します（\(errorMessage)）"
             generation += 1
             task?.cancel()
-            requestBox.current?.endAudio()
+            audioBox.request?.endAudio()
             Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(500))
                 self?.startRecognition()
@@ -175,21 +180,41 @@ final class SpeechListener: ObservableObject {
     private func finishUtterance(generation gen: Int) {
         guard gen == generation else { return }
         silenceTask?.cancel()
-        let text = currentText
+        let texts = currentTexts
+        let partials = currentPartials
+        let audio = audioBox.takeRecent()
         task?.cancel()
-        requestBox.current?.endAudio()
+        audioBox.request?.endAudio()
         partialText = ""
         startRecognition()
 
-        guard !text.isEmpty else { return }
-        let reading = ReadingConverter.hiragana(text)
-        let command = matcher.match(reading: reading)
+        guard let best = texts.first, !best.isEmpty else { return }
+        let now = Date()
+
+        // 第1候補だけでなく、他の候補のどれかが語彙と一致すれば受け付ける
+        var reading = ReadingConverter.hiragana(best)
+        var command: VoiceCommand?
+        for text in texts {
+            let r = ReadingConverter.hiragana(text)
+            if let c = matcher.match(reading: r) {
+                reading = r
+                command = c
+                break
+            }
+        }
         var accepted = false
         if let command {
-            accepted = gate.accept(command, at: Date())
+            accepted = gate.accept(command, at: now)
             if accepted { onCommand?(command) } else { onRejected?(command) }
         }
-        log.insert(Utterance(time: Date(), text: text, reading: reading, command: command, accepted: accepted), at: 0)
+
+        let audioFile = recordsAudio ? store.saveAudio(audio, at: now) : nil
+        let u = Utterance(
+            time: now, text: best, alternatives: Array(texts.dropFirst()), partials: partials,
+            reading: reading, command: command, accepted: accepted, audioFile: audioFile
+        )
+        store.append(u)
+        log.insert(u, at: 0)
         if log.count > Self.logLimit { log.removeLast(log.count - Self.logLimit) }
     }
 
@@ -210,7 +235,7 @@ final class SpeechListener: ObservableObject {
 
     // 以下は音声スレッド／認識スレッドから呼ばれるので、メインアクターから切り離しておく。
 
-    nonisolated private static func installTap(on node: AVAudioInputNode, box: RequestBox) {
+    nonisolated private static func installTap(on node: AVAudioInputNode, box: AudioBox) {
         let format = node.outputFormat(forBus: 0)
         node.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
             box.append(buffer)
@@ -220,25 +245,72 @@ final class SpeechListener: ObservableObject {
     nonisolated private static func makeTask(
         recognizer: SFSpeechRecognizer,
         request: SFSpeechAudioBufferRecognitionRequest,
-        handler: @escaping @Sendable (String?, Bool, String?) -> Void
+        handler: @escaping @Sendable ([String], Bool, String?) -> Void
     ) -> SFSpeechRecognitionTask {
         recognizer.recognitionTask(with: request) { result, error in
-            handler(result?.bestTranscription.formattedString, result?.isFinal ?? false, error?.localizedDescription)
+            // transcriptions は確からしい順。先頭が bestTranscription。
+            let texts = result?.transcriptions.map(\.formattedString) ?? []
+            handler(texts, result?.isFinal ?? false, error?.localizedDescription)
         }
     }
 }
 
-/// いま音声を流し込む先の認識リクエスト。音声スレッドとメインスレッドの両方から触るのでロックで守る。
-private final class RequestBox: @unchecked Sendable {
+/// マイクの音声の受け渡し口。音声スレッドとメインスレッドの両方から触るのでロックで守る。
+/// - いまの認識リクエストへ音声を流す
+/// - 直近 `keepSeconds` 秒の音声を手元に残す（発話の音声を保存するため）
+private final class AudioBox: @unchecked Sendable {
     private let lock = NSLock()
-    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private let keepSeconds: Double
+    private var _request: SFSpeechAudioBufferRecognitionRequest?
+    private var recent: [AVAudioPCMBuffer] = []
+    private var recentFrames: AVAudioFramePosition = 0
 
-    var current: SFSpeechAudioBufferRecognitionRequest? {
-        get { lock.lock(); defer { lock.unlock() }; return request }
-        set { lock.lock(); request = newValue; lock.unlock() }
+    init(keepSeconds: Double) {
+        self.keepSeconds = keepSeconds
+    }
+
+    var request: SFSpeechAudioBufferRecognitionRequest? {
+        get { lock.lock(); defer { lock.unlock() }; return _request }
+        set { lock.lock(); _request = newValue; lock.unlock() }
     }
 
     func append(_ buffer: AVAudioPCMBuffer) {
-        current?.append(buffer)
+        request?.append(buffer)
+        guard let copy = Self.copy(buffer) else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        recent.append(copy)
+        recentFrames += AVAudioFramePosition(copy.frameLength)
+        let maxFrames = AVAudioFramePosition(keepSeconds * buffer.format.sampleRate)
+        while recentFrames > maxFrames, let first = recent.first {
+            recentFrames -= AVAudioFramePosition(first.frameLength)
+            recent.removeFirst()
+        }
+    }
+
+    func takeRecent() -> [AVAudioPCMBuffer] {
+        lock.lock()
+        defer { lock.unlock() }
+        let out = recent
+        recent = []
+        recentFrames = 0
+        return out
+    }
+
+    func clearRecent() { _ = takeRecent() }
+
+    /// タップで渡されるバッファは使い回されることがあるので、中身を写して持つ。
+    private static func copy(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let src = buffer.floatChannelData,
+              let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength),
+              let dst = copy.floatChannelData else { return nil }
+        copy.frameLength = buffer.frameLength
+        let n = Int(buffer.frameLength)
+        let channels = buffer.format.isInterleaved ? 1 : Int(buffer.format.channelCount)
+        let samplesPerChannel = buffer.format.isInterleaved ? n * Int(buffer.format.channelCount) : n
+        for ch in 0..<channels {
+            dst[ch].update(from: src[ch], count: samplesPerChannel)
+        }
+        return copy
     }
 }

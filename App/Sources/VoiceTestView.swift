@@ -1,3 +1,5 @@
+import AVFoundation
+import Speech
 import SwiftUI
 import TTLogCore
 import UIKit
@@ -5,13 +7,18 @@ import UIKit
 /// 音声認識の試作画面。体育館で「聞き取れるか」「誤反応しないか」を確かめるためのもの。
 ///
 /// 左右の大きな数字は簡易スコア（ルールエンジンはまだ入れていない）。
-/// 下のログに、聞き取った文・読み・結果を残す。ログは共有ボタンで送れる。
+/// 下のログに、聞き取った文・読み・結果を残す。音声もファイルに残し、zip で書き出せる。
+/// 停止中にログの行をタップすると、その発話の音声を再生する。
 struct VoiceTestView: View {
     @StateObject private var listener = SpeechListener()
     @State private var tones = TonePlayer()
     @State private var points: [Int] = []          // 得点した選手の番号の並び（Undo 用）
     @State private var finishedGames: [[Int]] = [] // 「次のゲーム」で区切った過去のゲーム
     @State private var showSettings = false
+    @State private var exportURL: URL?
+    @State private var exportError: String?
+    @State private var showClearConfirm = false
+    @State private var audioPlayer: AVAudioPlayer?
 
     // 実名をコードに書かないため、既定値は空。設定画面で登録する。
     @AppStorage("player0.name") private var name0 = ""
@@ -22,6 +29,8 @@ struct VoiceTestView: View {
     @AppStorage("voice.silenceMs") private var silenceMs = 600
     @AppStorage("sound.volume") private var volume = 0.3
     @AppStorage("sound.enabled") private var soundEnabled = true
+    @AppStorage("voice.recordsAudio") private var recordsAudio = true
+    @AppStorage("voice.taskHint") private var taskHint = SFSpeechRecognitionTaskHint.confirmation.rawValue
 
     private var callNames: [String] { [callName0, callName1] }
     private var needsSetup: Bool { callName0.isEmpty || callName1.isEmpty }
@@ -42,6 +51,17 @@ struct VoiceTestView: View {
         .sheet(isPresented: $showSettings) {
             VoiceSettingsView()
         }
+        .sheet(item: $exportURL) { url in
+            ActivityView(items: [url])
+        }
+        .alert("書き出せませんでした", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
+            Button("OK") { exportError = nil }
+        } message: {
+            Text(exportError ?? "")
+        }
+        .confirmationDialog("ログと保存した音声をすべて消しますか？", isPresented: $showClearConfirm, titleVisibility: .visible) {
+            Button("消す", role: .destructive) { listener.clearLog() }
+        }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
             applySettings()
@@ -53,6 +73,8 @@ struct VoiceTestView: View {
         .onChange(of: deadTime) { applySettings() }
         .onChange(of: silenceMs) { applySettings() }
         .onChange(of: volume) { applySettings() }
+        .onChange(of: recordsAudio) { applySettings() }
+        .onChange(of: taskHint) { applySettings() }
     }
 
     // MARK: - 上の帯
@@ -129,8 +151,12 @@ struct VoiceTestView: View {
                 Spacer()
                 Button("戻す") { apply(.undo) }
                 Button("次のゲーム") { apply(.nextGame) }
-                ShareLink(item: listener.logText()) { Image(systemName: "square.and.arrow.up") }
-                Button("ログ消去") { listener.clearLog() }
+                Button {
+                    export()
+                } label: {
+                    Label("書き出し", systemImage: "square.and.arrow.up")
+                }
+                Button("ログ消去") { showClearConfirm = true }
             }
             .buttonStyle(.bordered)
             List(listener.log) { u in
@@ -138,13 +164,24 @@ struct VoiceTestView: View {
                     Text(u.time, format: .dateTime.hour().minute().second())
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
+                    if u.audioFile != nil {
+                        Image(systemName: "waveform")
+                            .foregroundStyle(.secondary)
+                    }
                     Text(u.text)
                     Text("（\(u.reading)）")
                         .foregroundStyle(.secondary)
+                    if !u.alternatives.isEmpty {
+                        Text("他: \(u.alternatives.joined(separator: "／"))")
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
                     Spacer()
                     resultLabel(u)
                 }
                 .font(.callout)
+                .contentShape(Rectangle())
+                .onTapGesture { play(u) }
             }
             .listStyle(.plain)
         }
@@ -187,11 +224,30 @@ struct VoiceTestView: View {
         }
     }
 
+    private func export() {
+        do {
+            exportURL = try listener.store.exportArchive()
+        } catch {
+            exportError = "まだ記録がないか、zip を作れませんでした。（\(error.localizedDescription)）"
+        }
+    }
+
+    /// 発話の音声を再生する。聞き取り中に鳴らすと自分で拾ってしまうので、停止中だけ。
+    private func play(_ u: SpeechListener.Utterance) {
+        guard !listener.isListening, let url = u.audioFile else { return }
+        try? AVAudioSession.sharedInstance().setCategory(.playback)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        audioPlayer = try? AVAudioPlayer(contentsOf: url)
+        audioPlayer?.play()
+    }
+
     private func applySettings() {
         listener.matcher = VoiceCommandMatcher(playerCallNames: callNames)
         listener.contextualStrings = callNames.filter { !$0.isEmpty } + ["戻して", "次のゲーム"]
         listener.gate.deadTime = deadTime
         listener.silenceInterval = .milliseconds(silenceMs)
+        listener.recordsAudio = recordsAudio
+        listener.taskHint = SFSpeechRecognitionTaskHint(rawValue: taskHint) ?? .confirmation
         tones.volume = Float(volume)
     }
 
@@ -216,4 +272,19 @@ struct VoiceTestView: View {
         case .nextGame: return "次のゲーム"
         }
     }
+}
+
+extension URL: @retroactive Identifiable {
+    public var id: String { absoluteString }
+}
+
+/// 共有シート（AirDrop・メール・ファイルに保存 など）。
+struct ActivityView: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

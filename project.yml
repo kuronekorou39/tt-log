@@ -33,6 +33,9 @@ targets:
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # 書類フォルダ（音声テストの記録）を「ファイル」アプリと PC のファイル共有から見えるようにする
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         NSMicrophoneUsageDescription: 声で点数を操作するためにマイクを使います。
         NSSpeechRecognitionUsageDescription: 「戻して」などの言葉を聞き取るために音声認識を使います。
     settings:

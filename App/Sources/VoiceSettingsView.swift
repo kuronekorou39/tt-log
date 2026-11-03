@@ -1,3 +1,4 @@
+import Speech
 import SwiftUI
 import TTLogCore
 
@@ -13,6 +14,8 @@ struct VoiceSettingsView: View {
     @AppStorage("voice.silenceMs") private var silenceMs = 600
     @AppStorage("sound.volume") private var volume = 0.3
     @AppStorage("sound.enabled") private var soundEnabled = true
+    @AppStorage("voice.recordsAudio") private var recordsAudio = true
+    @AppStorage("voice.taskHint") private var taskHint = SFSpeechRecognitionTaskHint.confirmation.rawValue
 
     private var confusable: [(String, String)] {
         VoiceCommandMatcher.confusablePairs(callNames: [callName0, callName1].filter { !$0.isEmpty })
@@ -44,6 +47,13 @@ struct VoiceSettingsView: View {
                     Stepper(value: $deadTime, in: 0.5...4.0, step: 0.5) {
                         Text("同じ操作を受け付けない時間: \(deadTime, specifier: "%.1f") 秒")
                     }
+                    Picker("認識のモード", selection: $taskHint) {
+                        Text("短い応答向け（confirmation）").tag(SFSpeechRecognitionTaskHint.confirmation.rawValue)
+                        Text("検索語向け（search）").tag(SFSpeechRecognitionTaskHint.search.rawValue)
+                        Text("口述向け（dictation）").tag(SFSpeechRecognitionTaskHint.dictation.rawValue)
+                        Text("指定なし（unspecified）").tag(SFSpeechRecognitionTaskHint.unspecified.rawValue)
+                    }
+                    Toggle("発話ごとの音声を保存する", isOn: $recordsAudio)
                 }
                 Section("効果音") {
                     Toggle("効果音を鳴らす", isOn: $soundEnabled)
