@@ -10,6 +10,7 @@ import Foundation
 /// 書類フォルダは「ファイル」アプリ（このiPad内 → TTLog）や、
 /// Windows の「Apple Devices」アプリのファイル共有からも見える。
 /// 発話がそのまま入るので、取り扱いに注意する。
+@MainActor
 final class VoiceLogStore {
     let root: URL
     private var audioDir: URL { root.appendingPathComponent("audio", isDirectory: true) }
