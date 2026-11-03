@@ -43,6 +43,34 @@ final class SessionLogTests: XCTestCase {
         XCTAssertEqual(log.state.scores, [0, 0])
     }
 
+    func testRedoAfterUndo() {
+        var log = SessionLog(config: MatchConfig(), startedAt: t0)
+        log.append(.point(winner: 1), at: at(1), source: .tap)
+        let undone = log.popLast()
+        XCTAssertEqual(log.state.scores, [0, 0])
+        XCTAssertTrue(log.redo(undone!))
+        XCTAssertEqual(log.state.scores, [0, 1])
+        // ゲーム中に「次のゲーム」はやり直せない
+        XCTAssertFalse(log.redo(TimedEvent(event: .startNextGame, at: at(2), source: .tap)))
+    }
+
+    func testToggleServerAndSwapEnds() {
+        var log = SessionLog(config: MatchConfig(firstServer: 0, firstLeft: 0), startedAt: t0)
+        log.append(.point(winner: 0), at: at(1), source: .tap)
+        XCTAssertEqual(log.state.server, 0)
+        log.toggleServer()
+        XCTAssertEqual(log.state.server, 1)
+        XCTAssertEqual(log.state.scores, [1, 0], "得点は変わらない")
+        XCTAssertEqual(log.state.left, 0)
+        log.swapEnds()
+        XCTAssertEqual(log.state.left, 1)
+        // 次のゲームでも、入れ替えた設定から筋が通る
+        for _ in 0..<10 { log.append(.point(winner: 0), at: at(2), source: .tap) }
+        log.append(.startNextGame, at: at(3), source: .tap)
+        XCTAssertEqual(log.state.server, 0)
+        XCTAssertEqual(log.state.left, 0)
+    }
+
     func testCodableRoundTrip() throws {
         var log = SessionLog(config: MatchConfig(format: .bestOf(5), firstServer: 1, firstLeft: 1), startedAt: t0)
         log.append(.point(winner: 0), at: at(1), source: .tap)

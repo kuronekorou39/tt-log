@@ -62,9 +62,30 @@ public struct SessionLog: Codable, Hashable, Sendable {
     /// 最後の操作を取り消す。取り消すものがなければ false。
     @discardableResult
     public mutating func undo() -> Bool {
-        guard !events.isEmpty else { return false }
-        events.removeLast()
+        popLast() != nil
+    }
+
+    /// 最後の操作を取り消して返す（やり直し用に取っておける）。
+    public mutating func popLast() -> TimedEvent? {
+        events.popLast()
+    }
+
+    /// 取り消した操作をやり直す。いまの状態で受け付けない操作なら false。
+    @discardableResult
+    public mutating func redo(_ event: TimedEvent) -> Bool {
+        guard RuleEngine.apply(event.event, to: state, config: config) != nil else { return false }
+        events.append(event)
         return true
+    }
+
+    /// いまのゲームのサーバーを入れ替える（最初のサーバーの設定を逆にする。以降のゲームも筋が通る）。
+    public mutating func toggleServer() {
+        config.firstServer = 1 - config.firstServer
+    }
+
+    /// いまの左右を入れ替える（最初のエンドの設定を逆にする）。
+    public mutating func swapEnds() {
+        config.firstLeft = 1 - config.firstLeft
     }
 
     /// ゲームごとの経過（開始・終了時刻と各得点の時刻）。
