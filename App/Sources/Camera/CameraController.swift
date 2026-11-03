@@ -91,11 +91,12 @@ final class CameraController: ObservableObject {
     // MARK: - スコアボードの状態
 
     private func handle(_ s: ScoreboardSnapshot?) {
-        guard let s, let id = s.sessionId else { return }
-        updateMarks(s, sessionId: id)
+        guard let s else { return }
+        if let id = s.sessionId { updateMarks(s, sessionId: id) }
         guard autoRecord, !manual else { return }
 
-        if s.shouldRecord {
+        // 記録を終えた（idle）ときも、ゲームが終わったときと同じく止める
+        if s.shouldRecord, let id = s.sessionId {
             let target = Target(sessionId: id, gameIndex: s.gameIndex)
             pendingStop?.cancel()
             pendingStop = nil
