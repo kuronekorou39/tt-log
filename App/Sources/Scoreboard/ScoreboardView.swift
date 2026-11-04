@@ -17,6 +17,7 @@ struct ScoreboardView: View {
     @State private var sheet: Sheet?
     @State private var showEndConfirm = false
 
+    @AppStorage(ScoreboardTheme.storageKey) private var themeRaw = ScoreboardTheme.simple.rawValue
     @AppStorage("sound.enabled") private var soundEnabled = true
     @AppStorage("sound.volume") private var volume = 0.3
     @AppStorage("voice.mode") private var voiceMode = ScoreboardModel.VoiceMode.sides.rawValue
@@ -28,37 +29,52 @@ struct ScoreboardView: View {
     @AppStorage("voice.taskHint") private var taskHint = SFSpeechRecognitionTaskHint.confirmation.rawValue
 
     enum Sheet: String, Identifiable {
-        case newSession, players, history, settings
+        case newSession, players, history, settings, design
         var id: String { rawValue }
     }
 
+    private var theme: ScoreboardTheme { ScoreboardTheme(rawValue: themeRaw) ?? .simple }
+
     var body: some View {
-        VStack(spacing: 0) {
-            topBar
-            Divider()
-            if let state = model.state {
-                ZStack {
-                    HStack(spacing: 0) {
-                        panel(player: state.left, state: state)
-                        Divider()
-                        panel(player: 1 - state.left, state: state)
-                    }
-                    if state.phase != .playing {
-                        gameOverOverlay(state)
-                    }
-                }
+        GeometryReader { proxy in
+            let compact = proxy.size.width < 1000 || proxy.size.height < 500
+            VStack(spacing: 0) {
+                topBar(compact: compact)
                 Divider()
-                bottomBar(state)
-            } else {
-                idleView
+                if let state = model.state {
+                    ZStack {
+                        ScoreboardDisplay(theme: theme, state: state,
+                                          playerNames: [model.name(0), model.name(1)]) { player in
+                            model.handle(.point(player: player), source: .tap)
+                        }
+                        .accessibilityHidden(state.phase != .playing)
+                        if state.phase != .playing {
+                            gameOverOverlay(state)
+                        }
+                    }
+                    Divider()
+                    if compact {
+                        bottomBar(state, compact: true).labelStyle(.iconOnly)
+                    } else {
+                        bottomBar(state, compact: false)
+                    }
+                } else {
+                    idleView
+                }
             }
+            .background(theme.background)
+            .foregroundStyle(theme.foreground)
         }
+        .preferredColorScheme(theme.colorScheme)
         .sheet(item: $sheet) { s in
             switch s {
             case .newSession: NewSessionView { players, config in model.start(players: players, config: config) }
             case .players: NavigationStack { PlayersView() }
             case .history: NavigationStack { HistoryView() }
             case .settings: ScoreboardSettingsView(listener: model.listener, onChangeRole: onChangeRole)
+            case .design:
+                ScoreboardDesignSheet(state: model.state,
+                                      playerNames: model.state == nil ? ["プレーヤー A", "プレーヤー B"] : [model.name(0), model.name(1)])
             }
         }
         .confirmationDialog("記録を終えますか？", isPresented: $showEndConfirm, titleVisibility: .visible) {
@@ -79,67 +95,62 @@ struct ScoreboardView: View {
 
     // MARK: - 上の帯
 
-    private var topBar: some View {
-        HStack(spacing: 14) {
+    private func topBar(compact: Bool) -> some View {
+        HStack(spacing: compact ? 8 : 14) {
             if let state = model.state {
-                Text("今日 \(model.name(state.left)) \(state.gamesWon[state.left]) - \(state.gamesWon[1 - state.left]) \(model.name(1 - state.left))")
-                    .font(.headline)
+                if !compact {
+                    Text("今日 \(model.name(state.left)) \(state.gamesWon[state.left]) - \(state.gamesWon[1 - state.left]) \(model.name(1 - state.left))")
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
                 Text("第\(state.gameIndex + 1)ゲーム")
                     .font(.headline)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 if state.switchedEndsMidGame, max(state.scores[0], state.scores[1]) == 5 {
                     Text("エンドチェンジ")
                         .font(.headline)
                         .foregroundStyle(.orange)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
             } else {
                 Text("TTLog").font(.headline)
             }
             Spacer()
-            CameraBadge(server: model.server)
+            if compact {
+                CameraBadge(server: model.server).labelStyle(.iconOnly)
+            } else {
+                CameraBadge(server: model.server)
+            }
             MicButton(listener: model.listener)
+            Button { sheet = .design } label: {
+                Image(systemName: "paintpalette")
+                    .font(.title2)
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .accessibilityLabel("スコアボードのデザイン")
+            .accessibilityValue(theme.title)
             Menu {
                 Button { sheet = .newSession } label: { Label("新しい記録", systemImage: "plus") }
                 Button { sheet = .players } label: { Label("選手", systemImage: "person.2") }
                 Button { sheet = .history } label: { Label("履歴", systemImage: "clock") }
+                Button { sheet = .design } label: { Label("デザイン", systemImage: "paintpalette") }
                 Button { sheet = .settings } label: { Label("設定", systemImage: "gearshape") }
             } label: {
-                Image(systemName: "ellipsis.circle").font(.title2)
+                Image(systemName: "ellipsis.circle")
+                    .font(.title2)
+                    .frame(minWidth: 44, minHeight: 44)
             }
+            .accessibilityLabel("メニュー")
         }
         .padding(.horizontal)
-        .padding(.vertical, 8)
+        .padding(.vertical, compact ? 0 : 4)
     }
 
     // MARK: - 得点の面
-
-    private func panel(player: Int, state: MatchState) -> some View {
-        Button {
-            model.handle(.point(player: player), source: .tap)
-        } label: {
-            VStack(spacing: 4) {
-                HStack(spacing: 8) {
-                    if state.server == player {
-                        Circle().fill(.orange).frame(width: 18, height: 18)
-                    }
-                    Text(model.name(player))
-                        .font(.system(size: 44, weight: .bold))
-                }
-                Text("\(state.scores[player])")
-                    .font(.system(size: 320, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .minimumScaleFactor(0.3)
-                    .lineLimit(1)
-                Text(state.server == player ? "サーブ" : " ")
-                    .font(.title3)
-                    .foregroundStyle(.orange)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(state.phase != .playing)
-    }
 
     private func gameOverOverlay(_ state: MatchState) -> some View {
         let winner: Int
@@ -149,32 +160,45 @@ struct ScoreboardView: View {
         case .matchOver(let w): winner = w; matchOver = true
         case .playing: winner = 0; matchOver = false
         }
-        return VStack(spacing: 16) {
-            Text("\(model.name(winner)) \(matchOver ? "の勝ち（試合終了）" : "勝ち")")
-                .font(.system(size: 64, weight: .bold))
-            Text("\(state.scores[winner]) - \(state.scores[1 - winner])")
-                .font(.system(size: 48, weight: .semibold, design: .rounded))
-            if matchOver {
-                Button("記録を終える") { model.end() }
+        return GeometryReader { proxy in
+            let compact = proxy.size.height < 380
+            VStack(spacing: compact ? 8 : 16) {
+                Text("\(model.name(winner)) \(matchOver ? "の勝ち（試合終了）" : "勝ち")")
+                    .font(.system(size: compact ? 28 : 52, weight: .bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.4)
+                Text("\(state.scores[winner]) - \(state.scores[1 - winner])")
+                    .font(.system(size: compact ? 28 : 48, weight: .semibold, design: .rounded))
+                if matchOver {
+                    Button("記録を終える") { model.end() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                } else {
+                    Button {
+                        model.handle(.nextGame, source: .tap)
+                    } label: {
+                        Text("次のゲーム")
+                            .font(compact ? .headline : .title.bold())
+                            .padding(.horizontal, 24)
+                    }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-            } else {
-                Button {
-                    model.handle(.nextGame, source: .tap)
-                } label: {
-                    Text("次のゲーム").font(.title.bold()).padding(.horizontal, 24)
+                    if !compact {
+                        Text("「次のゲーム」と言っても始められます。始めると左右が入れ替わります。")
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                Text("「次のゲーム」と言っても始められます。始めると左右が入れ替わります。")
-                    .foregroundStyle(.secondary)
             }
+            .padding(compact ? 16 : 32)
+            .frame(maxWidth: min(760, max(0, proxy.size.width - 32)))
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .background(theme.background.opacity(0.65))
         }
-        .padding(40)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
     }
 
-    private func bottomBar(_ state: MatchState) -> some View {
+    private func bottomBar(_ state: MatchState, compact: Bool) -> some View {
         HStack {
             Button {
                 model.handle(.undo, source: .tap)
@@ -184,6 +208,7 @@ struct ScoreboardView: View {
             .buttonStyle(.bordered)
             .controlSize(.large)
             .disabled(model.log?.events.isEmpty ?? true)
+            .accessibilityLabel("戻す")
             Button {
                 model.redo()
             } label: {
@@ -192,6 +217,7 @@ struct ScoreboardView: View {
             .buttonStyle(.bordered)
             .controlSize(.large)
             .disabled(model.redoStack.isEmpty)
+            .accessibilityLabel("やり直し")
             Spacer()
             Button {
                 model.toggleServer()
@@ -201,6 +227,7 @@ struct ScoreboardView: View {
             .buttonStyle(.bordered)
             .controlSize(.large)
             .disabled(state.phase != .playing)
+            .accessibilityLabel("サーブ交代")
             Button {
                 model.swapEnds()
             } label: {
@@ -208,8 +235,12 @@ struct ScoreboardView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
+            .accessibilityLabel("左右入れ替え")
             Spacer()
             PartialTextView(listener: model.listener)
+                .font(compact ? .caption : .body)
+                .frame(maxWidth: compact ? 160 : 240)
+                .layoutPriority(-1)
             Spacer()
             Button(role: .destructive) {
                 showEndConfirm = true
@@ -218,9 +249,10 @@ struct ScoreboardView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
+            .accessibilityLabel("記録を終了")
         }
         .padding(.horizontal)
-        .padding(.vertical, 10)
+        .padding(.vertical, compact ? 4 : 10)
     }
 
     private var idleView: some View {

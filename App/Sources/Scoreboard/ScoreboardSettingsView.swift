@@ -7,6 +7,7 @@ struct ScoreboardSettingsView: View {
     let onChangeRole: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(ScoreboardTheme.storageKey) private var themeRaw = ScoreboardTheme.simple.rawValue
     @AppStorage("sound.enabled") private var soundEnabled = true
     @AppStorage("sound.volume") private var volume = 0.3
     @AppStorage("voice.mode") private var voiceMode = ScoreboardModel.VoiceMode.sides.rawValue
@@ -27,6 +28,22 @@ struct ScoreboardSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    NavigationLink {
+                        ScoreboardDesignPicker()
+                    } label: {
+                        HStack {
+                            Label("デザイン", systemImage: "paintpalette")
+                            Spacer()
+                            Text((ScoreboardTheme(rawValue: themeRaw) ?? .simple).title)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("スコア表示")
+                } footer: {
+                    Text("この端末の表示にだけ反映されます。試合中も切り替えられます。")
+                }
                 Section {
                     Picker("得点の言葉", selection: $voiceMode) {
                         ForEach(ScoreboardModel.VoiceMode.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
