@@ -11,18 +11,32 @@ public enum VoiceCommand: Hashable, Sendable {
 /// 聞き取った発話（ひらがなの読み）を操作に対応させる。
 ///
 /// 発話全体が語彙と一致したときだけ反応する。会話の中に名前が出てきただけでは反応しない。
+/// 名前には「てん」「ポイント」「くん」などを付けてもよい（「さくらてん」「さくらくんのポイント」）。
 public struct VoiceCommandMatcher: Sendable {
     public static let undoReadings = ["もどして"]
     public static let nextGameReadings = ["つぎのげーむ"]
+
+    /// 名前の後ろの敬称。
+    static let honorifics = ["", "くん", "さん", "ちゃん"]
+    /// 敬称の後ろの「点」の言い方。「の」を挟んでもよい。
+    static let pointWords = ["", "てん", "ぽいんと", "いってん", "のてん", "のぽいんと"]
+
+    /// 名前に付け足して言ってもよい形をすべて返す（名前そのものも含む）。
+    public static func pointPhrases(callName: String) -> [String] {
+        honorifics.flatMap { h in pointWords.map { callName + h + $0 } }
+    }
 
     private let table: [String: VoiceCommand]
 
     /// - Parameter playerCallNames: その試合に出ている選手の呼び名（ひらがな）。並び順が `.point(player:)` の番号になる。
     public init(playerCallNames: [String]) {
         var t: [String: VoiceCommand] = [:]
-        for (i, name) in playerCallNames.enumerated() {
-            let key = KanaNormalizer.canonical(name)
-            if !key.isEmpty, t[key] == nil { t[key] = .point(player: i) }
+        for (i, name) in playerCallNames.enumerated() where !KanaNormalizer.canonical(name).isEmpty {
+            // 長音の畳み方が前後の音で変わるので、付け足した形ごと読みを揃える
+            for phrase in Self.pointPhrases(callName: name) {
+                let key = KanaNormalizer.canonical(phrase)
+                if t[key] == nil { t[key] = .point(player: i) }
+            }
         }
         // 操作語は選手名より優先する（同じ読みの選手がいても操作が効くように）
         for r in Self.undoReadings { t[KanaNormalizer.canonical(r)] = .undo }

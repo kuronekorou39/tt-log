@@ -46,6 +46,18 @@ final class VoiceCommandMatcherTests: XCTestCase {
         XCTAssertEqual(matcher.match(reading: "コウ。"), .point(player: 1))
     }
 
+    func testNameWithPointWords() {
+        for call in ["さくらてん", "さくらポイント", "さくらくん", "さくらさん", "さくらちゃん",
+                     "さくらのてん", "さくらくんのポイント", "さくらいってん", "サクラ、ポイント"] {
+            XCTAssertEqual(matcher.match(reading: call), .point(player: 0), call)
+        }
+        // 長音で終わる名前でも、付け足した形で揃う
+        XCTAssertEqual(matcher.match(reading: "こうてん"), .point(player: 1))
+        XCTAssertEqual(matcher.match(reading: "こーくん"), .point(player: 1))
+        XCTAssertEqual(matcher.match(reading: "コウポイント"), .point(player: 1))
+        XCTAssertEqual(matcher.match(reading: "こういってん"), .point(player: 1))
+    }
+
     func testCommands() {
         XCTAssertEqual(matcher.match(reading: "もどして"), .undo)
         XCTAssertEqual(matcher.match(reading: "つぎのげーむ"), .nextGame)
@@ -55,6 +67,7 @@ final class VoiceCommandMatcherTests: XCTestCase {
     func testOnlyWholeUtteranceMatches() {
         XCTAssertNil(matcher.match(reading: "さくらがさ"))
         XCTAssertNil(matcher.match(reading: "いまのはさくら"))
+        XCTAssertNil(matcher.match(reading: "さくらてんだった"))
         XCTAssertNil(matcher.match(reading: ""))
     }
 

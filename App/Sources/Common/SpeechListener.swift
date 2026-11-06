@@ -42,6 +42,13 @@ final class SpeechListener: ObservableObject {
 
     var matcher = VoiceCommandMatcher(playerCallNames: [])
     var contextualStrings: [String] = []
+
+    /// 認識のヒントに渡す語。呼び名と、よく付け足す言い方、操作語、スコアの言い方。
+    static func hints(callNames: [String]) -> [String] {
+        let names = callNames.filter { !$0.isEmpty }
+        return names + names.flatMap { ["\($0)ポイント", "\($0)点"] }
+            + ["戻して", "次のゲーム", "オール", "ラブオール", "ワンラブ"]
+    }
     var gate = CommandGate(deadTime: 1.5)
     var silenceInterval: Duration = .milliseconds(600)
     var taskHint: SFSpeechRecognitionTaskHint = .confirmation
@@ -213,13 +220,15 @@ final class SpeechListener: ObservableObject {
             accepted = gate.accept(command, at: now)
             if accepted { onCommand?(command) } else { onRejected?(command) }
         } else if let onUnmatched {
-            for text in texts {
-                let r = ReadingConverter.hiragana(text)
-                if let n = onUnmatched(r) {
-                    reading = r
-                    note = n
-                    accepted = true
-                    break
+            // 英字で返ったスコア（「Three all」）は読みに直すと崩れるので、元の文でも試す
+            search: for text in texts {
+                for r in [ReadingConverter.hiragana(text), text] {
+                    if let n = onUnmatched(r) {
+                        reading = r
+                        note = n
+                        accepted = true
+                        break search
+                    }
                 }
             }
         }

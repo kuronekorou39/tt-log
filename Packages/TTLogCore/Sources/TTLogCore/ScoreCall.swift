@@ -1,4 +1,5 @@
-/// 「ワンラブ」「ななきゅう」「7対9」のように、スコアを口で言ったときの読み取り。
+/// 「ワンラブ」「ななきゅう」「7対9」「スリーオール」のように、スコアを口で言ったときの読み取り。
+/// 認識が英字で返したとき（「Three all」）も読む。
 ///
 /// 言う順番は決めない（どちらが先でもよい）。今のスコアから見て筋の通る並びを選ぶ（`ScoreCallResolver`）。
 
@@ -17,6 +18,17 @@ public enum ScoreCallParser {
         if i == s.count {
             if numbers.count == 2 { results.insert(numbers) }
             return
+        }
+        // 「〇〇オール」は同点。数を1つ言った直後で、発話の終わりのときだけ
+        if numbers.count == 1 {
+            for all in alls where i + all.count == s.count && matches(s, all, at: i) {
+                results.insert([numbers[0], numbers[0]])
+            }
+        }
+        if numbers.isEmpty {
+            for (word, value) in foldedAlls where i + word.count == s.count && matches(s, word, at: i) {
+                results.insert([value, value])
+            }
         }
         for sep in separators where matches(s, sep, at: i) {
             search(s, from: i + sep.count, numbers: numbers, into: &results)
@@ -47,10 +59,21 @@ public enum ScoreCallParser {
     }
 
     private static func normalize(_ text: String) -> String {
-        KanaNormalizer.canonical(text)
+        KanaNormalizer.canonical(text.lowercased())
     }
 
-    private static let separators: [[Unicode.Scalar]] = ["たい", "の", "と", "ばーさす"].map {
+    /// 「オール」。
+    private static let alls: [[Unicode.Scalar]] = ["おーる", "all"].map {
+        Array(KanaNormalizer.canonical($0).unicodeScalars)
+    }
+
+    /// 「お」段で終わる数の「〇〇オール」。読みを揃えると「お」が長音として畳まれ「ごる」になるので、丸ごと持つ。
+    /// （「る」だけを「オール」とみなすと「来る」が「9オール」になってしまう）
+    private static let foldedAlls: [([Unicode.Scalar], Int)] = [
+        ("ぜろおーる", 0), ("ふぉーおーる", 4), ("ごおーる", 5),
+    ].map { (Array(KanaNormalizer.canonical($0.0).unicodeScalars), $0.1) }
+
+    private static let separators: [[Unicode.Scalar]] = ["たい", "の", "と", "ばーさす", "vs", "to"].map {
         Array(KanaNormalizer.canonical($0).unicodeScalars)
     }
 
@@ -70,6 +93,10 @@ public enum ScoreCallParser {
             ("じゅう", 10), ("てん", 10),
             ("いれぶん", 11), ("とぅえるぶ", 12),
             ("にじゅう", 20),
+            // 認識が英字で返したとき
+            ("zero", 0), ("love", 0), ("one", 1), ("two", 2), ("three", 3), ("four", 4),
+            ("five", 5), ("six", 6), ("seven", 7), ("eight", 8), ("nine", 9), ("ten", 10),
+            ("eleven", 11), ("twelve", 12),
         ]
         let ones = ["いち", "に", "さん", "よん", "ご", "ろく", "なな", "はち", "きゅう"]
         for (k, one) in ones.enumerated() {

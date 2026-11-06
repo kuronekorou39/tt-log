@@ -220,7 +220,7 @@ final class ScoreboardModel: ObservableObject {
             words = [0, 1].map { p in p < players.count ? players[p].callName : "" }
         }
         listener.matcher = VoiceCommandMatcher(playerCallNames: words)
-        listener.contextualStrings = words.filter { !$0.isEmpty } + ["戻して", "次のゲーム"]
+        listener.contextualStrings = SpeechListener.hints(callNames: words)
     }
 
     private func playTone(_ kind: TonePlayer.Kind) {

@@ -245,7 +245,7 @@ struct VoiceTestView: View {
 
     private func applySettings() {
         listener.matcher = VoiceCommandMatcher(playerCallNames: callNames)
-        listener.contextualStrings = callNames.filter { !$0.isEmpty } + ["戻して", "次のゲーム"]
+        listener.contextualStrings = SpeechListener.hints(callNames: callNames)
         listener.gate.deadTime = deadTime
         listener.silenceInterval = .milliseconds(silenceMs)
         listener.recordsAudio = recordsAudio

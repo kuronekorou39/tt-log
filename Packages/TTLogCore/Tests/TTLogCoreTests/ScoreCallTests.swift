@@ -25,11 +25,35 @@ final class ScoreCallParserTests: XCTestCase {
         XCTAssertTrue(pairs("７ ９").contains([7, 9]))
     }
 
+    func testOneLove() {
+        for call in ["わんぜろ", "わんらぶ", "いちぜろ", "いちれい", "ワンゼロ", "1-0", "1たい0", "One love", "one zero"] {
+            XCTAssertTrue(pairs(call).contains([1, 0]), call)
+        }
+    }
+
+    func testThreeAll() {
+        for call in ["さんさん", "すりーすりー", "スリースリー", "すりーおーる", "スリーオール", "さんすりー", "すりーさん",
+                     "さんおーる", "3-3", "3たい3", "Three all", "three three"] {
+            XCTAssertTrue(pairs(call).contains([3, 3]), call)
+        }
+    }
+
+    func testAllAfterVowelO() {
+        XCTAssertTrue(pairs("ごおーる").contains([5, 5]))
+        XCTAssertTrue(pairs("ファイブオール").contains([5, 5]))
+        XCTAssertTrue(pairs("ラブオール").contains([0, 0]))
+        XCTAssertTrue(pairs("ぜろおーる").contains([0, 0]))
+        XCTAssertTrue(pairs("フォーオール").contains([4, 4]))
+        XCTAssertTrue(pairs("じゅうおーる").contains([10, 10]))
+    }
+
     func testNotScores() {
         XCTAssertTrue(pairs("ひだり").isEmpty)
         XCTAssertTrue(pairs("もどして").isEmpty)
         XCTAssertTrue(pairs("ご").isEmpty) // 数が1つだけ
         XCTAssertTrue(pairs("いちにさんし").isEmpty) // 数が3つ以上
+        XCTAssertTrue(pairs("くる").isEmpty) // 「来る」を「9オール」にしない
+        XCTAssertTrue(pairs("おーる").isEmpty)
     }
 }
 
