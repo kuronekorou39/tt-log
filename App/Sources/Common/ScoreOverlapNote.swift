@@ -13,7 +13,6 @@ enum ScoreOverlapNote {
             let examples = o.scorePhrases.prefix(3).map { "「\($0)」" }.joined()
             lines.append("\(examples)などはスコアとして読みます（いまの得点に合えばその人に1点）。名前だけで呼べば確実です。")
         }
-        return lines.joined(separator: "
-")
+        return lines.joined(separator: "\n")
     }
 }
