@@ -66,6 +66,11 @@ struct ScoreboardSettingsView: View {
                                   systemImage: "exclamationmark.triangle")
                                 .foregroundStyle(.orange)
                         }
+                        ForEach([leftWord, rightWord].compactMap { ScoreOverlapNote.text(callName: $0) }, id: \.self) { note in
+                            Label(note, systemImage: "exclamationmark.triangle")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
                     }
                 } header: {
                     Text("声での操作")

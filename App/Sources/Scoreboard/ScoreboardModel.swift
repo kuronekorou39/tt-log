@@ -44,6 +44,9 @@ final class ScoreboardModel: ObservableObject {
         listener.onCommand = { [weak self] command in self?.handle(command, source: .voice) }
         listener.onRejected = { [weak self] _ in self?.playTone(.rejected) }
         listener.onUnmatched = { [weak self] reading in self?.handleScoreCall(reading) }
+        listener.onUnresolvedScore = { [weak self] in
+            if self?.log != nil { self?.playTone(.rejected) }
+        }
         server.start()
         resumeOrSplit()
     }
@@ -153,10 +156,8 @@ final class ScoreboardModel: ObservableObject {
         guard var log else { return nil }
         let pairs = ScoreCallParser.pairs(in: reading)
         guard !pairs.isEmpty else { return nil }
-        guard let resolution = ScoreCallResolver.resolve(pairs: pairs, log: log) else {
-            playTone(.rejected)
-            return nil
-        }
+        // 決められないときは鳴らさない（他の候補で決まるかもしれない。最後に listener が知らせる）
+        guard let resolution = ScoreCallResolver.resolve(pairs: pairs, log: log) else { return nil }
         let now = Date()
         switch resolution {
         case .confirm:

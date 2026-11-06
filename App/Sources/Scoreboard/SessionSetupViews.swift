@@ -161,17 +161,24 @@ private struct PlayerRow: View {
     @Environment(\.modelContext) private var context
 
     var body: some View {
-        HStack {
-            TextField("表示名", text: $player.name)
-            TextField("呼び名", text: $player.callName)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .foregroundStyle(.secondary)
-            if player.isHidden {
-                Text("隠し中").font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                TextField("表示名", text: $player.name)
+                TextField("呼び名", text: $player.callName)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .foregroundStyle(.secondary)
+                if player.isHidden {
+                    Text("隠し中").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .onSubmit { try? context.save() }
+            if let note = ScoreOverlapNote.text(callName: player.callName) {
+                Label(note, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
             }
         }
-        .onSubmit { try? context.save() }
     }
 }
 

@@ -58,6 +58,50 @@ final class VoiceCommandMatcherTests: XCTestCase {
         XCTAssertEqual(matcher.match(reading: "こういってん"), .point(player: 1))
     }
 
+    func testNameThatIsANumber() {
+        let m = VoiceCommandMatcher(playerCallNames: ["わん", "さくら"])
+        XCTAssertEqual(m.match(reading: "ワン"), .point(player: 0))
+        XCTAssertEqual(m.match(reading: "わんぽいんと"), .point(player: 0))
+        XCTAssertEqual(m.match(reading: "わんくん"), .point(player: 0))
+        XCTAssertEqual(m.match(reading: "わんちゃん"), .point(player: 0))
+        // スコア（1-10、1-3、1の10）とも読めるので、名前としては受け付けない
+        XCTAssertNil(m.match(reading: "わんてん"))
+        XCTAssertNil(m.match(reading: "わんさん"))
+        XCTAssertNil(m.match(reading: "わんのてん"))
+        // スコアの言い方はそのままスコア
+        XCTAssertNil(m.match(reading: "わんらぶ"))
+        XCTAssertTrue(ScoreCallParser.pairs(in: "わんらぶ").contains([1, 0]))
+
+        let overlap = VoiceCommandMatcher.scoreOverlap(callName: "わん")
+        XCTAssertNil(overlap.nameAsScore)
+        XCTAssertTrue(overlap.scorePhrases.contains("わんてん"))
+        XCTAssertTrue(overlap.scorePhrases.contains("わんさん"))
+    }
+
+    func testNameThatContainsANumberWord() {
+        let m = VoiceCommandMatcher(playerCallNames: ["みゅうつー", "おーる"])
+        XCTAssertEqual(m.match(reading: "ミュウツー"), .point(player: 0))
+        XCTAssertEqual(m.match(reading: "ミュウツーてん"), .point(player: 0))
+        XCTAssertEqual(m.match(reading: "ミュウツーさん"), .point(player: 0))
+        XCTAssertEqual(m.match(reading: "オール"), .point(player: 1))
+        XCTAssertEqual(m.match(reading: "オールさん"), .point(player: 1))
+        XCTAssertEqual(m.match(reading: "オールポイント"), .point(player: 1))
+        // 数の後ろの「オール」は同点のスコア
+        XCTAssertNil(m.match(reading: "スリーオール"))
+        XCTAssertTrue(ScoreCallParser.pairs(in: "スリーオール").contains([3, 3]))
+        XCTAssertTrue(VoiceCommandMatcher.scoreOverlap(callName: "みゅうつー").isEmpty)
+        XCTAssertTrue(VoiceCommandMatcher.scoreOverlap(callName: "おーる").isEmpty)
+    }
+
+    func testNameThatIsAScore() {
+        // 「いちご」は 1-5 とも読めるが、登録した名前を優先する
+        let m = VoiceCommandMatcher(playerCallNames: ["いちご", "さくら"])
+        XCTAssertEqual(m.match(reading: "いちご"), .point(player: 0))
+        XCTAssertEqual(VoiceCommandMatcher.scoreOverlap(callName: "いちご").nameAsScore, [1, 5])
+        // 「いち・ご・てん」と数が3つになりスコアではないので、名前として受け付ける
+        XCTAssertEqual(m.match(reading: "いちごてん"), .point(player: 0))
+    }
+
     func testCommands() {
         XCTAssertEqual(matcher.match(reading: "もどして"), .undo)
         XCTAssertEqual(matcher.match(reading: "つぎのげーむ"), .nextGame)

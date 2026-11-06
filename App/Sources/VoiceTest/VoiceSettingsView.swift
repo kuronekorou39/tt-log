@@ -32,6 +32,11 @@ struct VoiceSettingsView: View {
                               systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)
                     }
+                    ForEach([callName0, callName1].compactMap { ScoreOverlapNote.text(callName: $0) }, id: \.self) { note in
+                        Label(note, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
                 }
                 Section {
                     Text("「\(callName0.isEmpty ? "（Aの呼び名）" : callName0)」「\(callName1.isEmpty ? "（Bの呼び名）" : callName1)」「戻して」「次のゲーム」")

@@ -39,6 +39,8 @@ final class SpeechListener: ObservableObject {
     var onRejected: ((VoiceCommand) -> Void)?
     /// 操作語に当てはまらなかった発話の読みを渡す。受け付けたら説明を返す（スコアを口で言った、など）。
     var onUnmatched: ((String) -> String?)?
+    /// スコアの形の発話が、どの候補でも決められなかったとき（1回だけ呼ぶ）。
+    var onUnresolvedScore: (() -> Void)?
 
     var matcher = VoiceCommandMatcher(playerCallNames: [])
     var contextualStrings: [String] = []
@@ -189,6 +191,10 @@ final class SpeechListener: ObservableObject {
         }
     }
 
+    private func looksLikeScore(_ text: String) -> Bool {
+        !ScoreCallParser.pairs(in: ReadingConverter.hiragana(text)).isEmpty || !ScoreCallParser.pairs(in: text).isEmpty
+    }
+
     private func finishUtterance(generation gen: Int) {
         guard gen == generation else { return }
         silenceTask?.cancel()
@@ -203,34 +209,36 @@ final class SpeechListener: ObservableObject {
         guard let best = texts.first, !best.isEmpty else { return }
         let now = Date()
 
-        // 第1候補だけでなく、他の候補のどれかが語彙と一致すれば受け付ける
+        // 認識の候補を確からしい順に見て、最初に意味が通ったものを使う。
+        // 候補ごとに「操作語・名前」→「スコア」の順で試す（第1候補の「1対0」より、
+        // 下位の候補の「ワン」（選手名）を優先してしまわないように）。
+        // 英字で返ったスコア（「Three all」）は読みに直すと崩れるので、元の文でも試す。
         var reading = ReadingConverter.hiragana(best)
         var command: VoiceCommand?
-        for text in texts {
-            let r = ReadingConverter.hiragana(text)
-            if let c = matcher.match(reading: r) {
-                reading = r
-                command = c
-                break
-            }
-        }
         var accepted = false
         var note: String?
+        search: for text in texts {
+            for r in [ReadingConverter.hiragana(text), text] {
+                if let c = matcher.match(reading: r) {
+                    reading = r
+                    command = c
+                    break search
+                }
+                if let n = onUnmatched?(r) {
+                    reading = r
+                    note = n
+                    accepted = true
+                    break search
+                }
+            }
+        }
         if let command {
             accepted = gate.accept(command, at: now)
             if accepted { onCommand?(command) } else { onRejected?(command) }
-        } else if let onUnmatched {
-            // 英字で返ったスコア（「Three all」）は読みに直すと崩れるので、元の文でも試す
-            search: for text in texts {
-                for r in [ReadingConverter.hiragana(text), text] {
-                    if let n = onUnmatched(r) {
-                        reading = r
-                        note = n
-                        accepted = true
-                        break search
-                    }
-                }
-            }
+        } else if !accepted, texts.contains(where: { looksLikeScore($0) }) {
+            // スコアの形をしているのに、いまの得点に照らして決められなかった
+            note = "スコアとして決められない"
+            onUnresolvedScore?()
         }
 
         let audioFile = recordsAudio ? store.saveAudio(audio, at: now) : nil

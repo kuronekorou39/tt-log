@@ -12,6 +12,11 @@ public enum VoiceCommand: Hashable, Sendable {
 ///
 /// 発話全体が語彙と一致したときだけ反応する。会話の中に名前が出てきただけでは反応しない。
 /// 名前には「てん」「ポイント」「くん」などを付けてもよい（「さくらてん」「さくらくんのポイント」）。
+///
+/// 名前とスコアの言い方がぶつかるとき：
+/// - 名前そのもの（「わん」「いちご」）は名前として扱う。登録した言葉なので優先する
+/// - 付け足した形がスコアとしても読めるもの（「わんてん」= 1-10、「ななさん」= 7-3）は名前として登録しない。
+///   スコアとして、いまの得点に照らして判断する（6-3 で「ななさん」なら 7-3 になる側に1点）
 public struct VoiceCommandMatcher: Sendable {
     public static let undoReadings = ["もどして"]
     public static let nextGameReadings = ["つぎのげーむ"]
@@ -34,6 +39,7 @@ public struct VoiceCommandMatcher: Sendable {
         for (i, name) in playerCallNames.enumerated() where !KanaNormalizer.canonical(name).isEmpty {
             // 長音の畳み方が前後の音で変わるので、付け足した形ごと読みを揃える
             for phrase in Self.pointPhrases(callName: name) {
+                if phrase != name, Self.isScoreCall(phrase) { continue }
                 let key = KanaNormalizer.canonical(phrase)
                 if t[key] == nil { t[key] = .point(player: i) }
             }
@@ -46,6 +52,26 @@ public struct VoiceCommandMatcher: Sendable {
 
     public func match(reading: String) -> VoiceCommand? {
         table[KanaNormalizer.canonical(reading)]
+    }
+
+    /// 呼び名とスコアの言い方の重なり（選手登録時の注意用）。
+    public struct ScoreOverlap: Hashable, Sendable {
+        /// 呼び名そのものがスコアとしても読める（「いちご」= 1-5）。名前として扱う。
+        public var nameAsScore: [Int]?
+        /// スコアとして読むので、名前としては受け付けない付け足しの形（「わんてん」）。
+        public var scorePhrases: [String]
+
+        public var isEmpty: Bool { nameAsScore == nil && scorePhrases.isEmpty }
+    }
+
+    public static func scoreOverlap(callName: String) -> ScoreOverlap {
+        let pairs = ScoreCallParser.pairs(in: callName)
+        let phrases = pointPhrases(callName: callName).filter { $0 != callName && isScoreCall($0) }
+        return ScoreOverlap(nameAsScore: pairs.sorted { $0.lexicographicallyPrecedes($1) }.first, scorePhrases: phrases)
+    }
+
+    static func isScoreCall(_ reading: String) -> Bool {
+        !ScoreCallParser.pairs(in: reading).isEmpty
     }
 
     /// 音声で使われる語のうち、聞き間違えやすい組み合わせを返す（選手登録時の注意用）。
