@@ -3,9 +3,23 @@ import SwiftUI
 
 @main
 struct TTLogApp: App {
+    /// README のキャプチャ用（起動引数 `-demo <画面>`）。ふだんは nil。
+    private let demo: DemoScreen?
+    private let demoContainer: ModelContainer?
+
+    init() {
+        let demo = DemoScreen.current
+        self.demo = demo
+        demoContainer = demo.map { Demo.makeContainer($0) }
+    }
+
     var body: some Scene {
         WindowGroup {
-            RootView()
+            if let demo, let demoContainer {
+                DemoView(screen: demo).modelContainer(demoContainer)
+            } else {
+                RootView()
+            }
         }
         .modelContainer(for: [PlayerRecord.self, SessionRecord.self])
     }
