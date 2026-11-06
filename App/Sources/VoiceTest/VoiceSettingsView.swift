@@ -16,6 +16,7 @@ struct VoiceSettingsView: View {
     @AppStorage("sound.enabled") private var soundEnabled = true
     @AppStorage("voice.recordsAudio") private var recordsAudio = true
     @AppStorage("voice.taskHint") private var taskHint = SFSpeechRecognitionTaskHint.confirmation.rawValue
+    @AppStorage(MicMode.storageKey) private var micMode = MicMode.standard.rawValue
 
     private var confusable: [(String, String)] {
         VoiceCommandMatcher.confusablePairs(callNames: [callName0, callName1].filter { !$0.isEmpty })
@@ -51,6 +52,9 @@ struct VoiceSettingsView: View {
                     }
                     Stepper(value: $deadTime, in: 0.5...4.0, step: 0.5) {
                         Text("同じ操作を受け付けない時間: \(deadTime, specifier: "%.1f") 秒")
+                    }
+                    Picker("マイクの処理", selection: $micMode) {
+                        ForEach(MicMode.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
                     }
                     Picker("認識のモード", selection: $taskHint) {
                         Text("短い応答向け（confirmation）").tag(SFSpeechRecognitionTaskHint.confirmation.rawValue)

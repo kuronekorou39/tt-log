@@ -20,13 +20,13 @@ struct ScoreboardView: View {
     @AppStorage(ScoreboardTheme.storageKey) private var themeRaw = ScoreboardTheme.simple.rawValue
     @AppStorage("sound.enabled") private var soundEnabled = true
     @AppStorage("sound.volume") private var volume = 0.3
-    @AppStorage("voice.mode") private var voiceMode = ScoreboardModel.VoiceMode.sides.rawValue
     @AppStorage("voice.leftWord") private var leftWord = "ひだり"
     @AppStorage("voice.rightWord") private var rightWord = "みぎ"
     @AppStorage("voice.deadTime") private var deadTime = 1.5
     @AppStorage("voice.silenceMs") private var silenceMs = 600
     @AppStorage("voice.recordsAudio") private var recordsAudio = true
     @AppStorage("voice.taskHint") private var taskHint = SFSpeechRecognitionTaskHint.confirmation.rawValue
+    @AppStorage(MicMode.storageKey) private var micMode = MicMode.standard.rawValue
 
     enum Sheet: Identifiable {
         case newSession, players, history, settings, design
@@ -189,12 +189,12 @@ struct ScoreboardView: View {
             Button {
                 model.redo()
             } label: {
-                Label("やり直し", systemImage: "arrow.uturn.forward").font(.title3)
+                Label("1つ進める", systemImage: "arrow.uturn.forward").font(.title3)
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
             .disabled(model.redoStack.isEmpty)
-            .accessibilityLabel("やり直し")
+            .accessibilityLabel("戻した操作をもう一度")
             Spacer()
             switch state.phase {
             case .playing:
@@ -294,20 +294,20 @@ struct ScoreboardView: View {
     // MARK: - 設定の反映
 
     private var settingsKey: [String] {
-        [String(soundEnabled), String(volume), voiceMode, leftWord, rightWord, String(deadTime),
-         String(silenceMs), String(recordsAudio), String(taskHint)]
+        [String(soundEnabled), String(volume), leftWord, rightWord, String(deadTime),
+         String(silenceMs), String(recordsAudio), String(taskHint), micMode]
     }
 
     private func applySettings() {
         model.soundEnabled = soundEnabled
         model.tones.volume = Float(volume)
-        model.voiceMode = ScoreboardModel.VoiceMode(rawValue: voiceMode) ?? .sides
         model.leftWord = leftWord
         model.rightWord = rightWord
         model.listener.gate.deadTime = deadTime
         model.listener.silenceInterval = .milliseconds(silenceMs)
         model.listener.recordsAudio = recordsAudio
         model.listener.taskHint = SFSpeechRecognitionTaskHint(rawValue: taskHint) ?? .confirmation
+        model.listener.micMode = MicMode(rawValue: micMode) ?? .standard
     }
 }
 

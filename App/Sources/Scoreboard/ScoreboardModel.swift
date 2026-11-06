@@ -6,20 +6,6 @@ import TTLogCore
 /// スコアボードの中心。いまの記録を持ち、操作を反映して保存し、カメラへ状態を送る。
 @MainActor
 final class ScoreboardModel: ObservableObject {
-    enum VoiceMode: String, CaseIterable {
-        /// 画面の左右を指す言葉で呼ぶ（既定）。エンドが入れ替わっても言葉は立ち位置のまま。
-        case sides
-        /// 選手ごとの呼び名で呼ぶ。
-        case playerNames
-
-        var title: String {
-            switch self {
-            case .sides: return "画面の左右の言葉"
-            case .playerNames: return "選手の呼び名"
-            }
-        }
-    }
-
     @Published private(set) var session: SessionRecord?
     @Published private(set) var log: SessionLog?
     @Published private(set) var state: MatchState?
@@ -32,7 +18,6 @@ final class ScoreboardModel: ObservableObject {
     let tones = TonePlayer()
 
     var soundEnabled = true
-    var voiceMode = VoiceMode.sides { didSet { updateVoiceWords() } }
     var leftWord = "ひだり" { didSet { updateVoiceWords() } }
     var rightWord = "みぎ" { didSet { updateVoiceWords() } }
 
@@ -211,17 +196,17 @@ final class ScoreboardModel: ObservableObject {
     }
 
     private func updateVoiceWords() {
-        let words: [String]
-        switch voiceMode {
-        case .sides:
-            // 選手の番号順に、その選手がいま立っている側の言葉を並べる
-            let left = state?.left ?? 0
-            words = [0, 1].map { $0 == left ? leftWord : rightWord }
-        case .playerNames:
-            words = [0, 1].map { p in p < players.count ? players[p].callName : "" }
+        // 画面の左右の言葉と選手の呼び名を、いつでも両方受け付ける
+        // （練習で、呼び名のモードにしていないのに名前で呼んで反応しないことが続いたため）
+        let left = state?.left ?? 0
+        let words: [[String]] = [0, 1].map { p in
+            [p == left ? leftWord : rightWord] + (p < players.count ? [players[p].callName] : [])
         }
-        listener.matcher = VoiceCommandMatcher(playerCallNames: words)
-        listener.contextualStrings = SpeechListener.hints(callNames: words)
+        listener.matcher = VoiceCommandMatcher(playerWords: words)
+        listener.contextualStrings = SpeechListener.hints(callNames: words.flatMap { $0 })
+        listener.wordsSummary = zip(["A", "B"], words)
+            .map { label, list in label + ":" + list.filter { !$0.isEmpty }.joined(separator: "/") }
+            .joined(separator: " ")
     }
 
     private func playTone(_ kind: TonePlayer.Kind) {

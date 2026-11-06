@@ -115,6 +115,64 @@ final class VoiceCommandMatcherTests: XCTestCase {
         XCTAssertNil(matcher.match(reading: ""))
     }
 
+    // 以下は 2026-11-06 の練習の音声ログで実際に出た言い方
+
+    func testUndoWordsFromPractice() {
+        for call in ["もどして", "もどす", "もとにもどす", "とりけし", "やりなおし", "ヤリナオシ"] {
+            XCTAssertEqual(matcher.match(reading: call), .undo, call)
+        }
+    }
+
+    func testNameWithDigitPoint() {
+        // 認識は「1点」を数字で返す
+        XCTAssertEqual(matcher.match(reading: "さくら1てん"), .point(player: 0))
+        XCTAssertEqual(matcher.match(reading: "こう1てん"), .point(player: 1))
+        XCTAssertEqual(matcher.match(reading: "コウ1てん"), .point(player: 1))
+    }
+
+    func testRepeatedWordIsOnePoint() {
+        let m = VoiceCommandMatcher(playerCallNames: ["ひだり", "みぎ"])
+        XCTAssertEqual(m.match(reading: "ひだりひだり"), .point(player: 0))
+        XCTAssertEqual(m.match(reading: "ひだりひだりひだり"), .point(player: 0))
+        XCTAssertEqual(m.match(reading: "みぎみぎ"), .point(player: 1))
+        XCTAssertEqual(m.match(reading: "もどしてもどして"), .undo)
+        XCTAssertEqual(matcher.match(reading: "こうこう"), .point(player: 1))
+        // 繰り返しでも、違う言葉が混ざれば受け付けない
+        XCTAssertNil(m.match(reading: "ひだりみぎ"))
+        XCTAssertNil(m.match(reading: "ひだりひだ"))
+    }
+
+    func testRepeatedNameThatIsAScoreStaysAScore() {
+        // 「わんわん」は 1-1 のスコア。名前「わん」の繰り返しにはしない
+        let m = VoiceCommandMatcher(playerCallNames: ["わん", "さくら"])
+        XCTAssertNil(m.match(reading: "わんわん"))
+        XCTAssertEqual(m.match(reading: "わん"), .point(player: 0))
+    }
+
+    func testMisheardRight() {
+        let m = VoiceCommandMatcher(playerCallNames: ["ひだり", "みぎ"])
+        XCTAssertEqual(m.match(reading: "ミリ"), .point(player: 1))
+        XCTAssertEqual(m.match(reading: "みりみり"), .point(player: 1))
+    }
+
+    func testSideWordsAndNamesTogether() {
+        let m = VoiceCommandMatcher(playerWords: [["ひだり", "さくら"], ["みぎ", "こう"]])
+        XCTAssertEqual(m.match(reading: "ひだり"), .point(player: 0))
+        XCTAssertEqual(m.match(reading: "さくら"), .point(player: 0))
+        XCTAssertEqual(m.match(reading: "さくら1てん"), .point(player: 0))
+        XCTAssertEqual(m.match(reading: "みぎ"), .point(player: 1))
+        XCTAssertEqual(m.match(reading: "こうポイント"), .point(player: 1))
+        XCTAssertEqual(m.match(reading: "もどして"), .undo)
+    }
+
+    func testWordForBothPlayersIsIgnored() {
+        // 相手の左右の言葉と同じ呼び名は、どちらの点か決められない
+        let m = VoiceCommandMatcher(playerWords: [["ひだり", "みぎ"], ["みぎ", "こう"]])
+        XCTAssertNil(m.match(reading: "みぎ"))
+        XCTAssertEqual(m.match(reading: "ひだり"), .point(player: 0))
+        XCTAssertEqual(m.match(reading: "こう"), .point(player: 1))
+    }
+
     func testCommandWinsOverSameNamedPlayer() {
         let m = VoiceCommandMatcher(playerCallNames: ["もどして", "さくら"])
         XCTAssertEqual(m.match(reading: "もどして"), .undo)

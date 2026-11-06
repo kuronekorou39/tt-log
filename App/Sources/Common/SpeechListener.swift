@@ -2,6 +2,42 @@ import AVFoundation
 import Speech
 import TTLogCore
 
+/// マイクの音声の処理のしかた。離れた位置からの声や、体育館の反響にどれが強いかを練習で比べるための切り替え。
+enum MicMode: String, CaseIterable {
+    /// iOS の標準の処理。
+    case standard
+    /// 通話用の処理（音量の自動調整・反響を消す・雑音を抑える）。効果音が小さくなることがある。
+    case voiceChat
+    /// 処理なし（マイクの音そのまま）。
+    case raw
+
+    static let storageKey = "voice.micMode"
+
+    var title: String {
+        switch self {
+        case .standard: return "標準"
+        case .voiceChat: return "通話用（遠くの声・反響向け）"
+        case .raw: return "処理なし"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .standard: return "これまでと同じ設定です。"
+        case .voiceChat: return "小さな声を持ち上げ、反響と雑音を抑えます。効果音が小さくなることがあります。"
+        case .raw: return "マイクの音をそのまま使います。比べるための設定です。"
+        }
+    }
+
+    var sessionMode: AVAudioSession.Mode {
+        switch self {
+        case .standard: return .default
+        case .voiceChat: return .voiceChat
+        case .raw: return .measurement
+        }
+    }
+}
+
 /// マイクの音声を端末内で認識し、発話ごとに操作へ変換する。
 ///
 /// 発話の区切り：認識結果の更新が `silenceInterval` 止まったら1発話とみなし、
@@ -26,6 +62,8 @@ final class SpeechListener: ObservableObject {
         /// 操作語以外（スコアを口で言ったなど）で受け付けたときの説明。
         let note: String?
         let audioFile: URL?
+        /// そのときの聞き取りの設定と、受け付けていた言葉（あとで設定ごとに比べるため）。
+        let settings: String
     }
 
     @Published private(set) var isListening = false
@@ -49,12 +87,22 @@ final class SpeechListener: ObservableObject {
     static func hints(callNames: [String]) -> [String] {
         let names = callNames.filter { !$0.isEmpty }
         return names + names.flatMap { ["\($0)ポイント", "\($0)点"] }
-            + ["戻して", "次のゲーム", "オール", "ラブオール", "ワンラブ"]
+            + ["戻して", "戻す", "取り消し", "次のゲーム", "オール", "ラブオール", "ワンラブ"]
     }
     var gate = CommandGate(deadTime: 1.5)
     var silenceInterval: Duration = .milliseconds(600)
     var taskHint: SFSpeechRecognitionTaskHint = .confirmation
     var recordsAudio = true
+    /// 受け付けている言葉の要約（ログ用）。
+    var wordsSummary = ""
+    /// マイクの処理。聞き取り中に変えたら、聞き取りをやり直して反映する。
+    var micMode = MicMode.standard {
+        didSet {
+            guard micMode != oldValue, isListening else { return }
+            stop()
+            Task { await start() }
+        }
+    }
 
     let store = VoiceLogStore()
 
@@ -66,6 +114,11 @@ final class SpeechListener: ObservableObject {
     private var currentTexts: [String] = []
     private var currentPartials: [String] = []
     private var silenceTask: Task<Void, Never>?
+    private var burstWatch: Task<Void, Never>?
+    /// 最後に認識の文字が届いた時刻（文字にならなかった大きな音を見分けるため）。
+    private var lastTextAt: Date?
+    /// 最後に発話を区切った時刻。
+    private var lastUtteranceAt: Date?
 
     private static let logLimit = 300
 
@@ -81,8 +134,8 @@ final class SpeechListener: ObservableObject {
         }
         do {
             let session = AVAudioSession.sharedInstance()
-            // .measurement は音声処理を切れるが再生音が小さくなるので、効果音が聞こえるよう .default にする
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .mixWithOthers])
+            // .measurement は音声処理を切れるが再生音が小さくなるので、既定は .default（設定で選べる）
+            try session.setCategory(.playAndRecord, mode: micMode.sessionMode, options: [.defaultToSpeaker, .mixWithOthers])
             try session.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
             statusMessage = "マイクを開けません: \(error.localizedDescription)"
@@ -90,6 +143,19 @@ final class SpeechListener: ObservableObject {
         }
 
         let input = engine.inputNode
+        // 通話用の処理（反響を消す・音量の自動調整）は、録音の部品の側で有効にする
+        do {
+            if input.isVoiceProcessingEnabled != (micMode == .voiceChat) {
+                try input.setVoiceProcessingEnabled(micMode == .voiceChat)
+            }
+            if micMode == .voiceChat {
+                // 効果音など、ほかの音を小さくしすぎない
+                input.voiceProcessingOtherAudioDuckingConfiguration =
+                    AVAudioVoiceProcessingOtherAudioDuckingConfiguration(enableAdvancedDucking: false, duckingLevel: .min)
+            }
+        } catch {
+            statusMessage = "マイクの処理を切り替えられません: \(error.localizedDescription)"
+        }
         input.removeTap(onBus: 0)
         Self.installTap(on: input, box: audioBox)
         engine.prepare()
@@ -101,12 +167,14 @@ final class SpeechListener: ObservableObject {
         }
         isListening = true
         startRecognition()
+        watchBursts()
     }
 
     func stop() {
         guard isListening else { return }
         isListening = false
         silenceTask?.cancel()
+        burstWatch?.cancel()
         generation += 1
         task?.cancel()
         task = nil
@@ -163,6 +231,7 @@ final class SpeechListener: ObservableObject {
         guard gen == generation, isListening else { return }
         if let best = texts.first, !best.isEmpty {
             currentTexts = texts
+            lastTextAt = Date()
             partialText = best
             if currentPartials.last != best { currentPartials.append(best) }
         }
@@ -208,6 +277,7 @@ final class SpeechListener: ObservableObject {
 
         guard let best = texts.first, !best.isEmpty else { return }
         let now = Date()
+        lastUtteranceAt = now
 
         // 認識の候補を確からしい順に見て、最初に意味が通ったものを使う。
         // 候補ごとに「操作語・名前」→「スコア」の順で試す（第1候補の「1対0」より、
@@ -242,13 +312,61 @@ final class SpeechListener: ObservableObject {
         }
 
         let audioFile = recordsAudio ? store.saveAudio(audio, at: now) : nil
-        let u = Utterance(
+        record(Utterance(
             time: now, text: best, alternatives: Array(texts.dropFirst()), partials: partials,
-            reading: reading, command: command, accepted: accepted, note: note, audioFile: audioFile
-        )
+            reading: reading, command: command, accepted: accepted, note: note, audioFile: audioFile,
+            settings: currentSettings
+        ))
+    }
+
+    private func record(_ u: Utterance) {
         store.append(u)
         log.insert(u, at: 0)
         if log.count > Self.logLimit { log.removeLast(log.count - Self.logLimit) }
+    }
+
+    private var currentSettings: String {
+        let c = silenceInterval.components
+        let ms = c.seconds * 1000 + c.attoseconds / 1_000_000_000_000_000
+        let hint: String
+        switch taskHint {
+        case .confirmation: hint = "confirmation"
+        case .search: hint = "search"
+        case .dictation: hint = "dictation"
+        default: hint = "unspecified"
+        }
+        return "区切り\(ms)ms 二重防止\(gate.deadTime)秒 \(hint) マイク:\(micMode.title) 言葉 \(wordsSummary)"
+    }
+
+    // MARK: - 文字にならなかった大きな音
+
+    /// 声らしい長さの大きな音がしたのに認識の文字が届かなかったら、その音を「聞き取れず」としてログに残す。
+    /// 離れた位置から呼んで反応しなかったときに、あとで数えて聞き直せるようにする。
+    private func watchBursts() {
+        burstWatch?.cancel()
+        burstWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                self?.checkBurst()
+            }
+        }
+    }
+
+    private func checkBurst() {
+        guard isListening, let at = audioBox.burstAt else { return }
+        // 認識の文字は声より少し遅れて届くので、しばらく待ってから判断する
+        guard Date().timeIntervalSince(at) > 2.0 else { return }
+        audioBox.clearBurst()
+        if let lastTextAt, lastTextAt >= at { return }
+        // 発話の直後の大きな音は、受け付けたときの効果音を拾ったもの
+        if let lastUtteranceAt, at.timeIntervalSince(lastUtteranceAt) < 1.5 { return }
+        guard currentTexts.isEmpty else { return }
+        let now = Date()
+        let audioFile = recordsAudio ? store.saveAudio(audioBox.snapshotRecent(), at: now) : nil
+        record(Utterance(
+            time: now, text: "", alternatives: [], partials: [], reading: "", command: nil, accepted: false,
+            note: "聞き取れず（大きな音がしたが文字にならなかった）", audioFile: audioFile, settings: currentSettings
+        ))
     }
 
     private func requestPermissions() async -> Bool {
@@ -297,6 +415,16 @@ private final class AudioBox: @unchecked Sendable {
     private var _request: SFSpeechAudioBufferRecognitionRequest?
     private var recent: [AVAudioPCMBuffer] = []
     private var recentFrames: AVAudioFramePosition = 0
+    /// 周りの音の大きさの目安（dB）。ゆっくり追いかける。
+    private var floorDB: Float = -60
+    /// 大きな音が続いているフレーム数。
+    private var loudFrames: AVAudioFramePosition = 0
+    private var _burstAt: Date?
+
+    /// 周りの音よりこれだけ大きければ「大きな音」とみなす（dB）。
+    private static let burstMarginDB: Float = 12
+    /// 声らしい長さ（秒）。ボールを打つ音のような短い音は数えない。
+    private static let burstMinSeconds = 0.15
 
     init(keepSeconds: Double) {
         self.keepSeconds = keepSeconds
@@ -307,11 +435,33 @@ private final class AudioBox: @unchecked Sendable {
         set { lock.lock(); _request = newValue; lock.unlock() }
     }
 
+    /// 声らしい大きな音が始まった時刻（まだ確かめていないもの）。
+    var burstAt: Date? {
+        lock.lock(); defer { lock.unlock() }; return _burstAt
+    }
+
+    func clearBurst() {
+        lock.lock(); _burstAt = nil; lock.unlock()
+    }
+
     func append(_ buffer: AVAudioPCMBuffer) {
         request?.append(buffer)
         guard let copy = Self.copy(buffer) else { return }
+        let level = Self.levelDB(copy)
         lock.lock()
         defer { lock.unlock() }
+        let loud = level > floorDB + Self.burstMarginDB
+        floorDB += (level - floorDB) * (loud ? 0.002 : 0.02)
+        if loud {
+            let before = loudFrames
+            loudFrames += AVAudioFramePosition(copy.frameLength)
+            let minFrames = AVAudioFramePosition(Self.burstMinSeconds * buffer.format.sampleRate)
+            if before < minFrames, loudFrames >= minFrames, _burstAt == nil {
+                _burstAt = Date().addingTimeInterval(-Self.burstMinSeconds)
+            }
+        } else {
+            loudFrames = 0
+        }
         recent.append(copy)
         recentFrames += AVAudioFramePosition(copy.frameLength)
         let maxFrames = AVAudioFramePosition(keepSeconds * buffer.format.sampleRate)
@@ -331,6 +481,25 @@ private final class AudioBox: @unchecked Sendable {
     }
 
     func clearRecent() { _ = takeRecent() }
+
+    /// 直近の音声を、手元から消さずに写して返す。
+    func snapshotRecent() -> [AVAudioPCMBuffer] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recent
+    }
+
+    /// 1チャンネル目の音の大きさ（dB）。
+    private static func levelDB(_ buffer: AVAudioPCMBuffer) -> Float {
+        guard let data = buffer.floatChannelData, buffer.frameLength > 0 else { return -120 }
+        let n = Int(buffer.frameLength)
+        var sum: Float = 0
+        for i in 0..<n {
+            let v = data[0][i]
+            sum += v * v
+        }
+        return 10 * log10(sum / Float(n) + 1e-12)
+    }
 
     /// タップで渡されるバッファは使い回されることがあるので、中身を写して持つ。
     private static func copy(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {

@@ -7,7 +7,7 @@ import TTLogCore
 final class PlayerRecord {
     @Attribute(.unique) var id: UUID
     var name: String
-    /// 音声で呼ぶ名前の読み（ひらがな）。「選手の呼び名」モードで使う。
+    /// 音声で呼ぶ名前の読み（ひらがな）。画面の左右の言葉と一緒に受け付ける。
     var callName: String
     /// 記録が残っている選手は消さずに隠す。
     var isHidden: Bool

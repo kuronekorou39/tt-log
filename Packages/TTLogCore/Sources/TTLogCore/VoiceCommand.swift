@@ -11,20 +11,26 @@ public enum VoiceCommand: Hashable, Sendable {
 /// 聞き取った発話（ひらがなの読み）を操作に対応させる。
 ///
 /// 発話全体が語彙と一致したときだけ反応する。会話の中に名前が出てきただけでは反応しない。
-/// 名前には「てん」「ポイント」「くん」などを付けてもよい（「さくらてん」「さくらくんのポイント」）。
+/// 1人の選手を複数の言葉で呼べる（画面の左右の言葉と呼び名の両方など）。
+/// 言葉には「てん」「ポイント」「くん」などを付けてもよい（「さくらてん」「さくらくんのポイント」「さくら1点」）。
+/// 同じ言葉の繰り返し（「ひだりひだり」）は1回分として扱う。
 ///
 /// 名前とスコアの言い方がぶつかるとき：
 /// - 名前そのもの（「わん」「いちご」）は名前として扱う。登録した言葉なので優先する
 /// - 付け足した形がスコアとしても読めるもの（「わんてん」= 1-10、「ななさん」= 7-3）は名前として登録しない。
 ///   スコアとして、いまの得点に照らして判断する（6-3 で「ななさん」なら 7-3 になる側に1点）
 public struct VoiceCommandMatcher: Sendable {
-    public static let undoReadings = ["もどして"]
+    /// 取り消し。実際の練習で口から出た言い方を受け付ける。
+    public static let undoReadings = ["もどして", "もどす", "もとにもどす", "もどる", "とりけし", "とりけして", "やりなおし"]
     public static let nextGameReadings = ["つぎのげーむ"]
+
+    /// 認識がよく書き換える言い方（練習の音声ログから）。「みぎ」が「ミリ」になる、など。
+    public static let misheard: [String: [String]] = ["みぎ": ["みり"]]
 
     /// 名前の後ろの敬称。
     static let honorifics = ["", "くん", "さん", "ちゃん"]
-    /// 敬称の後ろの「点」の言い方。「の」を挟んでもよい。
-    static let pointWords = ["", "てん", "ぽいんと", "いってん", "のてん", "のぽいんと"]
+    /// 敬称の後ろの「点」の言い方。「の」を挟んでもよい。「1点」は認識が数字で返す形。
+    static let pointWords = ["", "てん", "ぽいんと", "いってん", "1てん", "1ぽいんと", "のてん", "のぽいんと"]
 
     /// 名前に付け足して言ってもよい形をすべて返す（名前そのものも含む）。
     public static func pointPhrases(callName: String) -> [String] {
@@ -35,14 +41,27 @@ public struct VoiceCommandMatcher: Sendable {
 
     /// - Parameter playerCallNames: その試合に出ている選手の呼び名（ひらがな）。並び順が `.point(player:)` の番号になる。
     public init(playerCallNames: [String]) {
-        var t: [String: VoiceCommand] = [:]
-        for (i, name) in playerCallNames.enumerated() where !KanaNormalizer.canonical(name).isEmpty {
-            // 長音の畳み方が前後の音で変わるので、付け足した形ごと読みを揃える
-            for phrase in Self.pointPhrases(callName: name) {
-                if phrase != name, Self.isScoreCall(phrase) { continue }
-                let key = KanaNormalizer.canonical(phrase)
-                if t[key] == nil { t[key] = .point(player: i) }
+        self.init(playerWords: playerCallNames.map { [$0] })
+    }
+
+    /// - Parameter playerWords: 選手ごとの呼び方（ひらがな）。外側の並び順が `.point(player:)` の番号になる。
+    ///   2人のどちらにも当たる読みは、どちらにも決められないので受け付けない。
+    public init(playerWords: [[String]]) {
+        var owners: [String: Set<Int>] = [:]
+        for (i, words) in playerWords.enumerated() {
+            for word in words where !KanaNormalizer.canonical(word).isEmpty {
+                for base in [word] + (Self.misheard[KanaNormalizer.canonical(word)] ?? []) {
+                    // 長音の畳み方が前後の音で変わるので、付け足した形ごと読みを揃える
+                    for phrase in Self.pointPhrases(callName: base) {
+                        if phrase != base, Self.isScoreCall(phrase) { continue }
+                        owners[KanaNormalizer.canonical(phrase), default: []].insert(i)
+                    }
+                }
             }
+        }
+        var t: [String: VoiceCommand] = [:]
+        for (key, players) in owners where players.count == 1 {
+            t[key] = .point(player: players.first!)
         }
         // 操作語は選手名より優先する（同じ読みの選手がいても操作が効くように）
         for r in Self.undoReadings { t[KanaNormalizer.canonical(r)] = .undo }
@@ -51,7 +70,24 @@ public struct VoiceCommandMatcher: Sendable {
     }
 
     public func match(reading: String) -> VoiceCommand? {
-        table[KanaNormalizer.canonical(reading)]
+        let key = KanaNormalizer.canonical(reading)
+        return table[key] ?? repeated(key)
+    }
+
+    /// 同じ言葉の繰り返し（「ひだりひだり」）。反響で1回の発話が二重に書き起こされることがあるので、1回分として扱う。
+    /// スコアとして読めるもの（「わんわん」= 1-1）はスコアに譲る。
+    private func repeated(_ key: String) -> VoiceCommand? {
+        let s = Array(key.unicodeScalars)
+        let n = s.count
+        guard n >= 2, !Self.isScoreCall(key) else { return nil }
+        for len in 1...(n / 2) where n % len == 0 {
+            let unit = Array(s[0..<len])
+            guard stride(from: len, to: n, by: len).allSatisfy({ Array(s[$0..<($0 + len)]) == unit }) else { continue }
+            var view = String.UnicodeScalarView()
+            view.append(contentsOf: unit)
+            if let c = table[String(view)] { return c }
+        }
+        return nil
     }
 
     /// 呼び名とスコアの言い方の重なり（選手登録時の注意用）。

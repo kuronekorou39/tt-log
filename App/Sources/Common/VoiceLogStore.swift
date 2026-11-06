@@ -16,7 +16,10 @@ final class VoiceLogStore {
     private var audioDir: URL { root.appendingPathComponent("audio", isDirectory: true) }
     private var logFile: URL { root.appendingPathComponent("log.tsv") }
 
-    private static let header = ["時刻", "音声", "結果", "照合した読み", "第1候補", "他の候補", "途中経過"]
+    private static let header = ["時刻", "音声", "結果", "照合した読み", "第1候補", "他の候補", "途中経過", "設定"]
+
+    /// 起動してから、既存の log.tsv の列が今の形か確かめたか。
+    private var checkedHeader = false
 
     private let fileStamp: DateFormatter = {
         let f = DateFormatter()
@@ -67,7 +70,7 @@ final class VoiceLogStore {
         let result: String
         switch (u.command, u.accepted) {
         case (nil, true): result = "○ \(u.note ?? "")"
-        case (nil, false): result = "－"
+        case (nil, false): result = u.note.map { "－ \($0)" } ?? "－"
         case (let c?, true): result = "○ \(SpeechListener.describe(c))"
         case (let c?, false): result = "× \(SpeechListener.describe(c))（二重）"
         }
@@ -79,6 +82,7 @@ final class VoiceLogStore {
             u.text,
             u.alternatives.joined(separator: "｜"),
             u.partials.joined(separator: "｜"),
+            u.settings,
         ]
         appendLine(fields)
     }
@@ -110,11 +114,27 @@ final class VoiceLogStore {
         try? FileManager.default.removeItem(at: root)
     }
 
+    /// 列の違う古い log.tsv は、名前を変えて残す（新しい行と列がずれないように）。
+    private func moveOldFormatLog() {
+        guard !checkedHeader else { return }
+        checkedHeader = true
+        guard let handle = try? FileHandle(forReadingFrom: logFile) else { return }
+        let head = (try? handle.read(upToCount: 1024)) ?? Data()
+        try? handle.close()
+        let firstLine = String(decoding: head, as: UTF8.self)
+            .split(separator: "\n", maxSplits: 1).first.map(String.init) ?? ""
+        let expected = "\u{FEFF}" + Self.header.joined(separator: "\t")
+        guard firstLine != expected else { return }
+        let old = root.appendingPathComponent("log-\(fileStamp.string(from: Date())).tsv")
+        try? FileManager.default.moveItem(at: logFile, to: old)
+    }
+
     private func appendLine(_ fields: [String]) {
         do {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             let clean = fields.map { $0.replacingOccurrences(of: "\t", with: " ").replacingOccurrences(of: "\n", with: " ") }
             var text = clean.joined(separator: "\t") + "\n"
+            moveOldFormatLog()
             if !FileManager.default.fileExists(atPath: logFile.path) {
                 // Excel で開いても文字化けしないよう BOM を付ける
                 text = "\u{FEFF}" + Self.header.joined(separator: "\t") + "\n" + text

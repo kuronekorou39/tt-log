@@ -31,6 +31,7 @@ struct VoiceTestView: View {
     @AppStorage("sound.enabled") private var soundEnabled = true
     @AppStorage("voice.recordsAudio") private var recordsAudio = true
     @AppStorage("voice.taskHint") private var taskHint = SFSpeechRecognitionTaskHint.confirmation.rawValue
+    @AppStorage(MicMode.storageKey) private var micMode = MicMode.standard.rawValue
 
     private var callNames: [String] { [callName0, callName1] }
     private var needsSetup: Bool { callName0.isEmpty || callName1.isEmpty }
@@ -75,6 +76,7 @@ struct VoiceTestView: View {
         .onChange(of: volume) { applySettings() }
         .onChange(of: recordsAudio) { applySettings() }
         .onChange(of: taskHint) { applySettings() }
+        .onChange(of: micMode) { applySettings() }
     }
 
     // MARK: - 上の帯
@@ -250,6 +252,8 @@ struct VoiceTestView: View {
         listener.silenceInterval = .milliseconds(silenceMs)
         listener.recordsAudio = recordsAudio
         listener.taskHint = SFSpeechRecognitionTaskHint(rawValue: taskHint) ?? .confirmation
+        listener.micMode = MicMode(rawValue: micMode) ?? .standard
+        listener.wordsSummary = callNames.joined(separator: "/")
         tones.volume = Float(volume)
     }
 

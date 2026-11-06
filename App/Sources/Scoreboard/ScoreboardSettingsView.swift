@@ -10,13 +10,13 @@ struct ScoreboardSettingsView: View {
     @AppStorage(ScoreboardTheme.storageKey) private var themeRaw = ScoreboardTheme.simple.rawValue
     @AppStorage("sound.enabled") private var soundEnabled = true
     @AppStorage("sound.volume") private var volume = 0.3
-    @AppStorage("voice.mode") private var voiceMode = ScoreboardModel.VoiceMode.sides.rawValue
     @AppStorage("voice.leftWord") private var leftWord = "ひだり"
     @AppStorage("voice.rightWord") private var rightWord = "みぎ"
     @AppStorage("voice.deadTime") private var deadTime = 1.5
     @AppStorage("voice.silenceMs") private var silenceMs = 600
     @AppStorage("voice.recordsAudio") private var recordsAudio = true
     @AppStorage("voice.taskHint") private var taskHint = SFSpeechRecognitionTaskHint.confirmation.rawValue
+    @AppStorage(MicMode.storageKey) private var micMode = MicMode.standard.rawValue
 
     @State private var exportURL: URL?
     @State private var exportError: String?
@@ -45,39 +45,40 @@ struct ScoreboardSettingsView: View {
                     Text("この端末の表示にだけ反映されます。試合中も切り替えられます。")
                 }
                 Section {
-                    Picker("得点の言葉", selection: $voiceMode) {
-                        ForEach(ScoreboardModel.VoiceMode.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
+                    HStack {
+                        Text("画面の左")
+                        TextField("ひらがな", text: $leftWord)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
                     }
-                    if voiceMode == ScoreboardModel.VoiceMode.sides.rawValue {
-                        HStack {
-                            Text("画面の左")
-                            TextField("ひらがな", text: $leftWord)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                        }
-                        HStack {
-                            Text("画面の右")
-                            TextField("ひらがな", text: $rightWord)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                        }
-                        ForEach(Array(confusable.enumerated()), id: \.offset) { _, pair in
-                            Label("「\(pair.0)」と「\(pair.1)」は聞き間違えやすいかもしれません",
-                                  systemImage: "exclamationmark.triangle")
-                                .foregroundStyle(.orange)
-                        }
-                        ForEach([leftWord, rightWord].compactMap { ScoreOverlapNote.text(callName: $0) }, id: \.self) { note in
-                            Label(note, systemImage: "exclamationmark.triangle")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        }
+                    HStack {
+                        Text("画面の右")
+                        TextField("ひらがな", text: $rightWord)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                    ForEach(Array(confusable.enumerated()), id: \.offset) { _, pair in
+                        Label("「\(pair.0)」と「\(pair.1)」は聞き間違えやすいかもしれません",
+                              systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
+                    ForEach([leftWord, rightWord].compactMap { ScoreOverlapNote.text(callName: $0) }, id: \.self) { note in
+                        Label(note, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
                     }
                 } header: {
                     Text("声での操作")
                 } footer: {
-                    Text("ほかに「戻して」（取り消し）と「次のゲーム」を受け付けます。言葉だけを単独で言ったときに反応します。")
+                    Text("選手の呼び名でも点が入ります（「〇〇ポイント」「〇〇1点」なども可）。ほかに「戻して」「取り消し」（取り消し）と「次のゲーム」を受け付けます。言葉だけを単独で言ったときに反応します。")
                 }
                 Section("聞き取りの調整") {
+                    Picker("マイクの処理", selection: $micMode) {
+                        ForEach(MicMode.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
+                    }
+                    Text((MicMode(rawValue: micMode) ?? .standard).detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     Stepper(value: $silenceMs, in: 300...1500, step: 100) {
                         Text("発話の区切り（無音）: \(silenceMs) ミリ秒")
                     }
