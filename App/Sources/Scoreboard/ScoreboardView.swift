@@ -28,9 +28,21 @@ struct ScoreboardView: View {
     @AppStorage("voice.recordsAudio") private var recordsAudio = true
     @AppStorage("voice.taskHint") private var taskHint = SFSpeechRecognitionTaskHint.confirmation.rawValue
 
-    enum Sheet: String, Identifiable {
+    enum Sheet: Identifiable {
         case newSession, players, history, settings, design
-        var id: String { rawValue }
+        /// 記録を終えた直後の結果。
+        case result(SessionRecord)
+
+        var id: String {
+            switch self {
+            case .newSession: return "newSession"
+            case .players: return "players"
+            case .history: return "history"
+            case .settings: return "settings"
+            case .design: return "design"
+            case .result(let record): return "result-\(record.id)"
+            }
+        }
     }
 
     private var theme: ScoreboardTheme { ScoreboardTheme(rawValue: themeRaw) ?? .simple }
@@ -42,15 +54,11 @@ struct ScoreboardView: View {
                 topBar(compact: compact)
                 Divider()
                 if let state = model.state {
-                    ZStack {
-                        ScoreboardDisplay(theme: theme, state: state,
-                                          playerNames: [model.name(0), model.name(1)]) { player in
-                            model.handle(.point(player: player), source: .tap)
-                        }
-                        .accessibilityHidden(state.phase != .playing)
-                        if state.phase != .playing {
-                            gameOverOverlay(state)
-                        }
+                    // ゲーム終了でも画面は覆わない（最後の点が間違いで「戻す」こともあるため）。
+                    // 勝った側のパネルに帯と紙吹雪を出し、次のゲームは下のボタンか声で始める。
+                    ScoreboardDisplay(theme: theme, state: state,
+                                      playerNames: [model.name(0), model.name(1)]) { player in
+                        model.handle(.point(player: player), source: .tap)
                     }
                     Divider()
                     if compact {
@@ -71,6 +79,15 @@ struct ScoreboardView: View {
             case .newSession: NewSessionView { players, config in model.start(players: players, config: config) }
             case .players: NavigationStack { PlayersView() }
             case .history: NavigationStack { HistoryView() }
+            case .result(let record):
+                NavigationStack {
+                    SessionDetailView(session: record)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("閉じる") { sheet = nil }
+                            }
+                        }
+                }
             case .settings: ScoreboardSettingsView(listener: model.listener, onChangeRole: onChangeRole)
             case .design:
                 ScoreboardDesignSheet(state: model.state,
@@ -78,7 +95,7 @@ struct ScoreboardView: View {
             }
         }
         .confirmationDialog("記録を終えますか？", isPresented: $showEndConfirm, titleVisibility: .visible) {
-            Button("終える", role: .destructive) { model.end() }
+            Button("終える", role: .destructive) { endAndShowResult() }
         } message: {
             Text("終えた記録は履歴から見られます。")
         }
@@ -109,7 +126,13 @@ struct ScoreboardView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
-                if state.switchedEndsMidGame, max(state.scores[0], state.scores[1]) == 5 {
+                if state.phase != .playing {
+                    Text(gameOverHint(state))
+                        .font(.headline)
+                        .foregroundStyle(.green)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                } else if state.switchedEndsMidGame, max(state.scores[0], state.scores[1]) == 5 {
                     Text("エンドチェンジ")
                         .font(.headline)
                         .foregroundStyle(.orange)
@@ -150,53 +173,7 @@ struct ScoreboardView: View {
         .padding(.vertical, compact ? 0 : 4)
     }
 
-    // MARK: - 得点の面
-
-    private func gameOverOverlay(_ state: MatchState) -> some View {
-        let winner: Int
-        let matchOver: Bool
-        switch state.phase {
-        case .gameOver(let w): winner = w; matchOver = false
-        case .matchOver(let w): winner = w; matchOver = true
-        case .playing: winner = 0; matchOver = false
-        }
-        return GeometryReader { proxy in
-            let compact = proxy.size.height < 380
-            VStack(spacing: compact ? 8 : 16) {
-                Text("\(model.name(winner)) \(matchOver ? "の勝ち（試合終了）" : "勝ち")")
-                    .font(.system(size: compact ? 28 : 52, weight: .bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.4)
-                Text("\(state.scores[winner]) - \(state.scores[1 - winner])")
-                    .font(.system(size: compact ? 28 : 48, weight: .semibold, design: .rounded))
-                if matchOver {
-                    Button("記録を終える") { model.end() }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                } else {
-                    Button {
-                        model.handle(.nextGame, source: .tap)
-                    } label: {
-                        Text("次のゲーム")
-                            .font(compact ? .headline : .title.bold())
-                            .padding(.horizontal, 24)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    if !compact {
-                        Text("「次のゲーム」と言っても始められます。始めると左右が入れ替わります。")
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                }
-            }
-            .padding(compact ? 16 : 32)
-            .frame(maxWidth: min(760, max(0, proxy.size.width - 32)))
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
-            .frame(width: proxy.size.width, height: proxy.size.height)
-            .background(theme.background.opacity(0.65))
-        }
-    }
+    // MARK: - 下の帯
 
     private func bottomBar(_ state: MatchState, compact: Bool) -> some View {
         HStack {
@@ -219,15 +196,35 @@ struct ScoreboardView: View {
             .disabled(model.redoStack.isEmpty)
             .accessibilityLabel("やり直し")
             Spacer()
-            Button {
-                model.toggleServer()
-            } label: {
-                Label("サーブ交代", systemImage: "circle.lefthalf.filled").font(.title3)
+            switch state.phase {
+            case .playing:
+                Button {
+                    model.toggleServer()
+                } label: {
+                    Label("サーブ交代", systemImage: "circle.lefthalf.filled").font(.title3)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .accessibilityLabel("サーブ交代")
+            case .gameOver:
+                Button {
+                    model.handle(.nextGame, source: .tap)
+                } label: {
+                    Label("次のゲーム", systemImage: "forward.fill").font(.title3.bold())
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .accessibilityLabel("次のゲーム")
+                .accessibilityHint("「次のゲーム」と言っても始められます。始めると左右が入れ替わります")
+            case .matchOver:
+                Button {
+                    showEndConfirm = true
+                } label: {
+                    Label("記録を終える", systemImage: "flag.checkered").font(.title3.bold())
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .disabled(state.phase != .playing)
-            .accessibilityLabel("サーブ交代")
             Button {
                 model.swapEnds()
             } label: {
@@ -278,6 +275,20 @@ struct ScoreboardView: View {
         }
         .frame(maxWidth: .infinity)
         .padding()
+    }
+
+    private func gameOverHint(_ state: MatchState) -> String {
+        switch state.phase {
+        case .playing: return ""
+        case .gameOver(let w): return "\(model.name(w)) 勝ち　間違いなら「戻す」"
+        case .matchOver(let w): return "\(model.name(w)) の勝ち（試合終了）"
+        }
+    }
+
+    private func endAndShowResult() {
+        guard let record = model.end() else { return }
+        // 確認の表示が閉じきってから結果を出す
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { sheet = .result(record) }
     }
 
     // MARK: - 設定の反映

@@ -25,6 +25,9 @@ public struct GameTimeline: Hashable, Sendable {
         public let at: Date
         /// この点が入った後の得点。
         public let scores: [Int]
+        /// この点のラリーでサーブした選手。
+        public let server: Int
+        public let source: InputSource
     }
 
     public let index: Int
@@ -97,7 +100,10 @@ public struct SessionLog: Codable, Hashable, Sendable {
             guard let next = RuleEngine.apply(e.event, to: state, config: config) else { continue }
             switch e.event {
             case .point(let w):
-                games[games.count - 1].points.append(.init(winner: w, at: e.at, scores: next.scores))
+                // ゲーム中は必ずサーバーがいる（ゲーム終了中の得点は apply が受け付けない）
+                let server = state.server ?? w
+                games[games.count - 1].points.append(.init(winner: w, at: e.at, scores: next.scores,
+                                                           server: server, source: e.source))
                 if next.phase != .playing {
                     games[games.count - 1].endedAt = e.at
                     games[games.count - 1].winner = w
@@ -108,6 +114,50 @@ public struct SessionLog: Codable, Hashable, Sendable {
             state = next
         }
         return games
+    }
+}
+
+/// 2人の得点の内訳（結果の画面と共有に使う）。
+public struct PlayerStats: Hashable, Sendable {
+    public var points = 0
+    /// 自分がサーブしたラリーで取った点。
+    public var servePointsWon = 0
+    /// 自分がサーブしたラリーの数。
+    public var servePointsPlayed = 0
+    /// 相手がサーブしたラリーで取った点。
+    public var receivePointsWon = 0
+    public var receivePointsPlayed = 0
+    /// 続けて取った点の最大。
+    public var longestRun = 0
+
+    public init() {}
+}
+
+public extension Array where Element == GameTimeline {
+    /// 選手の番号順の内訳。
+    func playerStats() -> [PlayerStats] {
+        var stats = [PlayerStats(), PlayerStats()]
+        for game in self {
+            var runner = -1
+            var run = 0
+            for p in game.points {
+                let loser = 1 - p.winner
+                stats[p.winner].points += 1
+                if p.server == p.winner {
+                    stats[p.winner].servePointsWon += 1
+                    stats[p.winner].servePointsPlayed += 1
+                    stats[loser].receivePointsPlayed += 1
+                } else {
+                    stats[p.winner].receivePointsWon += 1
+                    stats[p.winner].receivePointsPlayed += 1
+                    stats[loser].servePointsPlayed += 1
+                }
+                run = p.winner == runner ? run + 1 : 1
+                runner = p.winner
+                stats[p.winner].longestRun = Swift.max(stats[p.winner].longestRun, run)
+            }
+        }
+        return stats
     }
 }
 

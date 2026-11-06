@@ -79,9 +79,10 @@ final class ScoreboardModel: ObservableObject {
         playTone(.nextGame)
     }
 
-    /// 記録を終える。
-    func end() {
-        guard let session else { return }
+    /// 記録を終える。終えた記録を返す（結果の画面を出すため）。
+    @discardableResult
+    func end() -> SessionRecord? {
+        guard let session else { return nil }
         session.endedAt = Date()
         try? context?.save()
         self.session = nil
@@ -89,6 +90,7 @@ final class ScoreboardModel: ObservableObject {
         state = nil
         players = []
         refresh()
+        return session
     }
 
     func handle(_ command: VoiceCommand, source: InputSource) {

@@ -39,7 +39,7 @@ struct CameraView: View {
         }
         .fullScreenCover(isPresented: $showLibrary) {
             NavigationStack {
-                LibraryView(library: controller.library)
+                LibraryView(library: controller.library, deviceLog: controller.deviceLog)
             }
         }
     }
@@ -139,10 +139,51 @@ private struct CameraBottomBar: View {
     let onLibrary: () -> Void
     let onChangeRole: () -> Void
 
+    private enum Mode {
+        case perGame, whole, off
+
+        var title: String {
+            switch self {
+            case .perGame: return "自動録画：ゲームごと"
+            case .whole: return "自動録画：記録中ずっと"
+            case .off: return "自動録画：OFF"
+            }
+        }
+    }
+
+    private var mode: Mode {
+        guard controller.autoRecord else { return .off }
+        return controller.recordWholeSession ? .whole : .perGame
+    }
+
+    private var modeBinding: Binding<Mode> {
+        Binding(get: { mode }, set: { newMode in
+            switch newMode {
+            case .perGame:
+                controller.autoRecord = true
+                controller.recordWholeSession = false
+            case .whole:
+                controller.autoRecord = true
+                controller.recordWholeSession = true
+            case .off:
+                controller.autoRecord = false
+            }
+        })
+    }
+
     var body: some View {
         HStack(spacing: 16) {
-            Toggle("ゲームに合わせて自動録画", isOn: $controller.autoRecord)
-                .fixedSize()
+            Menu {
+                // メニューの中の Picker は、選んでいるものにチェックが付く
+                Picker("自動録画", selection: modeBinding) {
+                    Text("ゲームごとに録画").tag(Mode.perGame)
+                    Text("記録中ずっと録画").tag(Mode.whole)
+                    Text("自動録画しない").tag(Mode.off)
+                }
+            } label: {
+                Label(mode.title, systemImage: "record.circle")
+                    .fixedSize()
+            }
             Spacer()
             Button {
                 controller.toggleManualRecording()

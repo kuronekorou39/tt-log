@@ -4,7 +4,7 @@ import Foundation
 ///
 /// 置き場所：書類フォルダ / Sessions / <開始日時>-<ID の先頭> /
 /// - index.json：録画ファイルの一覧と、各ゲームの得点の時刻（この端末の時計に直したもの）
-/// - game01-1.mov など：ゲームごとの録画
+/// - game01-1.mov など：ゲームごとの録画。whole-01.mov：記録中ずっと撮った録画
 struct CameraSessionIndex: Codable, Identifiable, Hashable {
     struct Clip: Codable, Hashable, Identifiable {
         var file: String
@@ -12,6 +12,8 @@ struct CameraSessionIndex: Codable, Identifiable, Hashable {
         var gameIndex: Int?
         var startedAt: Date
         var endedAt: Date?
+        /// 記録中ずっと撮った録画（ゲームをまたぐ）。古い index.json には無いので省略可。
+        var wholeSession: Bool?
         var id: String { file }
     }
 

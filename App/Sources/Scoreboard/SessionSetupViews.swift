@@ -175,7 +175,7 @@ private struct PlayerRow: View {
     }
 }
 
-/// これまでの記録。
+/// これまでの記録。選ぶと結果（スコア推移・得点の一覧・共有）を見られる。
 struct HistoryView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -184,23 +184,27 @@ struct HistoryView: View {
 
     var body: some View {
         List {
+            if sessions.isEmpty {
+                Text("まだ記録がありません。").foregroundStyle(.secondary)
+            }
             ForEach(sessions) { s in
-                let log = s.log
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(s.startedAt, format: .dateTime.year().month().day().hour().minute())
-                            .font(.headline)
-                        if s.endedAt == nil {
-                            Text("記録中").font(.caption).padding(.horizontal, 6).background(.green.opacity(0.2), in: Capsule())
+                NavigationLink {
+                    SessionDetailView(session: s)
+                } label: {
+                    let log = s.log
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(s.startedAt, format: .dateTime.year().month().day().hour().minute())
+                                .font(.headline)
+                            if s.endedAt == nil {
+                                Text("記録中").font(.caption).padding(.horizontal, 6).background(.green.opacity(0.2), in: Capsule())
+                            }
                         }
-                        Spacer()
-                        ShareLink(item: shareText(s, log)) { Image(systemName: "square.and.arrow.up") }
-                            .buttonStyle(.borderless)
+                        Text(log.summary(names: s.playerNames))
+                        Text(log.config.format.title)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    Text(log.summary(names: s.playerNames))
-                    Text(log.config.format.title)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
                 .swipeActions {
                     if s.endedAt != nil {
@@ -221,19 +225,5 @@ struct HistoryView: View {
                 deleting = nil
             }
         }
-    }
-
-    private func shareText(_ s: SessionRecord, _ log: SessionLog) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy/MM/dd HH:mm"
-        var lines = ["卓球の記録 \(f.string(from: s.startedAt))", log.summary(names: s.playerNames)]
-        for g in log.games() where g.winner != nil {
-            if let last = g.points.last?.scores {
-                let a = s.playerNames.first ?? "A"
-                let b = s.playerNames.count > 1 ? s.playerNames[1] : "B"
-                lines.append("第\(g.index + 1)ゲーム \(a) \(last[0]) - \(last[1]) \(b)")
-            }
-        }
-        return lines.joined(separator: "\n")
     }
 }

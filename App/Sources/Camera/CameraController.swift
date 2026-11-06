@@ -3,19 +3,34 @@ import Foundation
 import TTLogCore
 import UIKit
 
-/// カメラ端末の中心。スコアボードの状態を見て、ゲームごとに録画を始め・止める。
+private let wholeSessionKey = "camera.recordWholeSession"
+
+/// カメラ端末の中心。スコアボードの状態を見て、録画を始め・止める。
 ///
+/// ゲームごと（既定）：
 /// - ゲーム中（playing）になったら録画を始める
 /// - ゲームが終わったら `postRollSeconds` 秒おいて止める（最後のラリーの余韻まで残す）
 /// - 止める前にゲームが再開したら（最後の点の取り消しなど）、そのまま続ける
-/// - 手動録画中は自動では止めない
+/// 記録中ずっと：
+/// - スコアボードで記録を始めてから終えるまで、ゲームの間も止めずに1本で撮る
+/// 手動録画中は自動では止めない。
+///
+/// 端末の状態（温度・電池・空き容量）は10秒ごとに `DeviceLog` に残す。
 @MainActor
 final class CameraController: ObservableObject {
     let client = PeerClient()
     let recorder = CameraRecorder()
     let library = CameraLibrary()
+    let deviceLog = DeviceLog()
 
     @Published var autoRecord = true
+    /// 記録中はゲームの間も止めずに撮る（端末内に保存する）。
+    @Published var recordWholeSession = UserDefaults.standard.bool(forKey: wholeSessionKey) {
+        didSet {
+            UserDefaults.standard.set(recordWholeSession, forKey: wholeSessionKey)
+            handle(client.snapshot)
+        }
+    }
     @Published private(set) var recordingStartedAt: Date?
     @Published private(set) var recordingLabel = ""
     @Published private(set) var thermalState = ProcessInfo.processInfo.thermalState
@@ -31,6 +46,7 @@ final class CameraController: ObservableObject {
     /// いま録画している（または開始を頼んだ）もの。
     private var recording: Target?
     private var recordingFile: String?
+    private var recordingWhole = false
     private var manual = false
     /// 止めたあとに始め直すもの（ゲームが切り替わったとき）。
     private var restartAfterStop: Target?
@@ -101,8 +117,7 @@ final class CameraController: ObservableObject {
         guard autoRecord, !manual else { return }
 
         // 記録を終えた（idle）ときも、ゲームが終わったときと同じく止める
-        if s.shouldRecord, let id = s.sessionId {
-            let target = Target(sessionId: id, gameIndex: s.gameIndex)
+        if let target = autoTarget(s) {
             pendingStop?.cancel()
             pendingStop = nil
             if recording == nil {
@@ -120,6 +135,13 @@ final class CameraController: ObservableObject {
                 self?.recorder.stopRecording()
             }
         }
+    }
+
+    /// いまの状態で自動録画すべきもの。録画しない状態なら nil。
+    private func autoTarget(_ s: ScoreboardSnapshot) -> Target? {
+        guard let id = s.sessionId else { return nil }
+        if recordWholeSession { return Target(sessionId: id, gameIndex: nil) }
+        return s.shouldRecord ? Target(sessionId: id, gameIndex: s.gameIndex) : nil
     }
 
     /// 各ゲームの得点の時刻を、この端末の時計に直して残す。
@@ -158,22 +180,28 @@ final class CameraController: ObservableObject {
         let startedAt = client.snapshot?.sessionStartedAt.map { client.localDate(fromRemote: $0) } ?? Date()
         let index = library.ensure(id: target.sessionId, playerNames: names, startedAt: startedAt)
         let file: String
+        let whole = !manual && target.gameIndex == nil
         if let g = target.gameIndex {
             let part = index.clips.filter { $0.gameIndex == g }.count + 1
             file = String(format: "game%02d-%d.mov", g + 1, part)
+        } else if whole {
+            let part = index.clips.filter { $0.wholeSession == true }.count + 1
+            file = String(format: "whole-%02d.mov", part)
         } else {
             file = "manual-\(Int(Date().timeIntervalSince1970)).mov"
         }
         recording = target
         recordingFile = file
-        recordingLabel = target.gameIndex.map { "第\($0 + 1)ゲーム" } ?? "手動録画"
+        recordingWhole = whole
+        recordingLabel = target.gameIndex.map { "第\($0 + 1)ゲーム" } ?? (whole ? "通し録画" : "手動録画")
         recorder.startRecording(to: library.folder(of: index).appendingPathComponent(file), rotationAngle: Self.currentRotationAngle())
     }
 
     private func clipStarted(_ url: URL, at: Date) {
         guard let target = recording,
               var index = library.sessions.first(where: { $0.id == target.sessionId }) else { return }
-        index.clips.append(.init(file: url.lastPathComponent, gameIndex: target.gameIndex, startedAt: at))
+        index.clips.append(.init(file: url.lastPathComponent, gameIndex: target.gameIndex, startedAt: at,
+                                 wholeSession: recordingWhole ? true : nil))
         library.save(index)
         recordingStartedAt = at
         message = nil
@@ -194,9 +222,9 @@ final class CameraController: ObservableObject {
         if let next = restartAfterStop {
             restartAfterStop = nil
             startClip(next)
-        } else if autoRecord, let s = client.snapshot, s.shouldRecord, let id = s.sessionId {
+        } else if autoRecord, let s = client.snapshot, let target = autoTarget(s) {
             // 止めている間にゲームが始まっていたら追いかける
-            startClip(Target(sessionId: id, gameIndex: s.gameIndex))
+            startClip(target)
         }
     }
 
@@ -209,6 +237,7 @@ final class CameraController: ObservableObject {
             autoRecord = false
             recorder.stopRecording()
         }
+        recordSample()
     }
 
     private func updateDeviceStatus() {
@@ -216,6 +245,26 @@ final class CameraController: ObservableObject {
         let values = try? library.root.deletingLastPathComponent()
             .resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         freeBytes = values?.volumeAvailableCapacityForImportantUsage
+        if let free = freeBytes, free < Self.minimumFreeBytes, recording != nil {
+            message = "空き容量が足りなくなったため録画を止めました"
+            autoRecord = false
+            pendingStop?.cancel()
+            restartAfterStop = nil
+            recorder.stopRecording()
+        }
+        recordSample()
+    }
+
+    private func recordSample() {
+        let state = UIDevice.current.batteryState
+        deviceLog.append(DeviceSample(
+            at: Date(),
+            thermal: DeviceSample.thermalLevel(thermalState),
+            battery: batteryLevel >= 0 ? Int((batteryLevel * 100).rounded()) : nil,
+            charging: state == .charging || state == .full,
+            freeBytes: freeBytes,
+            recording: recording != nil
+        ))
     }
 
     /// 画面の向きに合わせた録画の向き（横向き専用アプリ）。

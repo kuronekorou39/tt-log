@@ -35,6 +35,37 @@ final class SessionLogTests: XCTestCase {
         XCTAssertEqual(games[1].points.map(\.at), [at(210)])
     }
 
+    func testPointsKeepServerAndSource() {
+        var log = SessionLog(config: MatchConfig(firstServer: 1), startedAt: t0)
+        log.append(.point(winner: 0), at: at(1), source: .voice) // サーブ 1
+        log.append(.point(winner: 0), at: at(2), source: .tap)   // サーブ 1
+        log.append(.point(winner: 1), at: at(3), source: .tap)   // サーブ 0
+        let points = log.games()[0].points
+        XCTAssertEqual(points.map(\.server), [1, 1, 0])
+        XCTAssertEqual(points.map(\.source), [.voice, .tap, .tap])
+    }
+
+    func testPlayerStats() {
+        var log = SessionLog(config: MatchConfig(firstServer: 0), startedAt: t0)
+        // サーブ 0,0,1,1,0 の順。勝者 0,0,0,1,1
+        for (i, w) in [0, 0, 0, 1, 1].enumerated() {
+            log.append(.point(winner: w), at: at(Double(i)), source: .tap)
+        }
+        let stats = log.games().playerStats()
+        XCTAssertEqual(stats[0].points, 3)
+        XCTAssertEqual(stats[1].points, 2)
+        XCTAssertEqual(stats[0].servePointsWon, 2)
+        XCTAssertEqual(stats[0].servePointsPlayed, 3)
+        XCTAssertEqual(stats[0].receivePointsWon, 1)
+        XCTAssertEqual(stats[0].receivePointsPlayed, 2)
+        XCTAssertEqual(stats[1].servePointsWon, 1)
+        XCTAssertEqual(stats[1].servePointsPlayed, 2)
+        XCTAssertEqual(stats[1].receivePointsWon, 1)
+        XCTAssertEqual(stats[1].receivePointsPlayed, 3)
+        XCTAssertEqual(stats[0].longestRun, 3)
+        XCTAssertEqual(stats[1].longestRun, 2)
+    }
+
     func testUndo() {
         var log = SessionLog(config: MatchConfig(), startedAt: t0)
         XCTAssertFalse(log.undo())

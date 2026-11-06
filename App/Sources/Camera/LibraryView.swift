@@ -4,6 +4,7 @@ import SwiftUI
 /// カメラ端末での振り返り。記録 → ゲーム → 録画、と選び、得点の一覧からその場面へ飛ぶ。
 struct LibraryView: View {
     @ObservedObject var library: CameraLibrary
+    let deviceLog: DeviceLog
     @Environment(\.dismiss) private var dismiss
     @State private var deleting: CameraSessionIndex?
 
@@ -15,7 +16,7 @@ struct LibraryView: View {
             }
             ForEach(library.sessions) { index in
                 NavigationLink {
-                    SessionClipsView(library: library, index: index)
+                    SessionClipsView(library: library, deviceLog: deviceLog, index: index)
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(index.startedAt, format: .dateTime.year().month().day().hour().minute())
@@ -31,6 +32,13 @@ struct LibraryView: View {
         }
         .navigationTitle("振り返り")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                NavigationLink {
+                    DeviceLogListView(log: deviceLog)
+                } label: {
+                    Label("温度・電池", systemImage: "thermometer.medium")
+                }
+            }
             ToolbarItem(placement: .confirmationAction) {
                 Button("閉じる") { dismiss() }
             }
@@ -47,30 +55,51 @@ struct LibraryView: View {
 
 private struct SessionClipsView: View {
     @ObservedObject var library: CameraLibrary
+    let deviceLog: DeviceLog
     let index: CameraSessionIndex
 
     var body: some View {
-        List(index.clips) { clip in
-            NavigationLink {
-                ClipPlayerView(library: library, index: index, clip: clip)
-            } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(title(clip)).font(.headline)
-                        Text(detail(clip)).font(.caption).foregroundStyle(.secondary)
+        List {
+            Section("録画") {
+                ForEach(index.clips) { clip in
+                    NavigationLink {
+                        ClipPlayerView(library: library, index: index, clip: clip)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(title(clip)).font(.headline)
+                                Text(detail(clip)).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if let g = clip.gameIndex, let last = index.game(g)?.points.last {
+                                Text("\(last.scores[0]) - \(last.scores[1])")
+                                    .font(.title3.monospacedDigit())
+                            }
+                        }
                     }
-                    Spacer()
-                    if let g = clip.gameIndex, let last = index.game(g)?.points.last {
-                        Text("\(last.scores[0]) - \(last.scores[1])")
-                            .font(.title3.monospacedDigit())
-                    }
+                }
+            }
+            let samples = deviceSamples
+            if !samples.isEmpty {
+                Section("この記録の間の温度・電池") {
+                    DeviceLogChart(samples: samples)
+                        .padding(.vertical, 4)
                 }
             }
         }
         .navigationTitle("\(index.name(0)) 対 \(index.name(1))")
     }
 
+    /// 最初の録画の少し前から、最後の録画の少し後まで。
+    private var deviceSamples: [DeviceSample] {
+        let margin: TimeInterval = 5 * 60
+        let start = (index.clips.map(\.startedAt).min() ?? index.startedAt).addingTimeInterval(-margin)
+        let end = (index.clips.compactMap(\.endedAt).max() ?? Date()).addingTimeInterval(margin)
+        return deviceLog.samples(from: start, to: end)
+    }
+
     private func title(_ clip: CameraSessionIndex.Clip) -> String {
+        if clip.wholeSession == true { return "通し録画（\(clip.file)）" }
         guard let g = clip.gameIndex else { return "手動録画" }
         let parts = index.clips.filter { $0.gameIndex == g }
         return parts.count > 1 ? "第\(g + 1)ゲーム（\(clip.file)）" : "第\(g + 1)ゲーム"
@@ -102,10 +131,18 @@ private struct ClipPlayerView: View {
     /// 得点が入力された時刻から、どれだけ前から再生するか（ラリーの長さのめやす）。
     private static let rallyLeadSeconds = 8.0
 
-    private var marks: [CameraSessionIndex.Mark] {
-        guard let g = clip.gameIndex else { return [] }
+    private struct Entry {
+        var gameIndex: Int
+        var mark: CameraSessionIndex.Mark
+    }
+
+    /// この録画に映っている得点。通し録画・手動録画は、ゲームをまたいで時刻で拾う。
+    private var marks: [Entry] {
         let end = clip.endedAt ?? .distantFuture
-        return (index.game(g)?.points ?? []).filter { $0.at >= clip.startedAt && $0.at <= end }
+        let games = clip.gameIndex.map { g in index.games.filter { $0.gameIndex == g } } ?? index.games
+        return games.sorted { $0.gameIndex < $1.gameIndex }.flatMap { game in
+            game.points.filter { $0.at >= clip.startedAt && $0.at <= end }.map { Entry(gameIndex: game.gameIndex, mark: $0) }
+        }
     }
 
     var body: some View {
@@ -113,11 +150,15 @@ private struct ClipPlayerView: View {
             VideoPlayer(player: player)
                 .background(.black)
             if !marks.isEmpty {
-                List(Array(marks.enumerated()), id: \.offset) { _, mark in
+                List(Array(marks.enumerated()), id: \.offset) { _, entry in
+                    let mark = entry.mark
                     Button {
                         seek(to: mark)
                     } label: {
                         HStack {
+                            if clip.gameIndex == nil {
+                                Text("G\(entry.gameIndex + 1)").font(.caption).foregroundStyle(.secondary)
+                            }
                             Text("\(mark.scores[0]) - \(mark.scores[1])")
                                 .font(.headline.monospacedDigit())
                             Text(index.name(mark.winner))
@@ -131,7 +172,7 @@ private struct ClipPlayerView: View {
                 .listStyle(.plain)
             }
         }
-        .navigationTitle(clip.gameIndex.map { "第\($0 + 1)ゲーム" } ?? "手動録画")
+        .navigationTitle(clip.gameIndex.map { "第\($0 + 1)ゲーム" } ?? (clip.wholeSession == true ? "通し録画" : "手動録画"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             try? AVAudioSession.sharedInstance().setCategory(.playback)
