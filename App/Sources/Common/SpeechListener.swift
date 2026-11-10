@@ -70,6 +70,11 @@ final class SpeechListener: ObservableObject {
     @Published private(set) var partialText = ""
     @Published private(set) var statusMessage = ""
     @Published private(set) var log: [Utterance] = []
+    /// いま使っているマイクとスピーカーの名前（画面とログに出す）。
+    @Published private(set) var inputName = ""
+    @Published private(set) var outputName = ""
+    /// 効果音が内蔵スピーカー以外（つないだ受信機など）から出ているか。
+    @Published private(set) var outputIsExternal = false
 
     /// 受け付けた操作を受け取る。
     var onCommand: ((VoiceCommand) -> Void)?
@@ -120,10 +125,26 @@ final class SpeechListener: ObservableObject {
     /// 最後に発話を区切った時刻。
     private var lastUtteranceAt: Date?
 
+    private var routeObserver: NSObjectProtocol?
+    private var restartTask: Task<Void, Never>?
+
     private static let logLimit = 300
+    /// つないだら内蔵マイクより優先するマイク（DJI Mic などの受信機、ヘッドセット）。
+    private static let externalInputs: Set<AVAudioSession.Port> = [.usbAudio, .headsetMic, .lineIn]
 
     /// この端末で日本語の端末内（オフライン）認識が使えるか。
     var supportsOnDevice: Bool { recognizer?.supportsOnDeviceRecognition ?? false }
+
+    init() {
+        refreshRoute()
+        routeObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            let reason = raw.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+            MainActor.assumeIsolated { self?.routeChanged(reason) }
+        }
+    }
 
     func start() async {
         guard !isListening else { return }
@@ -137,10 +158,14 @@ final class SpeechListener: ObservableObject {
             // .measurement は音声処理を切れるが再生音が小さくなるので、既定は .default（設定で選べる）
             try session.setCategory(.playAndRecord, mode: micMode.sessionMode, options: [.defaultToSpeaker, .mixWithOthers])
             try session.setActive(true, options: .notifyOthersOnDeactivation)
+            // 受信機などをつないでいれば、そちらを使う
+            let external = session.availableInputs?.first { Self.externalInputs.contains($0.portType) }
+            try? session.setPreferredInput(external)
         } catch {
             statusMessage = "マイクを開けません: \(error.localizedDescription)"
             return
         }
+        refreshRoute()
 
         let input = engine.inputNode
         // 通話用の処理（反響を消す・音量の自動調整）は、録音の部品の側で有効にする
@@ -335,7 +360,31 @@ final class SpeechListener: ObservableObject {
         case .dictation: hint = "dictation"
         default: hint = "unspecified"
         }
-        return "区切り\(ms)ms 二重防止\(gate.deadTime)秒 \(hint) マイク:\(micMode.title) 言葉 \(wordsSummary)"
+        return "区切り\(ms)ms 二重防止\(gate.deadTime)秒 \(hint) マイク:\(micMode.title) 入力:\(inputName) 出力:\(outputName) 言葉 \(wordsSummary)"
+    }
+
+    // MARK: - マイクの抜き差し
+
+    private func refreshRoute() {
+        let route = AVAudioSession.sharedInstance().currentRoute
+        inputName = route.inputs.map(\.portName).joined(separator: "、")
+        outputName = route.outputs.map(\.portName).joined(separator: "、")
+        outputIsExternal = !route.outputs.isEmpty && !route.outputs.contains { $0.portType == .builtInSpeaker }
+    }
+
+    private func routeChanged(_ reason: AVAudioSession.RouteChangeReason?) {
+        refreshRoute()
+        // 聞き取り中にマイクを抜き差しすると録音の形式が変わって止まるので、作り直す。
+        // 自分で聞き取りを止めたときの変化（.categoryChange など）では作り直さない。
+        guard isListening, reason == .newDeviceAvailable || reason == .oldDeviceUnavailable else { return }
+        restartTask?.cancel()
+        restartTask = Task { [weak self] in
+            // 抜き差しの通知はまとめて届くことがあるので、落ち着いてからやり直す
+            try? await Task.sleep(for: .milliseconds(500))
+            guard let self, !Task.isCancelled, self.isListening else { return }
+            self.stop()
+            await self.start()
+        }
     }
 
     // MARK: - 文字にならなかった大きな音

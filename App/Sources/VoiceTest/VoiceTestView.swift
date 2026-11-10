@@ -99,6 +99,10 @@ struct VoiceTestView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+            Label(listener.inputName, systemImage: "mic")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             Button {
                 if listener.isListening {
                     listener.stop()

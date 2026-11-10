@@ -79,6 +79,7 @@ struct ScoreboardSettingsView: View {
                     Text((MicMode(rawValue: micMode) ?? .standard).detail)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    MicRouteRows(listener: listener)
                     Stepper(value: $silenceMs, in: 300...1500, step: 100) {
                         Text("発話の区切り（無音）: \(silenceMs) ミリ秒")
                     }
