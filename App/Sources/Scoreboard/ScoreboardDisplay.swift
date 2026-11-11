@@ -6,6 +6,10 @@ struct ScoreboardDisplay: View {
     let theme: ScoreboardTheme
     let state: MatchState
     let playerNames: [String]
+    /// いまのゲームで最後に点を取った選手。サーブの目印と取り違えないよう、別の形で示す。
+    var lastScorer: Int? = nil
+    /// 選手ごとの呼び方の札。空なら帯を出さない。
+    var callTags: [CallTag] = []
     var onPoint: (Int) -> Void = { _ in }
 
     var body: some View {
@@ -20,6 +24,10 @@ struct ScoreboardDisplay: View {
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .background(theme.background)
+    }
+
+    private func callWordNote(_ player: Int) -> String {
+        callTags.indices.contains(player) ? "呼び方「" + callTags[player].word + "」、" : ""
     }
 
     /// ゲーム（または試合）に勝った選手。ゲーム中は nil。
@@ -40,6 +48,8 @@ struct ScoreboardDisplay: View {
             ScoreboardPlayerPanel(theme: theme, player: player, name: name,
                                   score: state.scores[player], games: state.gamesWon[player],
                                   isServing: state.server == player,
+                                  isLastScorer: lastScorer == player,
+                                  callTag: callTags.indices.contains(player) ? callTags[player] : nil,
                                   win: win.map { $0 ? ScoreboardPlayerPanel.WinKind.match : .game },
                                   dimmed: winner != nil && win == nil)
                 .contentShape(Rectangle())
@@ -48,7 +58,7 @@ struct ScoreboardDisplay: View {
         .disabled(state.phase != .playing)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(name)
-        .accessibilityValue("\(win != nil ? "勝ち、" : "")\(state.server == player ? "サーブ、" : "")\(state.scores[player])点、獲得ゲーム\(state.gamesWon[player])")
+        .accessibilityValue("\(win != nil ? "勝ち、" : "")\(state.server == player ? "サーブ、" : "")\(lastScorer == player ? "直前に得点、" : "")\(callWordNote(player))\(state.scores[player])点、獲得ゲーム\(state.gamesWon[player])")
         .accessibilityHint(state.phase == .playing ? "ダブルタップで1点追加" : "ゲーム終了")
         .accessibilityIdentifier("scoreboard.player.\(player)")
     }
@@ -67,6 +77,8 @@ private struct ScoreboardPlayerPanel: View {
     let score: Int
     let games: Int
     let isServing: Bool
+    var isLastScorer = false
+    var callTag: CallTag?
     var win: WinKind?
     /// 負けた側は少し暗くして、勝った側を目立たせる。
     var dimmed = false
@@ -85,6 +97,11 @@ private struct ScoreboardPlayerPanel: View {
             let borderWidth = max(3, min(9, proxy.size.width * 0.017))
             let cornerRadius: CGFloat = theme == .simple ? 0 : 16
             VStack(spacing: 0) {
+                // 呼び方の帯は両方のパネルに出るので、どちらかを目立たせる印にはならない
+                if let callTag {
+                    CallTagBand(theme: theme, tag: callTag,
+                                height: max(22, min(52, proxy.size.height * 0.08)))
+                }
                 VStack(spacing: max(6, min(18, proxy.size.height * 0.035))) {
                     HStack(spacing: 8) {
                         if theme == .arena {
@@ -97,12 +114,17 @@ private struct ScoreboardPlayerPanel: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.5)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                        if isLastScorer {
+                            LastPointBadge(theme: theme, score: score, height: nameSize * 1.2)
+                                .transition(.scale(scale: 0.3).combined(with: .opacity))
+                        }
                         gamesLabel(size: detailSize)
                     }
                     scoreView
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .padding(inset)
+                .animation(.spring(response: 0.35, dampingFraction: 0.6), value: isLastScorer)
                 // 非サーブ側にも同じ高さを確保し、交代しても得点の位置と大きさを変えない。
                 // ゲーム終了時はサーブがいないので、同じ場所に「勝ち」の帯を出す。
                 ZStack {
@@ -118,9 +140,10 @@ private struct ScoreboardPlayerPanel: View {
             .frame(width: proxy.size.width, height: proxy.size.height)
             .background(panelBackground)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            // サーブはパネル下の帯だけで示す（太枠も付けると、点が入った側と取り違えやすかった）
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder(isServing ? serviceColor : (win != nil ? WinBanner.color : .clear), lineWidth: borderWidth)
+                    .strokeBorder(win != nil ? WinBanner.color : .clear, lineWidth: borderWidth)
                     .allowsHitTesting(false)
             }
             .overlay {
@@ -208,6 +231,61 @@ private struct ScoreboardPlayerPanel: View {
                 }
         case .focus: accent
         }
+    }
+}
+
+/// パネルの上の、声で呼ぶ言葉の帯。色の組は帯をその色で塗り、左右の言葉は矢印を添えて控えめに出す。
+private struct CallTagBand: View {
+    let theme: ScoreboardTheme
+    let tag: CallTag
+    let height: CGFloat
+
+    var body: some View {
+        let size = height * 0.62
+        HStack(spacing: size * 0.4) {
+            if tag.arrow == .leading { Image(systemName: "arrowtriangle.left.fill") }
+            Text(tag.word)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            if tag.arrow == .trailing { Image(systemName: "arrowtriangle.right.fill") }
+        }
+        .font(.system(size: size, weight: .heavy, design: .rounded))
+        .foregroundStyle(tag.text ?? theme.foreground.opacity(0.75))
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity)
+        .frame(height: height)
+        .background(tag.fill ?? theme.foreground.opacity(0.08))
+        // 背景と同じような色（暗いデザインの黒、明るいデザインの白）でも帯の形が分かるように縁を付ける
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(theme.foreground.opacity(0.18)).frame(height: 1)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// 最後に点を取った側の名前の横に出す「+1」。点が入るたびに弾ませる。
+/// サーブの帯（色付き・パネルの下）と見分けられるよう、文字色を反転した札にして上に置く。
+private struct LastPointBadge: View {
+    let theme: ScoreboardTheme
+    let score: Int
+    let height: CGFloat
+
+    var body: some View {
+        Text("+1")
+            .font(.system(size: height * 0.7, weight: .heavy, design: .rounded))
+            .lineLimit(1)
+            .fixedSize()
+            .foregroundStyle(theme.background)
+            .padding(.horizontal, height * 0.35)
+            .frame(height: height)
+            .background(Capsule().fill(theme.foreground))
+            .keyframeAnimator(initialValue: 1.0, trigger: score) { view, scale in
+                view.scaleEffect(scale)
+            } keyframes: { _ in
+                SpringKeyframe(1.35, duration: 0.15)
+                SpringKeyframe(1.0, duration: 0.35)
+            }
+            .accessibilityHidden(true)
     }
 }
 

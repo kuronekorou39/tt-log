@@ -10,6 +10,7 @@ struct ScoreboardSettingsView: View {
     @AppStorage(ScoreboardTheme.storageKey) private var themeRaw = ScoreboardTheme.simple.rawValue
     @AppStorage("sound.enabled") private var soundEnabled = true
     @AppStorage("sound.volume") private var volume = 0.3
+    @AppStorage(CallStyle.storageKey) private var callStyleRaw = CallStyle.side.rawValue
     @AppStorage("voice.leftWord") private var leftWord = "ひだり"
     @AppStorage("voice.rightWord") private var rightWord = "みぎ"
     @AppStorage("voice.deadTime") private var deadTime = 1.5
@@ -21,8 +22,16 @@ struct ScoreboardSettingsView: View {
     @State private var exportURL: URL?
     @State private var exportError: String?
 
+    private var callStyle: CallStyle { CallStyle(rawValue: callStyleRaw) ?? .side }
+
+    /// いま使う2つの言葉（選手 A・B、または画面の左・右）。
+    private var callWords: [String] {
+        [0, 1].map { callStyle.tag(for: $0, left: 0, customWords: (leftWord, rightWord)).word }
+            .filter { !$0.isEmpty }
+    }
+
     private var confusable: [(String, String)] {
-        VoiceCommandMatcher.confusablePairs(callNames: [leftWord, rightWord].filter { !$0.isEmpty })
+        VoiceCommandMatcher.confusablePairs(callNames: callWords)
     }
 
     var body: some View {
@@ -45,24 +54,32 @@ struct ScoreboardSettingsView: View {
                     Text("この端末の表示にだけ反映されます。試合中も切り替えられます。")
                 }
                 Section {
-                    HStack {
-                        Text("画面の左")
-                        TextField("ひらがな", text: $leftWord)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
+                    Picker("呼び方", selection: $callStyleRaw) {
+                        ForEach(CallStyle.allCases) { Text($0.title).tag($0.rawValue) }
                     }
-                    HStack {
-                        Text("画面の右")
-                        TextField("ひらがな", text: $rightWord)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
+                    Text(callStyle.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if callStyle == .custom {
+                        HStack {
+                            Text("画面の左")
+                            TextField("ひらがな", text: $leftWord)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                        }
+                        HStack {
+                            Text("画面の右")
+                            TextField("ひらがな", text: $rightWord)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                        }
                     }
                     ForEach(Array(confusable.enumerated()), id: \.offset) { _, pair in
                         Label("「\(pair.0)」と「\(pair.1)」は聞き間違えやすいかもしれません",
                               systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)
                     }
-                    ForEach([leftWord, rightWord].compactMap { ScoreOverlapNote.text(callName: $0) }, id: \.self) { note in
+                    ForEach(callWords.compactMap { ScoreOverlapNote.text(callName: $0) }, id: \.self) { note in
                         Label(note, systemImage: "exclamationmark.triangle")
                             .font(.caption)
                             .foregroundStyle(.orange)
@@ -70,7 +87,7 @@ struct ScoreboardSettingsView: View {
                 } header: {
                     Text("声での操作")
                 } footer: {
-                    Text("選手の呼び名でも点が入ります（「〇〇ポイント」「〇〇1点」なども可）。ほかに「戻して」「取り消し」（取り消し）と「次のゲーム」を受け付けます。言葉だけを単独で言ったときに反応します。")
+                    Text("呼び方の言葉は、スコアボードの各パネルの上に出ます。選手の呼び名でも点が入ります（「〇〇ポイント」「〇〇1点」なども可）。ほかに「戻して」「取り消し」（取り消し）と「次のゲーム」を受け付けます。言葉だけを単独で言ったときに反応します。")
                 }
                 Section("聞き取りの調整") {
                     Picker("マイクの処理", selection: $micMode) {

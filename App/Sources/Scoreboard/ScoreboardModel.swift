@@ -18,8 +18,9 @@ final class ScoreboardModel: ObservableObject {
     let tones = TonePlayer()
 
     var soundEnabled = true
-    var leftWord = "ひだり" { didSet { updateVoiceWords() } }
-    var rightWord = "みぎ" { didSet { updateVoiceWords() } }
+    var callStyle = CallStyle.side { didSet { updateVoiceWords() } }
+    /// 「自由に決める」のときの言葉（画面の左、右）。
+    var customWords = ("ひだり", "みぎ") { didSet { updateVoiceWords() } }
 
     private var context: ModelContext?
 
@@ -160,6 +161,12 @@ final class ScoreboardModel: ObservableObject {
         }
     }
 
+    /// 選手の呼び方の札（パネルの上の帯）。記録していないときは空。
+    var callTags: [CallTag] {
+        guard let state else { return [] }
+        return [0, 1].map { callStyle.tag(for: $0, left: state.left, customWords: customWords) }
+    }
+
     /// 画面に出す名前。
     func name(_ player: Int) -> String {
         if let session, player < session.playerNames.count { return session.playerNames[player] }
@@ -196,11 +203,12 @@ final class ScoreboardModel: ObservableObject {
     }
 
     private func updateVoiceWords() {
-        // 画面の左右の言葉と選手の呼び名を、いつでも両方受け付ける
+        // 呼び方の言葉（左右・色）と選手の呼び名を、いつでも両方受け付ける
         // （練習で、呼び名のモードにしていないのに名前で呼んで反応しないことが続いたため）
         let left = state?.left ?? 0
         let words: [[String]] = [0, 1].map { p in
-            [p == left ? leftWord : rightWord] + (p < players.count ? [players[p].callName] : [])
+            [callStyle.tag(for: p, left: left, customWords: customWords).word]
+                + (p < players.count ? [players[p].callName] : [])
         }
         listener.matcher = VoiceCommandMatcher(playerWords: words)
         listener.contextualStrings = SpeechListener.hints(callNames: words.flatMap { $0 })

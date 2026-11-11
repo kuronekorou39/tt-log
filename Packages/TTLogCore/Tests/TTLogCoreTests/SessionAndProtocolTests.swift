@@ -14,6 +14,19 @@ final class SessionLogTests: XCTestCase {
         XCTAssertEqual(log.events.count, 1)
     }
 
+    func testLastScorer() {
+        var log = SessionLog(config: MatchConfig(), startedAt: t0)
+        XCTAssertNil(log.lastScorer)
+        log.append(.point(winner: 1), at: at(1), source: .tap)
+        log.append(.point(winner: 0), at: at(2), source: .voice)
+        XCTAssertEqual(log.lastScorer, 0)
+        _ = log.popLast()
+        XCTAssertEqual(log.lastScorer, 1) // 戻すと、その前に点を取った側に戻る
+        for _ in 0..<10 { log.append(.point(winner: 1), at: at(3), source: .tap) }
+        log.append(.startNextGame, at: at(4), source: .voice)
+        XCTAssertNil(log.lastScorer) // 次のゲームの始めは出さない
+    }
+
     func testGamesTimeline() {
         var log = SessionLog(config: MatchConfig(), startedAt: t0)
         var t = 10.0

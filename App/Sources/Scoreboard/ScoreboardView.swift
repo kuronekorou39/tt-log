@@ -20,6 +20,7 @@ struct ScoreboardView: View {
     @AppStorage(ScoreboardTheme.storageKey) private var themeRaw = ScoreboardTheme.simple.rawValue
     @AppStorage("sound.enabled") private var soundEnabled = true
     @AppStorage("sound.volume") private var volume = 0.3
+    @AppStorage(CallStyle.storageKey) private var callStyle = CallStyle.side.rawValue
     @AppStorage("voice.leftWord") private var leftWord = "ひだり"
     @AppStorage("voice.rightWord") private var rightWord = "みぎ"
     @AppStorage("voice.deadTime") private var deadTime = 1.5
@@ -57,7 +58,9 @@ struct ScoreboardView: View {
                     // ゲーム終了でも画面は覆わない（最後の点が間違いで「戻す」こともあるため）。
                     // 勝った側のパネルに帯と紙吹雪を出し、次のゲームは下のボタンか声で始める。
                     ScoreboardDisplay(theme: theme, state: state,
-                                      playerNames: [model.name(0), model.name(1)]) { player in
+                                      playerNames: [model.name(0), model.name(1)],
+                                      lastScorer: model.log?.lastScorer,
+                                      callTags: model.callTags) { player in
                         model.handle(.point(player: player), source: .tap)
                     }
                     Divider()
@@ -91,7 +94,9 @@ struct ScoreboardView: View {
             case .settings: ScoreboardSettingsView(listener: model.listener, onChangeRole: onChangeRole)
             case .design:
                 ScoreboardDesignSheet(state: model.state,
-                                      playerNames: model.state == nil ? ["プレーヤー A", "プレーヤー B"] : [model.name(0), model.name(1)])
+                                      playerNames: model.state == nil ? ["プレーヤー A", "プレーヤー B"] : [model.name(0), model.name(1)],
+                                      lastScorer: model.log?.lastScorer,
+                                      callTags: model.callTags)
             }
         }
         .confirmationDialog("記録を終えますか？", isPresented: $showEndConfirm, titleVisibility: .visible) {
@@ -294,15 +299,15 @@ struct ScoreboardView: View {
     // MARK: - 設定の反映
 
     private var settingsKey: [String] {
-        [String(soundEnabled), String(volume), leftWord, rightWord, String(deadTime),
+        [String(soundEnabled), String(volume), callStyle, leftWord, rightWord, String(deadTime),
          String(silenceMs), String(recordsAudio), String(taskHint), micMode]
     }
 
     private func applySettings() {
         model.soundEnabled = soundEnabled
         model.tones.volume = Float(volume)
-        model.leftWord = leftWord
-        model.rightWord = rightWord
+        model.callStyle = CallStyle(rawValue: callStyle) ?? .side
+        model.customWords = (leftWord, rightWord)
         model.listener.gate.deadTime = deadTime
         model.listener.silenceInterval = .milliseconds(silenceMs)
         model.listener.recordsAudio = recordsAudio

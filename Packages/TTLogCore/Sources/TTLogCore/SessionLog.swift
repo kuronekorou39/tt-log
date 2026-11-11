@@ -54,6 +54,12 @@ public struct SessionLog: Codable, Hashable, Sendable {
         RuleEngine.reduce(config, events.map(\.event))
     }
 
+    /// いまのゲームで最後に点を取った選手。ゲームの始めはまだいないので nil。
+    public var lastScorer: Int? {
+        guard case .point(let winner) = events.last?.event else { return nil }
+        return winner
+    }
+
     /// 操作を追加する。いまの状態で受け付けない操作なら追加せず false を返す。
     @discardableResult
     public mutating func append(_ event: MatchEvent, at: Date, source: InputSource) -> Bool {

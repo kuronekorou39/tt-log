@@ -189,6 +189,18 @@ final class VoiceCommandMatcherTests: XCTestCase {
         // 操作語と紛らわしい
         XCTAssertEqual(VoiceCommandMatcher.confusablePairs(callNames: ["もどした", "さくら"]).count, 1)
     }
+
+    /// 設定の「呼び方」で選べる言葉が、スコアの言い方や操作語とぶつからないこと。
+    func testCallStyleWords() {
+        for word in ["ひだり", "みぎ", "あか", "しろ", "くろ"] {
+            XCTAssertTrue(VoiceCommandMatcher.scoreOverlap(callName: word).isEmpty, word)
+        }
+        XCTAssertTrue(VoiceCommandMatcher.confusablePairs(callNames: ["ひだり", "みぎ"]).isEmpty)
+        XCTAssertTrue(VoiceCommandMatcher.confusablePairs(callNames: ["あか", "しろ"]).isEmpty)
+        let m = VoiceCommandMatcher(playerWords: [["あか"], ["しろ"]])
+        XCTAssertEqual(m.match(reading: "あか"), .point(player: 0))
+        XCTAssertEqual(m.match(reading: "しろ"), .point(player: 1))
+    }
 }
 
 final class CommandGateTests: XCTestCase {

@@ -4,6 +4,8 @@ import TTLogCore
 struct ScoreboardDesignPicker: View {
     var state: MatchState?
     var playerNames: [String] = ["プレーヤー A", "プレーヤー B"]
+    var lastScorer: Int?
+    var callTags: [CallTag] = []
 
     @AppStorage(ScoreboardTheme.storageKey) private var themeRaw = ScoreboardTheme.simple.rawValue
     @Environment(\.colorScheme) private var colorScheme
@@ -52,7 +54,8 @@ struct ScoreboardDesignPicker: View {
                     .foregroundStyle(theme.foreground.opacity(0.65))
                     .padding(.horizontal, 12)
                     .padding(.top, 10)
-                    ScoreboardDisplay(theme: theme, state: state ?? Self.sampleState, playerNames: playerNames)
+                    ScoreboardDisplay(theme: theme, state: state ?? Self.sampleState, playerNames: playerNames,
+                                      lastScorer: state == nil ? 1 : lastScorer, callTags: callTags)
                         .frame(height: 158)
                 }
                 .background(theme.background)
@@ -113,11 +116,13 @@ struct ScoreboardDesignPicker: View {
 struct ScoreboardDesignSheet: View {
     let state: MatchState?
     let playerNames: [String]
+    var lastScorer: Int?
+    var callTags: [CallTag] = []
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
-            ScoreboardDesignPicker(state: state, playerNames: playerNames)
+            ScoreboardDesignPicker(state: state, playerNames: playerNames, lastScorer: lastScorer, callTags: callTags)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("閉じる") { dismiss() }
@@ -140,7 +145,8 @@ struct ScoreboardDisplay_Previews: PreviewProvider {
     static var previews: some View {
         ForEach(ScoreboardTheme.allCases) { theme in
             ScoreboardDisplay(theme: theme, state: ScoreboardDesignPicker.sampleState,
-                              playerNames: ["プレーヤー A", "プレーヤー B"])
+                              playerNames: ["プレーヤー A", "プレーヤー B"], lastScorer: 1,
+                              callTags: [.red, .white])
                 .environment(\.colorScheme, theme.colorScheme ?? .light)
                 .previewLayout(.fixed(width: 1112, height: 650))
                 .previewDisplayName("iPad・\(theme.title)")
