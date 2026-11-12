@@ -180,6 +180,8 @@ final class PeerProtocolTests: XCTestCase {
             .state(.idle(sentAt: 123)),
             .ping(sentAt: 1.5),
             .pong(pingSentAt: 1.5, receivedAt: 9.0),
+            .cameraStatus(CameraStatus(recording: true, clipSeconds: 12.5, problem: nil, battery: 80, thermal: 0, sentAt: 7)),
+            .cameraStatus(CameraStatus(recording: false, clipSeconds: nil, problem: "カメラが中断中", battery: nil, thermal: 2, sentAt: 8)),
         ]
         for m in messages {
             XCTAssertEqual(try PeerCodec.decode(PeerCodec.encode(m)), m)

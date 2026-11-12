@@ -11,6 +11,8 @@ final class CameraRecorder: NSObject, ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var formatDescription = ""
     @Published private(set) var errorMessage: String?
+    /// いまの録画のファイルの大きさ（バイト）。書き込みが進んでいるかを見るため。
+    @Published private(set) var recordedBytes: Int64 = 0
 
     let session = AVCaptureSession()
 
@@ -18,12 +20,76 @@ final class CameraRecorder: NSObject, ObservableObject {
     var onStarted: ((URL, Date) -> Void)?
     /// 録画が終わったとき（メインスレッドで呼ぶ）。失敗しても途中までのファイルは残っていることがある。
     var onFinished: ((URL, Error?) -> Void)?
+    /// 録画を始められなかったとき（メインスレッドで呼ぶ）。理由を渡す。
+    var onStartFailed: ((String) -> Void)?
+    /// 止めようとしたが録画していなかったとき（メインスレッドで呼ぶ）。
+    var onStopWithoutRecording: (() -> Void)?
+    /// カメラが中断から戻ったとき（メインスレッドで呼ぶ）。
+    var onResumed: (() -> Void)?
+    /// 中断・エラーなど、あとで原因を追うための出来事（メインスレッドで呼ぶ）。
+    var onEvent: ((String) -> Void)?
 
     private let output = AVCaptureMovieFileOutput()
     private let queue = DispatchQueue(label: "camera.session")
     private var configured = false
 
     private static let fragmentSeconds = 10.0
+    private var observers: [NSObjectProtocol] = []
+    private var sizeTimer: Timer?
+
+    override init() {
+        super.init()
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: AVCaptureSession.wasInterruptedNotification, object: session, queue: .main) { [weak self] note in
+            let raw = note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
+            let reason = raw.flatMap(AVCaptureSession.InterruptionReason.init(rawValue:))
+            self?.onEvent?("カメラが中断された（\(Self.describe(reason))）")
+        })
+        observers.append(center.addObserver(forName: AVCaptureSession.interruptionEndedNotification, object: session, queue: .main) { [weak self] _ in
+            self?.onEvent?("カメラの中断が終わった")
+            self?.onResumed?()
+        })
+        observers.append(center.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: .main) { [weak self] note in
+            let error = note.userInfo?[AVCaptureSessionErrorKey] as? Error
+            self?.onEvent?("カメラのエラー: \(error?.localizedDescription ?? "不明")")
+            self?.restartSession()
+        })
+        // 書き込みが進んでいるかを2秒ごとに見る
+        sizeTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            self?.updateRecordedBytes()
+        }
+    }
+
+    private static func describe(_ reason: AVCaptureSession.InterruptionReason?) -> String {
+        switch reason {
+        case .videoDeviceNotAvailableInBackground: return "アプリが裏に回った"
+        case .audioDeviceInUseByAnotherClient: return "マイクを他のアプリが使用"
+        case .videoDeviceInUseByAnotherClient: return "カメラを他のアプリが使用"
+        case .videoDeviceNotAvailableWithMultipleForegroundApps: return "画面分割"
+        case .videoDeviceNotAvailableDueToSystemPressure: return "端末の負荷"
+        default: return "理由不明"
+        }
+    }
+
+    /// エラーで止まったカメラを動かし直す。
+    func restartSession() {
+        queue.async { [self] in
+            guard configured, !session.isRunning else { return }
+            session.startRunning()
+            let running = session.isRunning
+            DispatchQueue.main.async {
+                self.isRunning = running
+                if running { self.onResumed?() }
+            }
+        }
+    }
+
+    private func updateRecordedBytes() {
+        queue.async { [self] in
+            let bytes = output.isRecording ? output.recordedFileSize : 0
+            DispatchQueue.main.async { self.recordedBytes = bytes }
+        }
+    }
 
     /// カメラとマイクの許可を求めてから、プレビューを動かし始める。
     func startSession() async {
@@ -52,7 +118,13 @@ final class CameraRecorder: NSObject, ObservableObject {
     /// - Parameter rotationAngle: 録画の向き（画面の向きに合わせる）。
     func startRecording(to url: URL, rotationAngle: CGFloat) {
         queue.async { [self] in
-            guard session.isRunning, !output.isRecording else { return }
+            // 黙って何もしないと、呼んだ側は録画中だと思い込む（2026-11-12 の練習で1時間撮れなかった）
+            guard session.isRunning, !session.isInterrupted, !output.isRecording else {
+                let reason = output.isRecording ? "前の録画が終わっていない"
+                    : session.isInterrupted ? "カメラが中断中" : "カメラが止まっている"
+                DispatchQueue.main.async { self.onStartFailed?(reason) }
+                return
+            }
             if let conn = output.connection(with: .video), conn.isVideoRotationAngleSupported(rotationAngle) {
                 conn.videoRotationAngle = rotationAngle
             }
@@ -62,7 +134,12 @@ final class CameraRecorder: NSObject, ObservableObject {
 
     func stopRecording() {
         queue.async { [self] in
-            if output.isRecording { output.stopRecording() }
+            if output.isRecording {
+                output.stopRecording()
+            } else {
+                // 止める録画がなければ、終わりの知らせは来ない。待たせないように知らせる
+                DispatchQueue.main.async { self.onStopWithoutRecording?() }
+            }
         }
     }
 

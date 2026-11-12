@@ -140,11 +140,7 @@ struct ScoreboardView: View {
                 Text("TTLog").font(.headline)
             }
             Spacer()
-            if compact {
-                CameraBadge(server: model.server).labelStyle(.iconOnly)
-            } else {
-                CameraBadge(server: model.server)
-            }
+            CameraBadge(server: model.server, playing: model.state?.phase == .playing, compact: compact)
             MicButton(listener: model.listener)
             Button { sheet = .design } label: {
                 Image(systemName: "paintpalette")
@@ -315,15 +311,84 @@ struct ScoreboardView: View {
 
 // モデルの中のオブジェクトの変化は、モデル経由では画面に伝わらないので、直接見る部品に分ける。
 
+/// カメラが本当に録画しているか。ゲーム中に撮れていなければ目立たせる。
 private struct CameraBadge: View {
     @ObservedObject var server: PeerServer
+    let playing: Bool
+    let compact: Bool
+
+    /// カメラの知らせがこれだけ途絶えたら、様子が分からないとみなす（カメラは2秒ごとに送る）。
+    private static let staleSeconds = 8.0
+    /// ゲームが始まってから録画が始まるまでの猶予。この間は警告を出さない。
+    private static let startGraceSeconds = 6.0
+
+    @State private var playingSince: Date?
 
     var body: some View {
-        let names = server.cameraNames
-        Label(names.isEmpty ? "カメラ未接続" : "カメラ \(names.count)台",
-              systemImage: names.isEmpty ? "video.slash" : "video.fill")
-            .font(.callout)
-            .foregroundStyle(names.isEmpty ? Color.secondary : Color.green)
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            badge(now: context.date)
+        }
+        .onAppear { playingSince = playing ? Date() : nil }
+        .onChange(of: playing) { _, now in playingSince = now ? Date() : nil }
+    }
+
+    private func shouldWarn(_ now: Date) -> Bool {
+        guard playing, let since = playingSince else { return false }
+        return now.timeIntervalSince(since) > Self.startGraceSeconds
+    }
+
+    @ViewBuilder private func badge(now: Date) -> some View {
+        if server.cameraNames.isEmpty {
+            label("カメラなし", "video.slash", .secondary)
+        } else if let info = server.cameraStatus,
+                  now.timeIntervalSince(info.receivedAt) < Self.staleSeconds {
+            if info.status.recording {
+                let seconds = (info.status.clipSeconds ?? 0) + now.timeIntervalSince(info.receivedAt)
+                label("録画 " + Self.clock(seconds), "record.circle", .red)
+            } else if shouldWarn(now) {
+                warning("録画していません")
+            } else {
+                label("カメラ待機", "video", .secondary)
+            }
+        } else if shouldWarn(now) {
+            warning("カメラの様子が不明")
+        } else {
+            label("カメラ", "video", .secondary)
+        }
+    }
+
+    private func label(_ title: String, _ icon: String, _ color: Color) -> some View {
+        Label(title, systemImage: icon)
+            .labelStyle(CompactAwareLabelStyle(compact: compact))
+            .font(.callout.monospacedDigit())
+            .foregroundStyle(color)
+    }
+
+    /// 撮れていないことは、狭い画面でも文字で出す。
+    private func warning(_ title: String) -> some View {
+        Label(title, systemImage: "exclamationmark.triangle.fill")
+            .font(.callout.bold())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(Color.orange))
+    }
+
+    private static func clock(_ seconds: Double) -> String {
+        let s = Int(seconds)
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
+private struct CompactAwareLabelStyle: LabelStyle {
+    let compact: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        if compact {
+            configuration.icon
+        } else {
+            Label(configuration)
+        }
     }
 }
 

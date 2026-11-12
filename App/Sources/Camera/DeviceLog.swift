@@ -10,6 +10,8 @@ struct DeviceSample: Hashable, Identifiable {
     var charging: Bool
     var freeBytes: Int64?
     var recording: Bool
+    /// 録画の中断・撮り直しなどの出来事。
+    var note: String?
 
     var id: Date { at }
 
@@ -33,7 +35,7 @@ struct DeviceSample: Hashable, Identifiable {
 final class DeviceLog {
     let folder: URL
 
-    private static let header = "時刻,温度,温度の段階,電池%,充電中,空き容量MB,録画中\n"
+    private static let header = "時刻,温度,温度の段階,電池%,充電中,空き容量MB,録画中,出来事\n"
 
     private static let timeFormat: DateFormatter = {
         let f = DateFormatter()
@@ -70,6 +72,7 @@ final class DeviceLog {
             s.charging ? "1" : "0",
             s.freeBytes.map { "\($0 / 1_000_000)" } ?? "",
             s.recording ? "1" : "0",
+            (s.note ?? "").replacingOccurrences(of: ",", with: "、"),
         ]
         guard let handle = try? FileHandle(forWritingTo: url) else { return }
         defer { try? handle.close() }
@@ -102,7 +105,8 @@ final class DeviceLog {
             guard f.count >= 7, let at = timeFormat.date(from: f[0]), let thermal = Int(f[2]),
                   DeviceSample.thermalTitles.indices.contains(thermal) else { return nil }
             return DeviceSample(at: at, thermal: thermal, battery: Int(f[3]), charging: f[4] == "1",
-                                freeBytes: Int64(f[5]).map { $0 * 1_000_000 }, recording: f[6] == "1")
+                                freeBytes: Int64(f[5]).map { $0 * 1_000_000 }, recording: f[6] == "1",
+                                note: f.count > 7 && !f[7].isEmpty ? f[7] : nil)
         }
     }
 

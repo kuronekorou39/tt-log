@@ -64,7 +64,7 @@ public struct VoiceCommandMatcher: Sendable {
     ]
 
     /// 認識がよく書き換える言い方（練習の音声ログから）。「みぎ」が「ミリ」になる、など。
-    public static let misheard: [String: [String]] = ["みぎ": ["みり"]]
+    public static let misheard: [String: [String]] = ["みぎ": ["みり"], "ひだり": ["ひだ"]]
 
     /// 名前の後ろの敬称。
     static let honorifics = ["", "くん", "さん", "ちゃん"]

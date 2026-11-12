@@ -52,6 +52,24 @@ WebSocket のテキストメッセージ1つに JSON を1つ入れる。`type` �
 
 カメラは **`sessionId` があって `phase` が `playing` のあいだ録画する**（ゲームが終わったら数秒おいて止める）。
 
+### cameraStatus（カメラ → スコアボード）
+
+カメラの録画の状態。2秒ごとに送る。スコアボードはこれを見て「録画中」「録画していません」を出す。
+
+```json
+{"type":"cameraStatus","cameraStatus":{"recording":true,"clipSeconds":83.2,"problem":null,"battery":85,"thermal":0,"sentAt":1762201000000}}
+```
+
+| 項目 | 意味 |
+|---|---|
+| recording | ファイルへの書き込みが進んでいるか（録画を頼んだだけでは true にしない） |
+| clipSeconds | いまの録画の長さ（秒）。録画していなければ null |
+| problem | 録画できていない理由など。なければ null |
+| battery | 電池の残り（%）。分からなければ null |
+| thermal | 温度の段階。0 正常 / 1 やや高い / 2 高い / 3 危険 |
+
+スコアボードは、8秒届かなければ「カメラの様子が分からない」とみなす。
+
 ### ping / pong（時計のずれの測定）
 
 カメラが ping を送り、スコアボードがすぐ pong を返す。

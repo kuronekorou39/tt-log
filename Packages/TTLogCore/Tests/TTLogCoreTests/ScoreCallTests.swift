@@ -23,6 +23,9 @@ final class ScoreCallParserTests: XCTestCase {
         XCTAssertTrue(pairs("7-9").contains([7, 9]))
         XCTAssertTrue(pairs("10-11").contains([10, 11]))
         XCTAssertTrue(pairs("７ ９").contains([7, 9]))
+        // 「じゅうはち」を認識が「18」と返す形
+        XCTAssertTrue(pairs("18").contains([10, 8]))
+        XCTAssertTrue(pairs("18").contains([1, 8]))
     }
 
     func testOneLove() {
@@ -70,6 +73,14 @@ final class ScoreCallResolverTests: XCTestCase {
 
     private func resolve(_ said: [Int], _ l: SessionLog) -> ScoreCallResolver.Resolution? {
         ScoreCallResolver.resolve(pairs: [said], log: l)
+    }
+
+    func testTeenDigitsAsTen() {
+        // 2026-11-12 の練習：9-8 で「じゅうはち」→「18」、8-10 で「じゅうく」→「19」
+        XCTAssertEqual(ScoreCallResolver.resolve(pairs: ScoreCallParser.pairs(in: "18"), log: log(9, 8)), .points(player: 0, count: 1))
+        XCTAssertEqual(ScoreCallResolver.resolve(pairs: ScoreCallParser.pairs(in: "19"), log: log(8, 10)), .points(player: 0, count: 1))
+        // 1-8 のつもりのときは今まで通り
+        XCTAssertEqual(ScoreCallResolver.resolve(pairs: ScoreCallParser.pairs(in: "18"), log: log(1, 7)), .points(player: 1, count: 1))
     }
 
     func testEitherOrderIsAccepted() {

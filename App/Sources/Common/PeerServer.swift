@@ -10,6 +10,8 @@ final class PeerServer: ObservableObject {
     @Published private(set) var statusMessage = "停止中"
     /// つながっているカメラ端末の名前。
     @Published private(set) var cameraNames: [String] = []
+    /// カメラから届いた録画の状態と、受け取った時刻（この端末の時計）。複数台なら最後に届いたもの。
+    @Published private(set) var cameraStatus: (status: CameraStatus, receivedAt: Date)?
 
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
@@ -135,6 +137,8 @@ final class PeerServer: ObservableObject {
             updateNames()
         case .ping(let sentAt):
             send(.pong(pingSentAt: sentAt, receivedAt: Date().epochMilliseconds), to: c)
+        case .cameraStatus(let s):
+            cameraStatus = (s, Date())
         case .state, .pong:
             break
         }
@@ -151,6 +155,7 @@ final class PeerServer: ObservableObject {
 
     private func updateNames() {
         cameraNames = connections.keys.map { names[$0] ?? "カメラ" }.sorted()
+        if connections.isEmpty { cameraStatus = nil }
     }
 
     private func send(_ message: PeerMessage, to c: NWConnection) {

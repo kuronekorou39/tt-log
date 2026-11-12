@@ -125,9 +125,35 @@ public extension SessionLog {
     }
 }
 
+/// カメラの録画の状態。カメラ → スコアボード。数秒ごとと、変わったときに送る。
+/// スコアボードは、これが届かなくなったら「カメラの様子が分からない」と出す。
+public struct CameraStatus: Codable, Hashable, Sendable {
+    /// ファイルへの書き込みが進んでいる（録画を頼んだだけでは true にしない）。
+    public var recording: Bool
+    /// いまの録画の長さ（秒）。録画していなければ nil。
+    public var clipSeconds: Double?
+    /// 録画できていない理由など、直近の問題。なければ nil。
+    public var problem: String?
+    /// 電池の残り（%）。わからないときは nil。
+    public var battery: Int?
+    /// 温度の段階。0 正常 / 1 やや高い / 2 高い / 3 危険。
+    public var thermal: Int
+    public var sentAt: Double
+
+    public init(recording: Bool, clipSeconds: Double?, problem: String?, battery: Int?, thermal: Int, sentAt: Double) {
+        self.recording = recording
+        self.clipSeconds = clipSeconds
+        self.problem = problem
+        self.battery = battery
+        self.thermal = thermal
+        self.sentAt = sentAt
+    }
+}
+
 public enum PeerMessage: Hashable, Sendable {
     case hello(PeerHello)
     case state(ScoreboardSnapshot)
+    case cameraStatus(CameraStatus)
     /// 時計のずれを測るための往復。カメラ → スコアボード。
     case ping(sentAt: Double)
     /// スコアボード → カメラ。受け取った ping の sentAt と、スコアボードの時計で受け取った時刻。
@@ -136,7 +162,7 @@ public enum PeerMessage: Hashable, Sendable {
 
 extension PeerMessage: Codable {
     private enum CodingKeys: String, CodingKey {
-        case type, hello, state, sentAt, pingSentAt, receivedAt
+        case type, hello, state, cameraStatus, sentAt, pingSentAt, receivedAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -144,6 +170,7 @@ extension PeerMessage: Codable {
         switch try c.decode(String.self, forKey: .type) {
         case "hello": self = .hello(try c.decode(PeerHello.self, forKey: .hello))
         case "state": self = .state(try c.decode(ScoreboardSnapshot.self, forKey: .state))
+        case "cameraStatus": self = .cameraStatus(try c.decode(CameraStatus.self, forKey: .cameraStatus))
         case "ping": self = .ping(sentAt: try c.decode(Double.self, forKey: .sentAt))
         case "pong":
             self = .pong(
@@ -164,6 +191,9 @@ extension PeerMessage: Codable {
         case .state(let s):
             try c.encode("state", forKey: .type)
             try c.encode(s, forKey: .state)
+        case .cameraStatus(let s):
+            try c.encode("cameraStatus", forKey: .type)
+            try c.encode(s, forKey: .cameraStatus)
         case .ping(let t):
             try c.encode("ping", forKey: .type)
             try c.encode(t, forKey: .sentAt)

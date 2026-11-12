@@ -38,6 +38,10 @@ public enum ScoreCallParser {
             search(s, from: i + 1, numbers: numbers + [d0], into: &results)
             if i + 1 < s.count, let d1 = digit(s[i + 1]) {
                 search(s, from: i + 2, numbers: numbers + [d0 * 10 + d1], into: &results)
+                // 「じゅうはち」（10-8）を認識が「18」と返す（2026-11-12 の練習で、9-8 から 10-8 のつもりが通らなかった）
+                if numbers.isEmpty, d0 == 1 {
+                    search(s, from: i + 2, numbers: [10, d1], into: &results)
+                }
             }
         }
         for (word, value) in words where matches(s, word, at: i) {

@@ -153,6 +153,7 @@ final class VoiceCommandMatcherTests: XCTestCase {
         let m = VoiceCommandMatcher(playerCallNames: ["ひだり", "みぎ"])
         XCTAssertEqual(m.match(reading: "ミリ"), .point(player: 1))
         XCTAssertEqual(m.match(reading: "みりみり"), .point(player: 1))
+        XCTAssertEqual(m.match(reading: "ひだ"), .point(player: 0)) // 「ひだり」が切れて「飛騨」
     }
 
     func testSideWordsAndNamesTogether() {
