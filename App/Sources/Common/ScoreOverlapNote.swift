@@ -7,11 +7,11 @@ enum ScoreOverlapNote {
         guard !o.isEmpty else { return nil }
         var lines: [String] = []
         if let pair = o.nameAsScore {
-            lines.append("「\(callName)」は \(pair[0])-\(pair[1]) のスコアとも読めます。名前を優先するので、このスコアは別の言い方で言ってください。")
+            lines.append("「\(callName)」は \(pair[0])-\(pair[1]) とも読めます（名前を優先）")
         }
         if !o.scorePhrases.isEmpty {
             let examples = o.scorePhrases.prefix(3).map { "「\($0)」" }.joined()
-            lines.append("\(examples)などはスコアとして読みます（いまの得点に合えばその人に1点）。名前だけで呼べば確実です。")
+            lines.append("\(examples)はスコアとして読みます")
         }
         return lines.joined(separator: "\n")
     }

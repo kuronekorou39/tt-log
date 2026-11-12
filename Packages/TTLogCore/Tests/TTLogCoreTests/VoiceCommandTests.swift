@@ -197,6 +197,17 @@ final class VoiceCommandMatcherTests: XCTestCase {
         }
     }
 
+    func testControlCommands() {
+        let m = VoiceCommandMatcher(playerWords: [["ひだり"], ["みぎ"]])
+        XCTAssertEqual(m.match(reading: "すすめる"), .redo)
+        XCTAssertEqual(m.match(reading: "すすめて"), .redo)
+        XCTAssertEqual(m.match(reading: "サーブ"), .toggleServer)
+        XCTAssertEqual(m.match(reading: "チェンジ"), .toggleServer)
+        XCTAssertEqual(m.match(reading: "いれかえ"), .swapEnds)
+        XCTAssertEqual(m.match(reading: "リセット"), .resetGame)
+        XCTAssertNil(m.term(reading: "サーブ"))
+    }
+
     func testTableTennisTerms() {
         let m = VoiceCommandMatcher(playerWords: [["ひだり"], ["よし"]])
         XCTAssertEqual(m.term(reading: "デュース"), "デュース")

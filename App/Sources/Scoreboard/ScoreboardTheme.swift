@@ -21,10 +21,10 @@ enum ScoreboardTheme: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
-        case .simple: return "使い慣れた、すっきりした表示。"
-        case .flip: return "めくり式の得点板。黒いカードに黄色の数字。"
-        case .arena: return "電光掲示板の数字と、選手ごとのアクセント。"
-        case .focus: return "明るい背景と大きな数字。離れていても、ひと目で。"
+        case .simple: return "すっきり"
+        case .flip: return "めくり式の得点板"
+        case .arena: return "電光掲示板"
+        case .focus: return "明るく大きな数字"
         }
     }
 

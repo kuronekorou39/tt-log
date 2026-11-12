@@ -101,8 +101,6 @@ struct ScoreboardView: View {
         }
         .confirmationDialog("記録を終えますか？", isPresented: $showEndConfirm, titleVisibility: .visible) {
             Button("終える", role: .destructive) { endAndShowResult() }
-        } message: {
-            Text("終えた記録は履歴から見られます。")
         }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
@@ -120,12 +118,6 @@ struct ScoreboardView: View {
     private func topBar(compact: Bool) -> some View {
         HStack(spacing: compact ? 8 : 14) {
             if let state = model.state {
-                if !compact {
-                    Text("今日 \(model.name(state.left)) \(state.gamesWon[state.left]) - \(state.gamesWon[1 - state.left]) \(model.name(1 - state.left))")
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
                 Text("第\(state.gameIndex + 1)ゲーム")
                     .font(.headline)
                     .foregroundStyle(.secondary)
@@ -167,6 +159,16 @@ struct ScoreboardView: View {
                 Button { sheet = .history } label: { Label("履歴", systemImage: "clock") }
                 Button { sheet = .design } label: { Label("デザイン", systemImage: "paintpalette") }
                 Button { sheet = .settings } label: { Label("設定", systemImage: "gearshape") }
+                if let state = model.state {
+                    Divider()
+                    Button {
+                        model.handle(.resetGame, source: .tap)
+                    } label: { Label("リセット", systemImage: "arrow.counterclockwise") }
+                    .disabled(state.scores == [0, 0])
+                    Button(role: .destructive) {
+                        showEndConfirm = true
+                    } label: { Label("記録を終える", systemImage: "stop.circle") }
+                }
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(.title2)
@@ -220,7 +222,6 @@ struct ScoreboardView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .accessibilityLabel("次のゲーム")
-                .accessibilityHint("「次のゲーム」と言っても始められます。始めると左右が入れ替わります")
             case .matchOver:
                 Button {
                     showEndConfirm = true
@@ -243,15 +244,6 @@ struct ScoreboardView: View {
                 .font(compact ? .caption : .body)
                 .frame(maxWidth: compact ? 160 : 240)
                 .layoutPriority(-1)
-            Spacer()
-            Button(role: .destructive) {
-                showEndConfirm = true
-            } label: {
-                Label("終了", systemImage: "stop.circle").font(.title3)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .accessibilityLabel("記録を終了")
         }
         .padding(.horizontal)
         .padding(.vertical, compact ? 4 : 10)
@@ -285,8 +277,8 @@ struct ScoreboardView: View {
     private func gameOverHint(_ state: MatchState) -> String {
         switch state.phase {
         case .playing: return ""
-        case .gameOver(let w): return "\(model.name(w)) 勝ち　間違いなら「戻す」"
-        case .matchOver(let w): return "\(model.name(w)) の勝ち（試合終了）"
+        case .gameOver(let w): return "\(model.name(w)) 勝ち"
+        case .matchOver(let w): return "\(model.name(w)) 試合の勝ち"
         }
     }
 
@@ -371,9 +363,9 @@ private struct ConnectionHelp: View {
     var body: some View {
         let ips = NetworkInfo.localIPv4Addresses()
         VStack(spacing: 4) {
-            Text("カメラ端末との接続: \(server.statusMessage)")
+            Text("カメラ: \(server.statusMessage)")
             if !ips.isEmpty {
-                Text("自動で見つからないときは、カメラ側で次の IP アドレスを入力: \(ips.joined(separator: " / "))")
+                Text("IP アドレス: \(ips.joined(separator: " / "))")
             }
         }
         .font(.footnote)

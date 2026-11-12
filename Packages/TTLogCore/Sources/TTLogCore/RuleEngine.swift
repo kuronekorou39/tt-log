@@ -32,6 +32,8 @@ public struct MatchConfig: Hashable, Codable, Sendable {
 public enum MatchEvent: Hashable, Codable, Sendable {
     case point(winner: Int)
     case startNextGame
+    /// いまのゲームの得点を 0-0 に戻す（終わったゲームなら、終わる前に戻す）。
+    case resetGame
 }
 
 public struct GameResult: Hashable, Codable, Sendable {
@@ -114,6 +116,15 @@ public enum RuleEngine {
             s.phase = .playing
             s.switchedEndsMidGame = false
             // エンドはゲームごとに入れ替える
+            s.left = s.gameIndex % 2 == 0 ? config.firstLeft : 1 - config.firstLeft
+            s.server = server(gameIndex: s.gameIndex, scores: s.scores, config: config)
+
+        case .resetGame:
+            guard s.scores != [0, 0] else { return nil }
+            if s.phase != .playing { s.finishedGames.removeLast() }
+            s.scores = [0, 0]
+            s.phase = .playing
+            s.switchedEndsMidGame = false
             s.left = s.gameIndex % 2 == 0 ? config.firstLeft : 1 - config.firstLeft
             s.server = server(gameIndex: s.gameIndex, scores: s.scores, config: config)
         }

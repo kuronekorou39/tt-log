@@ -116,6 +116,10 @@ public struct SessionLog: Codable, Hashable, Sendable {
                 }
             case .startNextGame:
                 games.append(GameTimeline(index: next.gameIndex, startedAt: e.at))
+            case .resetGame:
+                games[games.count - 1].points = []
+                games[games.count - 1].endedAt = nil
+                games[games.count - 1].winner = nil
             }
             state = next
         }

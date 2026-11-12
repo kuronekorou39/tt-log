@@ -27,6 +27,29 @@ final class SessionLogTests: XCTestCase {
         XCTAssertNil(log.lastScorer) // 次のゲームの始めは出さない
     }
 
+    func testResetGame() {
+        var log = SessionLog(config: MatchConfig(), startedAt: t0)
+        XCTAssertFalse(log.append(.resetGame, at: at(1), source: .voice)) // 0-0 では何もしない
+        for _ in 0..<3 { log.append(.point(winner: 0), at: at(2), source: .tap) }
+        XCTAssertTrue(log.append(.resetGame, at: at(3), source: .voice))
+        XCTAssertEqual(log.state.scores, [0, 0])
+        XCTAssertEqual(log.state.server, 0)
+        XCTAssertNil(log.lastScorer)
+        XCTAssertTrue(log.games()[0].points.isEmpty)
+        _ = log.popLast() // 戻すとリセット前に戻る
+        XCTAssertEqual(log.state.scores, [3, 0])
+    }
+
+    func testResetFinishedGame() {
+        var log = SessionLog(config: MatchConfig(), startedAt: t0)
+        for _ in 0..<11 { log.append(.point(winner: 1), at: at(1), source: .tap) }
+        XCTAssertEqual(log.state.gamesWon, [0, 1])
+        XCTAssertTrue(log.append(.resetGame, at: at(2), source: .voice))
+        XCTAssertEqual(log.state.phase, .playing)
+        XCTAssertEqual(log.state.gamesWon, [0, 0])
+        XCTAssertNil(log.games()[0].winner)
+    }
+
     func testGamesTimeline() {
         var log = SessionLog(config: MatchConfig(), startedAt: t0)
         var t = 10.0

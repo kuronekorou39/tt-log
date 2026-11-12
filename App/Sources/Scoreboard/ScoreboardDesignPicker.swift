@@ -15,16 +15,6 @@ struct ScoreboardDesignPicker: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("見やすいスコアで、プレーに集中。")
-                        .font(.title3.bold())
-                    Text("タップすると切り替わります。選んだデザインは、この端末に保存されます。")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text(state == nil ? "サンプルスコアで表示しています。" : "現在のスコアで表示しています。試合の記録はそのままです。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 16)], spacing: 16) {
                     ForEach(ScoreboardTheme.allCases) { theme in
                         designCard(theme)
@@ -93,7 +83,7 @@ struct ScoreboardDesignPicker: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(theme.title)。\(theme.detail)")
+        .accessibilityLabel(theme.title)
         .accessibilityValue(isSelected ? "選択中" : "未選択")
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .accessibilityHint("この端末のスコアボードに使う")

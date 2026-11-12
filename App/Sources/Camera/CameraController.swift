@@ -233,7 +233,7 @@ final class CameraController: ObservableObject {
     private func thermalChanged() {
         thermalState = ProcessInfo.processInfo.thermalState
         if thermalState == .critical, recording != nil {
-            message = "端末が熱くなりすぎたため録画を止めました。日陰に移す・ケースを外すなどしてください"
+            message = "端末が熱いので録画を止めました"
             autoRecord = false
             recorder.stopRecording()
         }

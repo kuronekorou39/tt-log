@@ -31,7 +31,7 @@ struct SessionDetailView: View {
                 }
             }
             if games.isEmpty {
-                Text("まだ得点がありません。").foregroundStyle(.secondary)
+                Text("まだ得点がありません").foregroundStyle(.secondary)
             }
         }
         .navigationTitle("結果")

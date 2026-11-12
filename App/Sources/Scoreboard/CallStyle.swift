@@ -25,9 +25,9 @@ enum CallStyle: String, CaseIterable, Identifiable {
     var detail: String {
         switch self {
         case .side, .custom:
-            return "画面の左右につく言葉です。エンドが変わると、呼び方も入れ替わります。"
+            return "画面の左右で呼ぶ"
         case .redWhite, .blackWhite:
-            return "選手につく色です（A が\(colors[0].word)、B が\(colors[1].word)）。エンドが変わっても同じ色のままです。"
+            return "A＝\(colors[0].word)　B＝\(colors[1].word)"
         }
     }
 

@@ -121,7 +121,7 @@ final class CameraRecorder: NSObject, ObservableObject {
                 && f.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= target }
         }
         guard let format = candidates.first else {
-            report("1080p 60fps に対応する形式がないため、標準の設定で録画します")
+            report("1080p 60fps 非対応のため標準の画質で録画します")
             return 30
         }
         do {

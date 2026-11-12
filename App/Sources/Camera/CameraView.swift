@@ -225,7 +225,7 @@ private struct ConnectSheet: View {
                 } header: {
                     Text("スコアボードの IP アドレス")
                 } footer: {
-                    Text("ふつうは空欄のままで、同じ Wi-Fi（テザリングでもよい）にいるスコアボードを自動で見つけます。見つからないときは、スコアボードの画面に出ている IP アドレスを入れてください。")
+                    Text("空欄なら自動で探します")
                 }
             }
             .navigationTitle("接続")

@@ -29,7 +29,7 @@ struct NewSessionView: View {
             Form {
                 if players.count < 2 {
                     Section {
-                        Text("選手を2人以上登録してください。")
+                        Text("選手を2人登録してください")
                         Button("選手を登録する") { showPlayers = true }
                     }
                 }
@@ -140,7 +140,7 @@ struct PlayersView: View {
             } header: {
                 Text("登録済み")
             } footer: {
-                Text("記録がある選手は削除できないので「隠す」にします。名前を変えても過去の記録はつながったままです。声で呼ぶときは、呼び名でも、設定の「呼び方」の言葉（「ひだり」「みぎ」、「あか」「しろ」など）でも点が入ります。")
+                Text("記録がある選手は削除できません")
             }
         }
         .navigationTitle("選手")
@@ -192,7 +192,7 @@ struct HistoryView: View {
     var body: some View {
         List {
             if sessions.isEmpty {
-                Text("まだ記録がありません。").foregroundStyle(.secondary)
+                Text("まだ記録がありません").foregroundStyle(.secondary)
             }
             ForEach(sessions) { s in
                 NavigationLink {

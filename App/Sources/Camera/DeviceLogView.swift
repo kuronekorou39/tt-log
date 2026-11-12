@@ -106,7 +106,7 @@ struct DeviceLogListView: View {
         let days = log.days()
         List {
             if days.isEmpty {
-                Text("まだ記録がありません。カメラの画面を開いている間、10秒ごとに記録します。")
+                Text("まだ記録がありません")
                     .foregroundStyle(.secondary)
             }
             ForEach(days, id: \.self) { url in
@@ -126,7 +126,7 @@ private struct DeviceLogDayView: View {
         let samples = DeviceLog.load(url)
         ScrollView {
             if samples.isEmpty {
-                Text("この日の記録を読めませんでした。").foregroundStyle(.secondary)
+                Text("読めませんでした").foregroundStyle(.secondary)
             } else {
                 DeviceLogChart(samples: samples).padding()
             }

@@ -5,7 +5,13 @@ public enum VoiceCommand: Hashable, Sendable {
     /// その試合の players[player] に1点。
     case point(player: Int)
     case undo
+    /// 「戻す」で取り消した操作をやり直す。
+    case redo
     case nextGame
+    case toggleServer
+    case swapEnds
+    /// いまのゲームの得点を 0-0 に戻す。
+    case resetGame
 }
 
 /// 聞き取った発話（ひらがなの読み）を操作に対応させる。
@@ -29,7 +35,11 @@ public struct VoiceCommandMatcher: Sendable {
         "いっこもどして", "いっこもどす", "1こもどして", "1こもどす",
         "とりけし", "とりけして", "やりなおし",
     ]
+    public static let redoReadings = ["すすめる", "すすめて", "すすめ", "すすむ", "ひとつすすめて", "1つすすめて"]
     public static let nextGameReadings = ["つぎのげーむ"]
+    public static let toggleServerReadings = ["さーぶ", "さーぶこうたい", "さーぶちぇんじ", "ちぇんじ"]
+    public static let swapEndsReadings = ["いれかえ", "いれかえて", "さゆういれかえ"]
+    public static let resetReadings = ["りせっと", "りせっとして"]
 
     /// 卓球の用語。いまは操作にしないが、聞き取れたことを音声ログに残す（後で使えるように）。
     /// 表示名と、受け付ける読み。選手の呼び名や操作語と同じ読みなら、そちらを優先する。
@@ -44,7 +54,7 @@ public struct VoiceCommandMatcher: Sendable {
         ("チェンジエンド", ["ちぇんじえんど", "ちぇんじえんず", "ちぇんじこーと"]),
         ("ゲームポイント", ["げーむぽいんと"]),
         ("マッチポイント", ["まっちぽいんと"]),
-        ("サービス", ["さーびす", "さーぶ"]),
+        ("サービス", ["さーびす"]),
         ("フォルト", ["ふぉると", "さーびすふぉると"]),
         ("ナイス", ["ないす", "ないすぼーる", "ないすさーぶ"]),
         ("ドンマイ", ["どんまい"]),
@@ -95,7 +105,11 @@ public struct VoiceCommandMatcher: Sendable {
         }
         // 操作語は選手名より優先する（同じ読みの選手がいても操作が効くように）
         for r in Self.undoReadings { t[KanaNormalizer.canonical(r)] = .undo }
+        for r in Self.redoReadings { t[KanaNormalizer.canonical(r)] = .redo }
         for r in Self.nextGameReadings { t[KanaNormalizer.canonical(r)] = .nextGame }
+        for r in Self.toggleServerReadings { t[KanaNormalizer.canonical(r)] = .toggleServer }
+        for r in Self.swapEndsReadings { t[KanaNormalizer.canonical(r)] = .swapEnds }
+        for r in Self.resetReadings { t[KanaNormalizer.canonical(r)] = .resetGame }
         table = t
         var terms: [String: String] = [:]
         for (label, readings) in Self.terms {
@@ -150,6 +164,11 @@ public struct VoiceCommandMatcher: Sendable {
         return ScoreOverlap(nameAsScore: pairs.sorted { $0.lexicographicallyPrecedes($1) }.first, scorePhrases: phrases)
     }
 
+    /// 操作語のすべての読み。
+    public static var commandReadings: [String] {
+        undoReadings + redoReadings + nextGameReadings + toggleServerReadings + swapEndsReadings + resetReadings
+    }
+
     static func isScoreCall(_ reading: String) -> Bool {
         !ScoreCallParser.pairs(in: reading).isEmpty
     }
@@ -157,7 +176,7 @@ public struct VoiceCommandMatcher: Sendable {
     /// 音声で使われる語のうち、聞き間違えやすい組み合わせを返す（選手登録時の注意用）。
     /// 同じ試合に出る選手の呼び名どうし、および呼び名と操作語を比べる。
     public static func confusablePairs(callNames: [String]) -> [(String, String)] {
-        let words = callNames + undoReadings + nextGameReadings
+        let words = callNames + commandReadings
         var pairs: [(String, String)] = []
         for i in words.indices {
             for j in words.indices where j > i && i < callNames.count {

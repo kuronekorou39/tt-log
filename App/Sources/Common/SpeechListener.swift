@@ -23,9 +23,9 @@ enum MicMode: String, CaseIterable {
 
     var detail: String {
         switch self {
-        case .standard: return "これまでと同じ設定です。"
-        case .voiceChat: return "小さな声を持ち上げ、反響と雑音を抑えます。効果音が小さくなることがあります。"
-        case .raw: return "マイクの音をそのまま使います。比べるための設定です。"
+        case .standard: return "iOS の標準"
+        case .voiceChat: return "小声と反響に強い"
+        case .raw: return "加工なし"
         }
     }
 
@@ -92,7 +92,8 @@ final class SpeechListener: ObservableObject {
     static func hints(callNames: [String]) -> [String] {
         let names = callNames.filter { !$0.isEmpty }
         return names + names.flatMap { ["\($0)ポイント", "\($0)点"] }
-            + ["戻して", "戻す", "戻せ", "元に戻す", "取り消し", "次のゲーム", "オール", "ラブオール", "ワンラブ"]
+            + ["戻して", "戻す", "戻せ", "元に戻す", "取り消し", "進める", "次のゲーム", "サーブ", "チェンジ", "入れ替え", "リセット",
+               "オール", "ラブオール", "ワンラブ"]
             + VoiceCommandMatcher.terms.map(\.label) + ["ジュース"]
     }
     var gate = CommandGate(deadTime: 1.5)
@@ -223,7 +224,11 @@ final class SpeechListener: ObservableObject {
         switch c {
         case .point(let p): return p == 0 ? "A に1点" : "B に1点"
         case .undo: return "戻す"
+        case .redo: return "進める"
         case .nextGame: return "次のゲーム"
+        case .toggleServer: return "サーブ交代"
+        case .swapEnds: return "左右入れ替え"
+        case .resetGame: return "リセット"
         }
     }
 

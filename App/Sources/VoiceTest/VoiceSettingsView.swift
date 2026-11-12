@@ -44,7 +44,7 @@ struct VoiceSettingsView: View {
                 } header: {
                     Text("受け付ける言葉")
                 } footer: {
-                    Text("言葉だけを単独で言ったときに反応します。会話の中に出てきた名前には反応しません。")
+                    Text("言葉だけを言ったときに反応")
                 }
                 Section("音声") {
                     Stepper(value: $silenceMs, in: 300...1500, step: 100) {

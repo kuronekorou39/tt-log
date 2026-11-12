@@ -46,7 +46,7 @@ struct ScoreboardDisplay: View {
             onPoint(player)
         } label: {
             ScoreboardPlayerPanel(theme: theme, player: player, name: name,
-                                  score: state.scores[player], games: state.gamesWon[player],
+                                  score: state.scores[player],
                                   isServing: state.server == player,
                                   isLastScorer: lastScorer == player,
                                   callTag: callTags.indices.contains(player) ? callTags[player] : nil,
@@ -58,7 +58,7 @@ struct ScoreboardDisplay: View {
         .disabled(state.phase != .playing)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(name)
-        .accessibilityValue("\(win != nil ? "勝ち、" : "")\(state.server == player ? "サーブ、" : "")\(lastScorer == player ? "直前に得点、" : "")\(callWordNote(player))\(state.scores[player])点、獲得ゲーム\(state.gamesWon[player])")
+        .accessibilityValue("\(win != nil ? "勝ち、" : "")\(state.server == player ? "サーブ、" : "")\(lastScorer == player ? "直前に得点、" : "")\(callWordNote(player))\(state.scores[player])点")
         .accessibilityHint(state.phase == .playing ? "ダブルタップで1点追加" : "ゲーム終了")
         .accessibilityIdentifier("scoreboard.player.\(player)")
     }
@@ -75,7 +75,6 @@ private struct ScoreboardPlayerPanel: View {
     let player: Int
     let name: String
     let score: Int
-    let games: Int
     let isServing: Bool
     var isLastScorer = false
     var callTag: CallTag?
@@ -92,7 +91,6 @@ private struct ScoreboardPlayerPanel: View {
         GeometryReader { proxy in
             let inset = max(6, min(26, proxy.size.width * 0.055))
             let nameSize = max(12, min(40, min(proxy.size.width * 0.09, proxy.size.height * 0.12)))
-            let detailSize = max(10, min(20, proxy.size.height * 0.055))
             let serveHeight = min(112, max(36, proxy.size.height * 0.19))
             let borderWidth = max(3, min(9, proxy.size.width * 0.017))
             let cornerRadius: CGFloat = theme == .simple ? 0 : 16
@@ -118,7 +116,6 @@ private struct ScoreboardPlayerPanel: View {
                             LastPointBadge(theme: theme, score: score, height: nameSize * 1.2)
                                 .transition(.scale(scale: 0.3).combined(with: .opacity))
                         }
-                        gamesLabel(size: detailSize)
                     }
                     scoreView
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -194,28 +191,6 @@ private struct ScoreboardPlayerPanel: View {
                 .padding(.vertical, 4)
                 .padding(.horizontal, 8)
         }
-    }
-
-    private func gamesLabel(size: CGFloat) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: size * 0.35) {
-            Text("ゲーム")
-                .font(.system(size: size * 0.85, weight: .medium))
-                .foregroundStyle(theme.foreground.opacity(0.7))
-            Text("\(games)")
-                .font(.system(size: size * 1.3, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(theme == .flip ? Color.white : theme.foreground)
-                .padding(.horizontal, theme == .flip ? size * 0.5 : 0)
-                .background {
-                    if theme == .flip {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color(red: 0.65, green: 0.18, blue: 0.18))
-                            .padding(.vertical, -2)
-                    }
-                }
-        }
-        .lineLimit(1)
-        .minimumScaleFactor(0.5)
     }
 
     @ViewBuilder private var panelBackground: some View {

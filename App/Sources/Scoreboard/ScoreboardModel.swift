@@ -98,12 +98,27 @@ final class ScoreboardModel: ObservableObject {
             playTone(.undo)
             commit(log, keepRedo: true)
             return
+        case .redo:
+            redo()
+            return
         case .nextGame:
             guard log.append(.startNextGame, at: now, source: source) else {
                 playTone(.rejected)
                 return
             }
             playTone(.nextGame)
+        case .toggleServer:
+            toggleServer()
+            return
+        case .swapEnds:
+            swapEnds()
+            return
+        case .resetGame:
+            guard log.append(.resetGame, at: now, source: source) else {
+                playTone(.rejected)
+                return
+            }
+            playTone(.undo)
         }
         commit(log)
     }
@@ -123,7 +138,7 @@ final class ScoreboardModel: ObservableObject {
 
     /// いまのサーバーを入れ替える。
     func toggleServer() {
-        guard var log else { return }
+        guard var log, log.state.phase == .playing else { return }
         log.toggleServer()
         playTone(.confirm)
         commit(log, keepRedo: true)

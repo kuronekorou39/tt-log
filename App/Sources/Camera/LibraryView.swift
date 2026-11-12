@@ -11,7 +11,7 @@ struct LibraryView: View {
     var body: some View {
         List {
             if library.sessions.isEmpty {
-                Text("まだ録画がありません。")
+                Text("まだ録画がありません")
                     .foregroundStyle(.secondary)
             }
             ForEach(library.sessions) { index in

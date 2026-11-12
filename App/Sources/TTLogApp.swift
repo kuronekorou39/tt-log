@@ -41,8 +41,8 @@ enum AppRole: String, CaseIterable {
 
     var detail: String {
         switch self {
-        case .scoreboard: return "点数の表示と入力、試合の記録。台の横に置く端末（iPad など）"
-        case .camera: return "試合の録画と振り返り。スコアボードとつなぐと、ゲームごとに自動で録画する"
+        case .scoreboard: return "点数の表示と記録"
+        case .camera: return "録画と振り返り"
         case .voiceTest: return "音声認識の聞き取りを試す"
         }
     }
@@ -108,7 +108,7 @@ struct RolePickerView: View {
                     .buttonStyle(.plain)
                 }
             }
-            Text("あとから各画面の「役割を変える」で切り替えられます。")
+            Text("あとで変えられます")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

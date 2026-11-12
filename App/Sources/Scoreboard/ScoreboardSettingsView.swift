@@ -50,8 +50,6 @@ struct ScoreboardSettingsView: View {
                     }
                 } header: {
                     Text("スコア表示")
-                } footer: {
-                    Text("この端末の表示にだけ反映されます。試合中も切り替えられます。")
                 }
                 Section {
                     Picker("呼び方", selection: $callStyleRaw) {
@@ -87,7 +85,7 @@ struct ScoreboardSettingsView: View {
                 } header: {
                     Text("声での操作")
                 } footer: {
-                    Text("呼び方の言葉は、スコアボードの各パネルの上に出ます。選手の呼び名でも点が入ります（「〇〇ポイント」「〇〇1点」なども可）。ほかに「戻して」「戻せ」「元に戻して」「取り消し」など（取り消し）と「次のゲーム」を受け付けます。「デュース」「ネット」などの卓球の用語は、聞き取れたことを記録するだけで点は動きません。言葉だけを単独で言ったときに反応します。")
+                    Text("ほかに「戻す」「進める」「サーブ」「入れ替え」「リセット」「次のゲーム」")
                 }
                 Section("聞き取りの調整") {
                     Picker("マイクの処理", selection: $micMode) {
@@ -98,10 +96,10 @@ struct ScoreboardSettingsView: View {
                         .foregroundStyle(.secondary)
                     MicRouteRows(listener: listener)
                     Stepper(value: $silenceMs, in: 300...1500, step: 100) {
-                        Text("発話の区切り（無音）: \(silenceMs) ミリ秒")
+                        Text("区切りの無音: \(silenceMs) ミリ秒")
                     }
                     Stepper(value: $deadTime, in: 0.5...4.0, step: 0.5) {
-                        Text("同じ操作を受け付けない時間: \(deadTime, specifier: "%.1f") 秒")
+                        Text("二重防止: \(deadTime, specifier: "%.1f") 秒")
                     }
                     Picker("認識のモード", selection: $taskHint) {
                         Text("短い応答向け（confirmation）").tag(SFSpeechRecognitionTaskHint.confirmation.rawValue)
@@ -109,7 +107,7 @@ struct ScoreboardSettingsView: View {
                         Text("口述向け（dictation）").tag(SFSpeechRecognitionTaskHint.dictation.rawValue)
                         Text("指定なし（unspecified）").tag(SFSpeechRecognitionTaskHint.unspecified.rawValue)
                     }
-                    Text(listener.supportsOnDevice ? "この端末は端末内（オフライン）認識に対応しています" : "この端末は端末内認識に対応していません")
+                    Text(listener.supportsOnDevice ? "オフライン認識に対応" : "オフライン認識に非対応")
                         .foregroundStyle(listener.supportsOnDevice ? Color.secondary : Color.orange)
                 }
                 Section {
@@ -120,7 +118,7 @@ struct ScoreboardSettingsView: View {
                 } header: {
                     Text("音声ログ（調整用）")
                 } footer: {
-                    Text("聞き取った言葉と音声を残します。会話もそのまま入るので、送る先に注意してください。")
+                    Text("会話も録音されます")
                 }
                 Section("効果音") {
                     Toggle("効果音を鳴らす", isOn: $soundEnabled)
