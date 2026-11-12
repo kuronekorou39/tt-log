@@ -15,6 +15,7 @@ struct ScoreboardSettingsView: View {
     @AppStorage("voice.rightWord") private var rightWord = "みぎ"
     @AppStorage("voice.deadTime") private var deadTime = 1.5
     @AppStorage("voice.silenceMs") private var silenceMs = 600
+    @AppStorage("voice.instant") private var instantMode = true
     @AppStorage("voice.recordsAudio") private var recordsAudio = true
     @AppStorage("voice.taskHint") private var taskHint = SFSpeechRecognitionTaskHint.confirmation.rawValue
     @AppStorage(MicMode.storageKey) private var micMode = MicMode.standard.rawValue
@@ -95,6 +96,7 @@ struct ScoreboardSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     MicRouteRows(listener: listener)
+                    Toggle("言葉が出たらすぐ反映", isOn: $instantMode)
                     Stepper(value: $silenceMs, in: 300...1500, step: 100) {
                         Text("区切りの無音: \(silenceMs) ミリ秒")
                     }

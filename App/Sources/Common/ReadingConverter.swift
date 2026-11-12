@@ -6,6 +6,11 @@ import Foundation
 /// 呼び名と照合する前に読みに揃える。
 enum ReadingConverter {
     static func hiragana(_ text: String) -> String {
+        hiraganaTokens(text).joined()
+    }
+
+    /// 単語ごとの読み。話している途中の文字から言葉を探すときに使う（`WordSpotter`）。
+    static func hiraganaTokens(_ text: String) -> [String] {
         let cfText = text as CFString
         let range = CFRange(location: 0, length: CFStringGetLength(cfText))
         let tokenizer = CFStringTokenizerCreate(
@@ -14,7 +19,7 @@ enum ReadingConverter {
             Locale(identifier: "ja_JP") as CFLocale
         )
         let nsText = text as NSString
-        var out = ""
+        var out: [String] = []
         var tokenType = CFStringTokenizerAdvanceToNextToken(tokenizer)
         while !tokenType.isEmpty {
             let r = CFStringTokenizerGetCurrentTokenRange(tokenizer)
@@ -23,9 +28,9 @@ enum ReadingConverter {
                 tokenizer, kCFStringTokenizerAttributeLatinTranscription
             ) as? String,
                let kana = latin.applyingTransform(.latinToHiragana, reverse: false) {
-                out += kana
+                out.append(kana)
             } else {
-                out += token
+                out.append(token)
             }
             tokenType = CFStringTokenizerAdvanceToNextToken(tokenizer)
         }

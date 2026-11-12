@@ -43,6 +43,10 @@ enum MicMode: String, CaseIterable {
 /// 発話の区切り：認識結果の更新が `silenceInterval` 止まったら1発話とみなし、
 /// 認識タスクを作り直す（1タスク = 1発話 にして、前の発話の文字が混ざらないようにする）。
 ///
+/// 即時モード（既定）：話している途中の文字から得点の言葉を見つけたら、区切りを待たずに反映する（`WordSpotter`）。
+/// 言葉の後ろに続きがなければ `instantConfirm` だけ待ってから受け付ける（「右に行く」で点を入れないため）。
+/// スコアの言い方と操作語（戻す・リセットなど）は、これまで通り発話の区切りで判定する。
+///
 /// 試作中は、発話ごとの音声（直前数秒）と認識結果をファイルに残す（`VoiceLogStore`）。
 @MainActor
 final class SpeechListener: ObservableObject {
@@ -98,6 +102,10 @@ final class SpeechListener: ObservableObject {
     }
     var gate = CommandGate(deadTime: 1.5)
     var silenceInterval: Duration = .milliseconds(600)
+    /// 話している途中の文字で、得点の言葉を即座に反映するか。
+    var instantMode = true
+    /// 言葉の後ろに何も続かないとき、続きが来ないか見る時間。
+    var instantConfirm: Duration = .milliseconds(300)
     var taskHint: SFSpeechRecognitionTaskHint = .confirmation
     var recordsAudio = true
     /// 受け付けている言葉の要約（ログ用）。
@@ -121,6 +129,11 @@ final class SpeechListener: ObservableObject {
     private var currentTexts: [String] = []
     private var currentPartials: [String] = []
     private var silenceTask: Task<Void, Never>?
+    private var confirmTask: Task<Void, Never>?
+    /// いまの発話で即時に反映した操作と、言葉が出てから反映までの秒数。
+    private var instantFired: [(command: VoiceCommand, accepted: Bool, delay: Double)] = []
+    /// いまの発話で見つけた言葉（続きがくっついたものを除く）が、最初に文字に出た時刻。
+    private var instantSeenAt: [Date] = []
     private var burstWatch: Task<Void, Never>?
     /// 最後に認識の文字が届いた時刻（文字にならなかった大きな音を見分けるため）。
     private var lastTextAt: Date?
@@ -240,6 +253,9 @@ final class SpeechListener: ObservableObject {
         let gen = generation
         currentTexts = []
         currentPartials = []
+        instantFired = []
+        instantSeenAt = []
+        confirmTask?.cancel()
         audioBox.clearRecent()
 
         let request = SFSpeechAudioBufferRecognitionRequest()
@@ -280,14 +296,42 @@ final class SpeechListener: ObservableObject {
             return
         }
         if isFinal || errorMessage != nil {
+            spotInstant(stable: true)
             finishUtterance(generation: gen)
             return
+        }
+        if instantMode {
+            spotInstant(stable: false)
+            confirmTask?.cancel()
+            confirmTask = Task { [weak self, instantConfirm] in
+                try? await Task.sleep(for: instantConfirm)
+                guard !Task.isCancelled, self?.generation == gen else { return }
+                self?.spotInstant(stable: true)
+            }
         }
         silenceTask?.cancel()
         silenceTask = Task { [weak self, silenceInterval] in
             try? await Task.sleep(for: silenceInterval)
             guard !Task.isCancelled else { return }
             self?.finishUtterance(generation: gen)
+        }
+    }
+
+    /// 話している途中の文字から得点の言葉を探し、まだ反映していないものを反映する。
+    /// - Parameter stable: 文字がしばらく変わっていない（言葉の後ろに続きが来なかった）。
+    private func spotInstant(stable: Bool) {
+        guard instantMode, let best = currentTexts.first else { return }
+        let hits = WordSpotter.hits(tokens: ReadingConverter.hiraganaTokens(best), matcher: matcher)
+            .filter { $0.status != .rejected }
+        let now = Date()
+        while instantSeenAt.count < hits.count { instantSeenAt.append(now) }
+        // 認識が文字を書き直しても二重に入れないよう、何個目まで反映したかで数える
+        for (k, hit) in hits.enumerated() where k >= instantFired.count {
+            guard hit.status == .accepted || stable else { break }
+            let command = VoiceCommand.point(player: hit.player)
+            let accepted = gate.accept(command, at: now)
+            if accepted { onCommand?(command) } else { onRejected?(command) }
+            instantFired.append((command, accepted, now.timeIntervalSince(instantSeenAt[k])))
         }
     }
 
@@ -298,8 +342,10 @@ final class SpeechListener: ObservableObject {
     private func finishUtterance(generation gen: Int) {
         guard gen == generation else { return }
         silenceTask?.cancel()
+        confirmTask?.cancel()
         let texts = currentTexts
         let partials = currentPartials
+        let fired = instantFired
         let audio = audioBox.takeRecent()
         task?.cancel()
         audioBox.request?.endAudio()
@@ -318,6 +364,18 @@ final class SpeechListener: ObservableObject {
         var command: VoiceCommand?
         var accepted = false
         var note: String?
+        if let first = fired.first {
+            // 話している途中で反映済み。区切りでもう一度判定すると二重に入る
+            let delays = fired.map { String(format: "%.2f", $0.delay) }.joined(separator: "/")
+            note = "即時（出てから\(delays)秒）" + (fired.count > 1 ? " \(fired.count)件" : "")
+            let audioFile = recordsAudio ? store.saveAudio(audio, at: now) : nil
+            record(Utterance(
+                time: now, text: best, alternatives: Array(texts.dropFirst()), partials: partials,
+                reading: reading, command: first.command, accepted: first.accepted, note: note, audioFile: audioFile,
+                settings: currentSettings
+            ))
+            return
+        }
         search: for text in texts {
             for r in [ReadingConverter.hiragana(text), text] {
                 if let c = matcher.match(reading: r) {
@@ -374,7 +432,7 @@ final class SpeechListener: ObservableObject {
         case .dictation: hint = "dictation"
         default: hint = "unspecified"
         }
-        return "区切り\(ms)ms 二重防止\(gate.deadTime)秒 \(hint) マイク:\(micMode.title) 入力:\(inputName) 出力:\(outputName) 言葉 \(wordsSummary)"
+        return "区切り\(ms)ms 即時\(instantMode ? "ON" : "OFF") 二重防止\(gate.deadTime)秒 \(hint) マイク:\(micMode.title) 入力:\(inputName) 出力:\(outputName) 言葉 \(wordsSummary)"
     }
 
     // MARK: - マイクの抜き差し

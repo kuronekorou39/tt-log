@@ -126,6 +126,12 @@ public struct VoiceCommandMatcher: Sendable {
         return table[key] ?? Self.repeated(key, in: table)
     }
 
+    /// 得点の言葉（呼び方・呼び名とその付け足し）なら、その選手。繰り返しや操作語は見ない。
+    public func pointPlayer(reading: String) -> Int? {
+        guard case .point(let p) = table[KanaNormalizer.canonical(reading)] else { return nil }
+        return p
+    }
+
     /// 卓球の用語なら表示名を返す（「じゅーす」→「デュース」）。操作にはしない。
     public func term(reading: String) -> String? {
         let key = KanaNormalizer.canonical(reading)

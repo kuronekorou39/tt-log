@@ -25,6 +25,7 @@ struct ScoreboardView: View {
     @AppStorage("voice.rightWord") private var rightWord = "みぎ"
     @AppStorage("voice.deadTime") private var deadTime = 1.5
     @AppStorage("voice.silenceMs") private var silenceMs = 600
+    @AppStorage("voice.instant") private var instantMode = true
     @AppStorage("voice.recordsAudio") private var recordsAudio = true
     @AppStorage("voice.taskHint") private var taskHint = SFSpeechRecognitionTaskHint.confirmation.rawValue
     @AppStorage(MicMode.storageKey) private var micMode = MicMode.standard.rawValue
@@ -293,7 +294,7 @@ struct ScoreboardView: View {
 
     private var settingsKey: [String] {
         [String(soundEnabled), String(volume), callStyle, leftWord, rightWord, String(deadTime),
-         String(silenceMs), String(recordsAudio), String(taskHint), micMode]
+         String(silenceMs), String(instantMode), String(recordsAudio), String(taskHint), micMode]
     }
 
     private func applySettings() {
@@ -303,6 +304,7 @@ struct ScoreboardView: View {
         model.customWords = (leftWord, rightWord)
         model.listener.gate.deadTime = deadTime
         model.listener.silenceInterval = .milliseconds(silenceMs)
+        model.listener.instantMode = instantMode
         model.listener.recordsAudio = recordsAudio
         model.listener.taskHint = SFSpeechRecognitionTaskHint(rawValue: taskHint) ?? .confirmation
         model.listener.micMode = MicMode(rawValue: micMode) ?? .standard
