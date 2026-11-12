@@ -60,9 +60,9 @@ struct ScoreboardView: View {
                     ScoreboardDisplay(theme: theme, state: state,
                                       playerNames: [model.name(0), model.name(1)],
                                       lastScorer: model.log?.lastScorer,
-                                      callTags: model.callTags) { player in
-                        model.handle(.point(player: player), source: .tap)
-                    }
+                                      callTags: model.callTags,
+                                      onPoint: { player in model.handle(.point(player: player), source: .tap) },
+                                      onUndo: { model.handle(.undo, source: .tap) })
                     Divider()
                     if compact {
                         bottomBar(state, compact: true).labelStyle(.iconOnly)
@@ -159,12 +159,8 @@ struct ScoreboardView: View {
                 Button { sheet = .history } label: { Label("履歴", systemImage: "clock") }
                 Button { sheet = .design } label: { Label("デザイン", systemImage: "paintpalette") }
                 Button { sheet = .settings } label: { Label("設定", systemImage: "gearshape") }
-                if let state = model.state {
+                if model.state != nil {
                     Divider()
-                    Button {
-                        model.handle(.resetGame, source: .tap)
-                    } label: { Label("リセット", systemImage: "arrow.counterclockwise") }
-                    .disabled(state.scores == [0, 0])
                     Button(role: .destructive) {
                         showEndConfirm = true
                     } label: { Label("記録を終える", systemImage: "stop.circle") }
@@ -238,6 +234,15 @@ struct ScoreboardView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
+            Button {
+                model.handle(.resetGame, source: .tap)
+            } label: {
+                Label("リセット", systemImage: "arrow.counterclockwise").font(.title3)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .disabled(state.scores == [0, 0])
+            .accessibilityLabel("リセット")
             .accessibilityLabel("左右入れ替え")
             Spacer()
             PartialTextView(listener: model.listener)

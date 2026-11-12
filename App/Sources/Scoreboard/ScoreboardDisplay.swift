@@ -11,6 +11,8 @@ struct ScoreboardDisplay: View {
     /// 選手ごとの呼び方の札。空なら帯を出さない。
     var callTags: [CallTag] = []
     var onPoint: (Int) -> Void = { _ in }
+    /// 二本指のタップ。nil なら受けない（デザインの見本など）。
+    var onUndo: (() -> Void)?
 
     var body: some View {
         GeometryReader { proxy in
@@ -19,6 +21,17 @@ struct ScoreboardDisplay: View {
                 panel(player: state.left)
                 if theme == .simple { Divider() }
                 panel(player: 1 - state.left)
+            }
+            // パネルのボタンは VoiceOver 用に残し、指のタップはこの層で受ける
+            .overlay {
+                if let onUndo {
+                    ScoreboardTapLayer { point in
+                        guard state.phase == .playing else { return }
+                        onPoint(point.x < proxy.size.width / 2 - inset ? state.left : 1 - state.left)
+                    } onTwoFingerTap: {
+                        onUndo()
+                    }
+                }
             }
             .padding(inset)
             .frame(width: proxy.size.width, height: proxy.size.height)
@@ -101,22 +114,27 @@ private struct ScoreboardPlayerPanel: View {
                                 height: max(22, min(52, proxy.size.height * 0.08)))
                 }
                 VStack(spacing: max(6, min(18, proxy.size.height * 0.035))) {
-                    HStack(spacing: 8) {
-                        if theme == .arena {
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(accent)
-                                .frame(width: 4, height: nameSize)
+                    // 名前は中央。「+1」は右端に重ね、出ても名前が動かないようにする
+                    ZStack {
+                        HStack(spacing: 8) {
+                            if theme == .arena {
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(accent)
+                                    .frame(width: 4, height: nameSize)
+                            }
+                            Text(name)
+                                .font(.system(size: nameSize, weight: .bold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.5)
                         }
-                        Text(name)
-                            .font(.system(size: nameSize, weight: .bold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.5)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, nameSize * 2)
                         if isLastScorer {
                             LastPointBadge(theme: theme, score: score, height: nameSize * 1.2)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
                                 .transition(.scale(scale: 0.3).combined(with: .opacity))
                         }
                     }
+                    .frame(maxWidth: .infinity)
                     scoreView
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -215,6 +233,15 @@ private struct CallTagBand: View {
     let tag: CallTag
     let height: CGFloat
 
+    /// 左右の言葉はそれぞれ外側に寄せる。色は中央。
+    private var alignment: Alignment {
+        switch tag.arrow {
+        case .leading: return .leading
+        case .trailing: return .trailing
+        case nil: return .center
+        }
+    }
+
     var body: some View {
         let size = height * 0.62
         HStack(spacing: size * 0.4) {
@@ -226,8 +253,8 @@ private struct CallTagBand: View {
         }
         .font(.system(size: size, weight: .heavy, design: .rounded))
         .foregroundStyle(tag.text ?? theme.foreground.opacity(0.75))
-        .padding(.horizontal, 8)
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, height * 0.4)
+        .frame(maxWidth: .infinity, alignment: alignment)
         .frame(height: height)
         .background(tag.fill ?? theme.foreground.opacity(0.08))
         // 背景と同じような色（暗いデザインの黒、明るいデザインの白）でも帯の形が分かるように縁を付ける
