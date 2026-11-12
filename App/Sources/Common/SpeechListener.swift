@@ -88,11 +88,12 @@ final class SpeechListener: ObservableObject {
     var matcher = VoiceCommandMatcher(playerCallNames: [])
     var contextualStrings: [String] = []
 
-    /// 認識のヒントに渡す語。呼び名と、よく付け足す言い方、操作語、スコアの言い方。
+    /// 認識のヒントに渡す語。呼び名と、よく付け足す言い方、操作語、スコアの言い方、卓球の用語。
     static func hints(callNames: [String]) -> [String] {
         let names = callNames.filter { !$0.isEmpty }
         return names + names.flatMap { ["\($0)ポイント", "\($0)点"] }
-            + ["戻して", "戻す", "取り消し", "次のゲーム", "オール", "ラブオール", "ワンラブ"]
+            + ["戻して", "戻す", "戻せ", "元に戻す", "取り消し", "次のゲーム", "オール", "ラブオール", "ワンラブ"]
+            + VoiceCommandMatcher.terms.map(\.label) + ["ジュース"]
     }
     var gate = CommandGate(deadTime: 1.5)
     var silenceInterval: Duration = .milliseconds(600)
@@ -317,6 +318,14 @@ final class SpeechListener: ObservableObject {
                 if let c = matcher.match(reading: r) {
                     reading = r
                     command = c
+                    break search
+                }
+                // 卓球の用語は記録だけして、点は動かさない。
+                // スコアより先に見る（下位の候補がスコアに読めて、勝手に点が入らないように）
+                if let t = matcher.term(reading: r) {
+                    reading = r
+                    note = "用語：" + t
+                    accepted = true
                     break search
                 }
                 if let n = onUnmatched?(r) {

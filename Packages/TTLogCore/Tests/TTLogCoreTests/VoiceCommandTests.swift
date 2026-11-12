@@ -190,6 +190,27 @@ final class VoiceCommandMatcherTests: XCTestCase {
         XCTAssertEqual(VoiceCommandMatcher.confusablePairs(callNames: ["もどした", "さくら"]).count, 1)
     }
 
+    func testUndoVariants() {
+        let m = VoiceCommandMatcher(playerWords: [["ひだり"], ["みぎ"]])
+        for r in ["もどす", "もどして", "もどせ", "もとにもどす", "もとにもどして", "もとにもどせ", "ひとつもどして", "1つもどして", "もどせもどせ"] {
+            XCTAssertEqual(m.match(reading: r), .undo, r)
+        }
+    }
+
+    func testTableTennisTerms() {
+        let m = VoiceCommandMatcher(playerWords: [["ひだり"], ["よし"]])
+        XCTAssertEqual(m.term(reading: "デュース"), "デュース")
+        XCTAssertEqual(m.term(reading: "じゅーす"), "デュース")
+        XCTAssertEqual(m.term(reading: "ネット"), "ネット")
+        XCTAssertEqual(m.term(reading: "ねっとねっと"), "ネット")
+        // 用語は操作にしない
+        XCTAssertNil(m.match(reading: "デュース"))
+        // 選手の呼び名と同じ読みなら、呼び名を優先する
+        XCTAssertEqual(m.match(reading: "よし"), .point(player: 1))
+        XCTAssertNil(m.term(reading: "よし"))
+        XCTAssertNil(m.term(reading: "ひだり"))
+    }
+
     /// 設定の「呼び方」で選べる言葉が、スコアの言い方や操作語とぶつからないこと。
     func testCallStyleWords() {
         for word in ["ひだり", "みぎ", "あか", "しろ", "くろ"] {

@@ -21,8 +21,37 @@ public enum VoiceCommand: Hashable, Sendable {
 ///   スコアとして、いまの得点に照らして判断する（6-3 で「ななさん」なら 7-3 になる側に1点）
 public struct VoiceCommandMatcher: Sendable {
     /// 取り消し。実際の練習で口から出た言い方を受け付ける。
-    public static let undoReadings = ["もどして", "もどす", "もとにもどす", "もどる", "とりけし", "とりけして", "やりなおし"]
+    public static let undoReadings = [
+        "もどして", "もどす", "もどせ", "もどそう", "もどって", "もどる", "もどしといて",
+        "もとにもどして", "もとにもどす", "もとにもどせ",
+        // 「1つ」「1個」は認識が数字で返す形
+        "ひとつもどして", "ひとつもどす", "1つもどして", "1つもどす",
+        "いっこもどして", "いっこもどす", "1こもどして", "1こもどす",
+        "とりけし", "とりけして", "やりなおし",
+    ]
     public static let nextGameReadings = ["つぎのげーむ"]
+
+    /// 卓球の用語。いまは操作にしないが、聞き取れたことを音声ログに残す（後で使えるように）。
+    /// 表示名と、受け付ける読み。選手の呼び名や操作語と同じ読みなら、そちらを優先する。
+    public static let terms: [(label: String, readings: [String])] = [
+        ("デュース", ["でゅーす", "じゅーす"]),
+        ("ネット", ["ねっと"]),
+        ("レット", ["れっと"]),
+        ("エッジ", ["えっじ"]),
+        ("サイド", ["さいど"]),
+        ("アウト", ["あうと"]),
+        ("タイムアウト", ["たいむあうと", "たいむ"]),
+        ("チェンジエンド", ["ちぇんじえんど", "ちぇんじえんず", "ちぇんじこーと"]),
+        ("ゲームポイント", ["げーむぽいんと"]),
+        ("マッチポイント", ["まっちぽいんと"]),
+        ("サービス", ["さーびす", "さーぶ"]),
+        ("フォルト", ["ふぉると", "さーびすふぉると"]),
+        ("ナイス", ["ないす", "ないすぼーる", "ないすさーぶ"]),
+        ("ドンマイ", ["どんまい"]),
+        ("サー", ["さー", "さあ"]),
+        ("よし", ["よし", "よっしゃ"]),
+        ("チョレイ", ["ちょれい", "ちょれー"]),
+    ]
 
     /// 認識がよく書き換える言い方（練習の音声ログから）。「みぎ」が「ミリ」になる、など。
     public static let misheard: [String: [String]] = ["みぎ": ["みり"]]
@@ -38,6 +67,7 @@ public struct VoiceCommandMatcher: Sendable {
     }
 
     private let table: [String: VoiceCommand]
+    private let termTable: [String: String]
 
     /// - Parameter playerCallNames: その試合に出ている選手の呼び名（ひらがな）。並び順が `.point(player:)` の番号になる。
     public init(playerCallNames: [String]) {
@@ -67,19 +97,33 @@ public struct VoiceCommandMatcher: Sendable {
         for r in Self.undoReadings { t[KanaNormalizer.canonical(r)] = .undo }
         for r in Self.nextGameReadings { t[KanaNormalizer.canonical(r)] = .nextGame }
         table = t
+        var terms: [String: String] = [:]
+        for (label, readings) in Self.terms {
+            for r in readings {
+                let key = KanaNormalizer.canonical(r)
+                if t[key] == nil, !Self.isScoreCall(key) { terms[key] = label }
+            }
+        }
+        termTable = terms
     }
 
     public func match(reading: String) -> VoiceCommand? {
         let key = KanaNormalizer.canonical(reading)
-        return table[key] ?? repeated(key)
+        return table[key] ?? Self.repeated(key, in: table)
+    }
+
+    /// 卓球の用語なら表示名を返す（「じゅーす」→「デュース」）。操作にはしない。
+    public func term(reading: String) -> String? {
+        let key = KanaNormalizer.canonical(reading)
+        return termTable[key] ?? Self.repeated(key, in: termTable)
     }
 
     /// 同じ言葉の繰り返し（「ひだりひだり」）。反響で1回の発話が二重に書き起こされることがあるので、1回分として扱う。
     /// スコアとして読めるもの（「わんわん」= 1-1）はスコアに譲る。
-    private func repeated(_ key: String) -> VoiceCommand? {
+    private static func repeated<Value>(_ key: String, in table: [String: Value]) -> Value? {
         let s = Array(key.unicodeScalars)
         let n = s.count
-        guard n >= 2, !Self.isScoreCall(key) else { return nil }
+        guard n >= 2, !isScoreCall(key) else { return nil }
         for len in 1...(n / 2) where n % len == 0 {
             let unit = Array(s[0..<len])
             guard stride(from: len, to: n, by: len).allSatisfy({ Array(s[$0..<($0 + len)]) == unit }) else { continue }
