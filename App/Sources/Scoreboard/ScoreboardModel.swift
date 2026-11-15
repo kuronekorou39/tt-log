@@ -107,9 +107,6 @@ final class ScoreboardModel: ObservableObject {
                 return
             }
             playTone(.nextGame)
-        case .toggleServer:
-            toggleServer()
-            return
         case .swapEnds:
             swapEnds()
             return

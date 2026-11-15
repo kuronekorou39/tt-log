@@ -64,6 +64,11 @@ struct ScoreboardView: View {
                                       callTags: model.callTags,
                                       onPoint: { player in model.handle(.point(player: player), source: .tap) },
                                       onUndo: { model.handle(.undo, source: .tap) })
+                        .overlay(alignment: .top) {
+                            HeardBanner(listener: model.listener, name: { model.name($0) },
+                                        height: max(44, min(96, proxy.size.height * 0.13)))
+                                .padding(.top, 6)
+                        }
                     Divider()
                     if compact {
                         bottomBar(state, compact: true).labelStyle(.iconOnly)

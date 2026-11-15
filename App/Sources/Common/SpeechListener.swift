@@ -96,7 +96,7 @@ final class SpeechListener: ObservableObject {
     static func hints(callNames: [String]) -> [String] {
         let names = callNames.filter { !$0.isEmpty }
         return names + names.flatMap { ["\($0)ポイント", "\($0)点"] }
-            + ["戻して", "戻す", "戻せ", "元に戻す", "取り消し", "進める", "次のゲーム", "サーブ", "チェンジ", "入れ替え", "リセット",
+            + ["戻して", "戻す", "戻せ", "元に戻す", "取り消し", "進める", "次のゲーム", "入れ替え", "リセット",
                "オール", "ラブオール", "ワンラブ"]
             + VoiceCommandMatcher.terms.map(\.label) + ["ジュース"]
     }
@@ -106,6 +106,9 @@ final class SpeechListener: ObservableObject {
     var instantMode = true
     /// 言葉の後ろに何も続かないとき、続きが来ないか見る時間。
     var instantConfirm: Duration = .milliseconds(300)
+    /// スコアの形（「フォーファイブ」）になったあと、続きが来ないか見る時間。
+    /// 数は続きが付きやすい（「じゅういち」のあとに「きゅう」）ので、言葉より少し長く待つ。
+    var scoreConfirm: Duration = .milliseconds(500)
     var taskHint: SFSpeechRecognitionTaskHint = .confirmation
     var recordsAudio = true
     /// 受け付けている言葉の要約（ログ用）。
@@ -176,6 +179,7 @@ final class SpeechListener: ObservableObject {
             // 受信機などをつないでいれば、そちらを使う
             let external = session.availableInputs?.first { Self.externalInputs.contains($0.portType) }
             try? session.setPreferredInput(external)
+            if let external { Self.keepSpeaker(session, input: external) }
         } catch {
             statusMessage = "マイクを開けません: \(error.localizedDescription)"
             return
@@ -210,6 +214,18 @@ final class SpeechListener: ObservableObject {
         watchBursts()
     }
 
+    /// 受信機をつなぐと効果音も受信機へ行って聞こえなくなるので、音は本体のスピーカーから出す。
+    /// スピーカーへ切り替えるとマイクも内蔵に戻ることがある。そのときは音よりマイクを優先して元に戻す。
+    private static func keepSpeaker(_ session: AVAudioSession, input: AVAudioSessionPortDescription) {
+        try? session.overrideOutputAudioPort(.speaker)
+        try? session.setPreferredInput(input)
+        let usesExternal = session.currentRoute.inputs.contains { externalInputs.contains($0.portType) }
+        if !usesExternal {
+            try? session.overrideOutputAudioPort(.none)
+            try? session.setPreferredInput(input)
+        }
+    }
+
     func stop() {
         guard isListening else { return }
         isListening = false
@@ -239,7 +255,6 @@ final class SpeechListener: ObservableObject {
         case .undo: return "戻す"
         case .redo: return "進める"
         case .nextGame: return "次のゲーム"
-        case .toggleServer: return "サーブ交代"
         case .swapEnds: return "左右入れ替え"
         case .resetGame: return "リセット"
         }
@@ -310,8 +325,9 @@ final class SpeechListener: ObservableObject {
             }
         }
         silenceTask?.cancel()
-        silenceTask = Task { [weak self, silenceInterval] in
-            try? await Task.sleep(for: silenceInterval)
+        let wait = min(quickWait() ?? silenceInterval, silenceInterval)
+        silenceTask = Task { [weak self] in
+            try? await Task.sleep(for: wait)
             guard !Task.isCancelled else { return }
             self?.finishUtterance(generation: gen)
         }
@@ -333,6 +349,15 @@ final class SpeechListener: ObservableObject {
             if accepted { onCommand?(command) } else { onRejected?(command) }
             instantFired.append((command, accepted, now.timeIntervalSince(instantSeenAt[k])))
         }
+    }
+
+    /// いまの文字がそのまま操作語やスコアになっているなら、区切りを待つ時間を短くする。
+    /// （「戻して」「フォーファイブ」は言い終わっているのに、無音を待つぶん遅かった）
+    private func quickWait() -> Duration? {
+        guard instantMode, let best = currentTexts.first else { return nil }
+        if matcher.match(reading: ReadingConverter.hiragana(best)) != nil { return instantConfirm }
+        if looksLikeScore(best) { return scoreConfirm }
+        return nil
     }
 
     private func looksLikeScore(_ text: String) -> Bool {

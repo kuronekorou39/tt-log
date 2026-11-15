@@ -113,6 +113,14 @@ final class ScoreCallResolverTests: XCTestCase {
         XCTAssertEqual(resolve([3, 4], l), .points(player: 1 - server, count: 1))
     }
 
+    func testDeuceTieUsesNextServer() {
+        // デュースでは1本ごとにサーブが替わる。先に言うのは「次にサーブする人」の点
+        let l = log(10, 10, firstServer: 0)
+        let next = 1 - l.state.server!
+        XCTAssertEqual(resolve([11, 10], l), .points(player: next, count: 1))
+        XCTAssertEqual(resolve([10, 11], l), .points(player: 1 - next, count: 1))
+    }
+
     func testLoveAllTieBreak() {
         // 0-0 で「ワンラブ」：同点なのでサーブの人の点とみなす
         let l = SessionLog(config: MatchConfig(firstServer: 1), startedAt: t0)

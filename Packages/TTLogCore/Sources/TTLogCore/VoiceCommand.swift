@@ -8,7 +8,6 @@ public enum VoiceCommand: Hashable, Sendable {
     /// 「戻す」で取り消した操作をやり直す。
     case redo
     case nextGame
-    case toggleServer
     case swapEnds
     /// いまのゲームの得点を 0-0 に戻す。
     case resetGame
@@ -37,7 +36,6 @@ public struct VoiceCommandMatcher: Sendable {
     ]
     public static let redoReadings = ["すすめる", "すすめて", "すすめ", "すすむ", "ひとつすすめて", "1つすすめて"]
     public static let nextGameReadings = ["つぎのげーむ"]
-    public static let toggleServerReadings = ["さーぶ", "さーぶこうたい", "さーぶちぇんじ", "ちぇんじ"]
     public static let swapEndsReadings = ["いれかえ", "いれかえて", "さゆういれかえ"]
     public static let resetReadings = ["りせっと", "りせっとして"]
 
@@ -54,7 +52,8 @@ public struct VoiceCommandMatcher: Sendable {
         ("チェンジエンド", ["ちぇんじえんど", "ちぇんじえんず", "ちぇんじこーと"]),
         ("ゲームポイント", ["げーむぽいんと"]),
         ("マッチポイント", ["まっちぽいんと"]),
-        ("サービス", ["さーびす"]),
+        // 「サーブ」は声の操作にしない（めったに変えないのに、つい口に出る言葉なので）
+        ("サービス", ["さーびす", "さーぶ"]),
         ("フォルト", ["ふぉると", "さーびすふぉると"]),
         ("ナイス", ["ないす", "ないすぼーる", "ないすさーぶ"]),
         ("ドンマイ", ["どんまい"]),
@@ -107,7 +106,6 @@ public struct VoiceCommandMatcher: Sendable {
         for r in Self.undoReadings { t[KanaNormalizer.canonical(r)] = .undo }
         for r in Self.redoReadings { t[KanaNormalizer.canonical(r)] = .redo }
         for r in Self.nextGameReadings { t[KanaNormalizer.canonical(r)] = .nextGame }
-        for r in Self.toggleServerReadings { t[KanaNormalizer.canonical(r)] = .toggleServer }
         for r in Self.swapEndsReadings { t[KanaNormalizer.canonical(r)] = .swapEnds }
         for r in Self.resetReadings { t[KanaNormalizer.canonical(r)] = .resetGame }
         table = t
@@ -172,7 +170,7 @@ public struct VoiceCommandMatcher: Sendable {
 
     /// 操作語のすべての読み。
     public static var commandReadings: [String] {
-        undoReadings + redoReadings + nextGameReadings + toggleServerReadings + swapEndsReadings + resetReadings
+        undoReadings + redoReadings + nextGameReadings + swapEndsReadings + resetReadings
     }
 
     static func isScoreCall(_ reading: String) -> Bool {

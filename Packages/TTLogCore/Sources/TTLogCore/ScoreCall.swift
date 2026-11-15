@@ -137,7 +137,7 @@ public enum ScoreCallResolver {
         // 言った2つの数を、どちらの選手に当てるか。両方の向きを試す
         struct Candidate: Hashable {
             let resolution: Resolution
-            /// サーブの人の点を先に言った向きか（同点のときの決め手）。
+            /// 次にサーブする人の点を先に言った向きか（同点のときの決め手）。
             let serverFirst: Bool
         }
         var candidates = Set<Candidate>()
@@ -147,16 +147,25 @@ public enum ScoreCallResolver {
                 target[firstPlayer] = pair[0]
                 target[1 - firstPlayer] = pair[1]
                 guard let r = resolution(target: target, current: current, previous: previous, log: log) else { continue }
-                candidates.insert(Candidate(resolution: r, serverFirst: state.server == firstPlayer))
+                candidates.insert(Candidate(resolution: r, serverFirst: nextServer(after: r, log: log) == firstPlayer))
             }
         }
 
         let distinct = Set(candidates.map(\.resolution))
         if distinct.count == 1 { return distinct.first }
         if distinct.isEmpty { return nil }
-        // 同点からの1点は、順番だけではどちらの点か決まらない。公式のコールに合わせて「サーブの人が先」とみなす
+        // 同点からの1点は、順番だけではどちらの点か決まらない。
+        // 審判のコール（次のラリーでサーブする人の点を先に言う）に合わせる
         let serverFirst = Set(candidates.filter(\.serverFirst).map(\.resolution))
         return serverFirst.count == 1 ? serverFirst.first : nil
+    }
+
+    /// その操作のあと、次のラリーでサーブする選手。デュースでは1本ごとに替わるので、いまのサーバーとは違うことがある。
+    private static func nextServer(after r: Resolution, log: SessionLog) -> Int? {
+        guard case .points(let p, let n) = r else { return log.state.server }
+        var trial = log
+        for _ in 0..<n { trial.append(.point(winner: p), at: log.startedAt, source: .voice) }
+        return trial.state.server ?? log.state.server
     }
 
     private static func resolution(target: [Int], current: [Int], previous: [Int]?, log: SessionLog) -> Resolution? {

@@ -232,8 +232,8 @@ struct VoiceTestView: View {
         case .resetGame:
             points = []
             if soundEnabled { tones.play(.undo) }
-        case .redo, .toggleServer, .swapEnds:
-            // 試しの画面にはやり直し・サーブ・左右がないので、聞き取れたことだけ知らせる
+        case .redo, .swapEnds:
+            // 試しの画面にはやり直し・左右がないので、聞き取れたことだけ知らせる
             if soundEnabled { tones.play(.confirm) }
         }
     }
@@ -287,7 +287,6 @@ struct VoiceTestView: View {
         case .undo: return "戻す"
         case .redo: return "進める"
         case .nextGame: return "次のゲーム"
-        case .toggleServer: return "サーブ交代"
         case .swapEnds: return "左右入れ替え"
         case .resetGame: return "リセット"
         }
