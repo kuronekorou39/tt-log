@@ -105,26 +105,33 @@ final class ScoreCallResolverTests: XCTestCase {
         XCTAssertNil(resolve([5, 5], log(3, 2)), "両方が進んでいる形は受け付けない")
     }
 
-    func testTieUsesServerFirst() {
-        let l = log(3, 3, firstServer: 0)
-        let server = l.state.server!
-        // 同点では順番から決まらないので、先に言った数（4）をサーブの人の点とみなす
-        XCTAssertEqual(resolve([4, 3], l), .points(player: server, count: 1))
-        XCTAssertEqual(resolve([3, 4], l), .points(player: 1 - server, count: 1))
+    func testTieReadsFromScreenLeft() {
+        // 同点では順番から決まらないので、画面の左から読んだとみなす（サーブが誰でも同じ）
+        for firstServer in [0, 1] {
+            let l = log(3, 3, firstServer: firstServer)
+            let left = l.state.left
+            XCTAssertEqual(resolve([4, 3], l), .points(player: left, count: 1))
+            XCTAssertEqual(resolve([3, 4], l), .points(player: 1 - left, count: 1))
+        }
+        // 左右を入れ替えたら、読む順も入れ替わる
+        var swapped = log(3, 3)
+        swapped.swapEnds()
+        XCTAssertEqual(swapped.state.left, 1)
+        XCTAssertEqual(resolve([4, 3], swapped), .points(player: 1, count: 1))
     }
 
-    func testDeuceTieUsesNextServer() {
-        // デュースでは1本ごとにサーブが替わる。先に言うのは「次にサーブする人」の点
+    func testDeuceTieReadsFromScreenLeft() {
         let l = log(10, 10, firstServer: 0)
-        let next = 1 - l.state.server!
-        XCTAssertEqual(resolve([11, 10], l), .points(player: next, count: 1))
-        XCTAssertEqual(resolve([10, 11], l), .points(player: 1 - next, count: 1))
+        XCTAssertEqual(resolve([11, 10], l), .points(player: l.state.left, count: 1))
+        XCTAssertEqual(resolve([10, 11], l), .points(player: 1 - l.state.left, count: 1))
     }
 
     func testLoveAllTieBreak() {
-        // 0-0 で「ワンラブ」：同点なのでサーブの人の点とみなす
-        let l = SessionLog(config: MatchConfig(firstServer: 1), startedAt: t0)
+        // 0-0 で「ワンラブ」：同点なので画面の左の人の点とみなす
+        let l = SessionLog(config: MatchConfig(firstServer: 1, firstLeft: 1), startedAt: t0)
         XCTAssertEqual(resolve([1, 0], l), .points(player: 1, count: 1))
+        let r = SessionLog(config: MatchConfig(firstServer: 1, firstLeft: 0), startedAt: t0)
+        XCTAssertEqual(resolve([1, 0], r), .points(player: 0, count: 1))
     }
 
     func testCannotSkipPastGameEnd() {
@@ -147,8 +154,7 @@ final class ScoreCallResolverTests: XCTestCase {
         for _ in 0..<10 { l.append(.point(winner: 0), at: t0, source: .tap); l.append(.point(winner: 1), at: t0, source: .tap) }
         let p = ScoreCallParser.pairs(in: "じゅういちじゅう")
         let r = ScoreCallResolver.resolve(pairs: p, log: l)
-        // 10-10 は同点。次にサーブする人（デュースなので、いまのサーバーの相手）の点を先に言ったとみなす
-        let next = 1 - l.state.server!
-        XCTAssertEqual(r, .points(player: next, count: 1))
+        // 10-10 は同点。画面の左の人の点を先に言ったとみなす
+        XCTAssertEqual(r, .points(player: l.state.left, count: 1))
     }
 }
