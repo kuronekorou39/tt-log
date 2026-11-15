@@ -68,6 +68,8 @@ final class CameraController: ObservableObject {
     private var lastBytes: Int64 = 0
     /// スコアボードに出す、録画できていない理由。
     private var problem: String?
+    /// つなぎ直したあと、いまの記録の録画の報告を送り直す必要があるか。
+    private var needsReportSync = true
 
     static let postRollSeconds = 3
     /// 空きがこれより少なければ録画を始めない。
@@ -94,6 +96,11 @@ final class CameraController: ObservableObject {
         })
         client.$snapshot
             .sink { [weak self] s in self?.handle(s) }
+            .store(in: &cancellables)
+        client.$status
+            .sink { [weak self] status in
+                if !status.isConnected { self?.needsReportSync = true }
+            }
             .store(in: &cancellables)
         UIDevice.current.isBatteryMonitoringEnabled = true
         observers.append(NotificationCenter.default.addObserver(
@@ -144,7 +151,13 @@ final class CameraController: ObservableObject {
 
     private func handle(_ s: ScoreboardSnapshot?) {
         guard let s else { return }
-        if let id = s.sessionId { updateMarks(s, sessionId: id) }
+        if let id = s.sessionId {
+            updateMarks(s, sessionId: id)
+            if needsReportSync, client.status.isConnected {
+                needsReportSync = false
+                sendReports(sessionId: id)
+            }
+        }
         guard autoRecord, !manual else { return }
 
         // 記録を終えた（idle）ときも、ゲームが終わったときと同じく止める
@@ -256,6 +269,7 @@ final class CameraController: ObservableObject {
            let i = index.clips.firstIndex(where: { $0.file == url.lastPathComponent }) {
             index.clips[i].endedAt = Date()
             library.save(index)
+            sendReport(index.clips[i], in: index)
         }
         if let error {
             message = "録画が途中で止まりました: \(error.localizedDescription)"
@@ -299,6 +313,27 @@ final class CameraController: ObservableObject {
         guard recording != nil else { return }
         note("止める録画がなかった")
         afterStop()
+    }
+
+    // MARK: - スコアボードへの報告
+
+    /// 終わった録画の長さ・大きさ・サムネイルをスコアボードへ送る。
+    private func sendReport(_ clip: CameraSessionIndex.Clip, in index: CameraSessionIndex) {
+        let url = library.url(of: clip, in: index)
+        // そのゲームの最後の得点の少し前（2人とも台についている場面）をサムネイルにする
+        let lastPoint = clip.gameIndex.flatMap { index.game($0)?.points.last?.at }
+        let end = clip.endedAt ?? Date()
+        let at = (lastPoint ?? end).timeIntervalSince(clip.startedAt) - 1
+        Task { [weak self] in
+            guard let report = await ClipReporter.report(sessionId: index.id, gameIndex: clip.gameIndex, url: url, thumbnailAt: at) else { return }
+            self?.client.send(report)
+        }
+    }
+
+    /// つなぎ直したとき：その記録の、終わっている録画をすべて送り直す。
+    private func sendReports(sessionId: String) {
+        guard let index = library.sessions.first(where: { $0.id == sessionId }) else { return }
+        for clip in index.clips where clip.endedAt != nil { sendReport(clip, in: index) }
     }
 
     /// 少し待ってから、いま撮るべきものを撮り直す。

@@ -13,6 +13,9 @@ final class PeerServer: ObservableObject {
     /// カメラから届いた録画の状態と、受け取った時刻（この端末の時計）。複数台なら最後に届いたもの。
     @Published private(set) var cameraStatus: (status: CameraStatus, receivedAt: Date)?
 
+    /// カメラから録画の報告が届いたとき。
+    var onClipReport: ((ClipReport) -> Void)?
+
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private var names: [ObjectIdentifier: String] = [:]
@@ -139,6 +142,8 @@ final class PeerServer: ObservableObject {
             send(.pong(pingSentAt: sentAt, receivedAt: Date().epochMilliseconds), to: c)
         case .cameraStatus(let s):
             cameraStatus = (s, Date())
+        case .clipReport(let r):
+            onClipReport?(r)
         case .state, .pong:
             break
         }

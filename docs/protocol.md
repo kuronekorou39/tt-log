@@ -70,6 +70,22 @@ WebSocket のテキストメッセージ1つに JSON を1つ入れる。`type` �
 
 スコアボードは、8秒届かなければ「カメラの様子が分からない」とみなす。
 
+### clipReport（カメラ → スコアボード）
+
+録画1本の報告。録画が終わるたびに送る。つなぎ直したときは、その記録の終わっている録画をすべて送り直す（同じ `file` は置き換える）。
+
+```json
+{"type":"clipReport","clipReport":{"sessionId":"…","gameIndex":2,"file":"game03-1.mov","seconds":261.5,"bytes":310000000,"thumbnail":"/9j/4AAQ…"}}
+```
+
+| 項目 | 意味 |
+|---|---|
+| sessionId | 記録の ID |
+| gameIndex | どのゲームの録画か（0 始まり）。通し録画・手動録画は null |
+| file | ファイル名 |
+| seconds / bytes | 長さ（秒）と大きさ（バイト） |
+| thumbnail | 映像から切り出した1枚（幅 480 までの JPEG を Base64 にしたもの）。作れなければ null |
+
 ### ping / pong（時計のずれの測定）
 
 カメラが ping を送り、スコアボードがすぐ pong を返す。

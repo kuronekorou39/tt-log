@@ -32,6 +32,8 @@ struct ScoreboardView: View {
 
     enum Sheet: Identifiable {
         case newSession, players, history, settings, design
+        /// いまの記録の録画の一覧（撮れているかの確認）。
+        case clips
         /// 記録を終えた直後の結果。
         case result(SessionRecord)
 
@@ -42,6 +44,7 @@ struct ScoreboardView: View {
             case .history: return "history"
             case .settings: return "settings"
             case .design: return "design"
+            case .clips: return "clips"
             case .result(let record): return "result-\(record.id)"
             }
         }
@@ -98,6 +101,11 @@ struct ScoreboardView: View {
                         }
                 }
             case .settings: ScoreboardSettingsView(listener: model.listener, onChangeRole: onChangeRole)
+            case .clips:
+                if let session = model.session, let log = model.log {
+                    ClipReportSheet(sessionId: session.id.uuidString,
+                                    games: log.games().filter { !$0.points.isEmpty })
+                }
             case .design:
                 ScoreboardDesignSheet(state: model.state,
                                       playerNames: model.state == nil ? ["プレーヤー A", "プレーヤー B"] : [model.name(0), model.name(1)],
@@ -146,7 +154,12 @@ struct ScoreboardView: View {
                 Text("TTLog").font(.headline)
             }
             Spacer()
-            CameraBadge(server: model.server, playing: model.state?.phase == .playing, compact: compact)
+            Button { if model.session != nil { sheet = .clips } } label: {
+                CameraBadge(server: model.server, playing: model.state?.phase == .playing, compact: compact)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("録画の確認")
             MicButton(listener: model.listener)
             Button { sheet = .design } label: {
                 Image(systemName: "paintpalette")

@@ -33,6 +33,7 @@ final class ScoreboardModel: ObservableObject {
         listener.onUnresolvedScore = { [weak self] in
             if self?.log != nil { self?.playTone(.rejected) }
         }
+        server.onClipReport = { ClipReportStore.shared.add($0) }
         server.start()
         resumeOrSplit()
     }

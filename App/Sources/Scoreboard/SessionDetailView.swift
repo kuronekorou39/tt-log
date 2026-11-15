@@ -7,6 +7,7 @@ struct SessionDetailView: View {
     let session: SessionRecord
 
     @State private var shareImage: Image?
+    @ObservedObject private var clips = ClipReportStore.shared
 
     private var log: SessionLog { session.log }
     private var names: [String] { [name(0), name(1)] }
@@ -21,6 +22,12 @@ struct SessionDetailView: View {
             if !games.isEmpty {
                 Section("内訳") {
                     StatsTable(stats: games.playerStats(), names: names)
+                }
+            }
+            // カメラをつないで撮った記録だけ、録画の一覧を出す
+            if !clips.reports(for: session.id.uuidString).isEmpty {
+                Section("録画") {
+                    ClipReportRows(sessionId: session.id.uuidString, games: games)
                 }
             }
             ForEach(games, id: \.index) { game in

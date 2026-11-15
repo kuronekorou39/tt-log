@@ -72,6 +72,12 @@ final class PeerClient: ObservableObject {
         PeerServer.send(.cameraStatus(status), to: connection)
     }
 
+    /// 録画1本の報告をスコアボードに送る。
+    func send(_ report: ClipReport) {
+        guard let connection, status.isConnected else { return }
+        PeerServer.send(.clipReport(report), to: connection)
+    }
+
     // MARK: -
 
     private func connectOrBrowse() {
@@ -154,7 +160,7 @@ final class PeerClient: ObservableObject {
         case .pong(let sentAt, let remoteAt):
             clock.add(sentAt: sentAt, remoteAt: remoteAt, receivedAt: Date().epochMilliseconds)
             clockOffsetMs = clock.offset
-        case .hello, .ping, .cameraStatus:
+        case .hello, .ping, .cameraStatus, .clipReport:
             break
         }
     }

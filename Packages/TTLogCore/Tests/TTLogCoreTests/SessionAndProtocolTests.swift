@@ -181,6 +181,8 @@ final class PeerProtocolTests: XCTestCase {
             .ping(sentAt: 1.5),
             .pong(pingSentAt: 1.5, receivedAt: 9.0),
             .cameraStatus(CameraStatus(recording: true, clipSeconds: 12.5, problem: nil, battery: 80, thermal: 0, sentAt: 7)),
+            .clipReport(ClipReport(sessionId: "s", gameIndex: 2, file: "game03-1.mov", seconds: 261.5, bytes: 310_000_000, thumbnail: "AAEC")),
+            .clipReport(ClipReport(sessionId: "s", gameIndex: nil, file: "whole-01.mov", seconds: 10, bytes: 1, thumbnail: nil)),
             .cameraStatus(CameraStatus(recording: false, clipSeconds: nil, problem: "カメラが中断中", battery: nil, thermal: 2, sentAt: 8)),
         ]
         for m in messages {
