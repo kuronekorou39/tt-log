@@ -147,8 +147,8 @@ final class ScoreCallResolverTests: XCTestCase {
         for _ in 0..<10 { l.append(.point(winner: 0), at: t0, source: .tap); l.append(.point(winner: 1), at: t0, source: .tap) }
         let p = ScoreCallParser.pairs(in: "じゅういちじゅう")
         let r = ScoreCallResolver.resolve(pairs: p, log: l)
-        // 10-10 は同点。サーブの人の点を先に言ったとみなす
-        let server = l.state.server!
-        XCTAssertEqual(r, .points(player: server, count: 1))
+        // 10-10 は同点。次にサーブする人（デュースなので、いまのサーバーの相手）の点を先に言ったとみなす
+        let next = 1 - l.state.server!
+        XCTAssertEqual(r, .points(player: next, count: 1))
     }
 }
