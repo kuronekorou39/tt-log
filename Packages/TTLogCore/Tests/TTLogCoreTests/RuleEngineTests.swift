@@ -85,10 +85,18 @@ final class RuleEngineTests: XCTestCase {
         XCTAssertNil(RuleEngine.apply(.point(winner: 1), to: s, config: c))
     }
 
-    func testNextGameIgnoredDuringPlay() {
+    func testNextGameDuringPlayLeavesGameUnfinished() {
         let c = MatchConfig()
-        let s = RuleEngine.reduce(c, points(3, 2))
-        XCTAssertNil(RuleEngine.apply(.startNextGame, to: s, config: c))
+        // 0-0 のままでは進めない
+        XCTAssertNil(RuleEngine.apply(.startNextGame, to: RuleEngine.reduce(c, []), config: c))
+        // 途中で切り上げると、勝者なしで次のゲームへ
+        let s = RuleEngine.reduce(c, points(3, 2) + [.startNextGame])
+        XCTAssertEqual(s.gameIndex, 1)
+        XCTAssertEqual(s.scores, [0, 0])
+        XCTAssertEqual(s.phase, .playing)
+        XCTAssertEqual(s.gamesWon, [0, 0])
+        XCTAssertEqual(s.left, 1 - c.firstLeft)
+        XCTAssertEqual(s.server, 1 - c.firstServer)
     }
 
     func testContinuousNeverEnds() {

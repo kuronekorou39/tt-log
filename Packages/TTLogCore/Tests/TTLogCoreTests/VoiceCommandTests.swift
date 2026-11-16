@@ -106,6 +106,7 @@ final class VoiceCommandMatcherTests: XCTestCase {
         XCTAssertEqual(matcher.match(reading: "もどして"), .undo)
         XCTAssertEqual(matcher.match(reading: "つぎのげーむ"), .nextGame)
         XCTAssertEqual(matcher.match(reading: "つぎのゲーム"), .nextGame)
+        XCTAssertEqual(matcher.match(reading: "ねくすとげーむ"), .nextGame)
     }
 
     func testOnlyWholeUtteranceMatches() {

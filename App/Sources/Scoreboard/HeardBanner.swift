@@ -5,12 +5,10 @@ import TTLogCore
 /// 話している間はその文字を、言い終わったら結果（受け付けたら緑）を少しのあいだ出す。
 struct HeardBanner: View {
     @ObservedObject var listener: SpeechListener
-    /// 選手の表示名。
-    let name: (Int) -> String
     let height: CGFloat
 
     /// 結果を出しておく時間（秒）。
-    private static let showSeconds = 2.0
+    private static let showSeconds = 3.5
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.5)) { context in
@@ -35,14 +33,16 @@ struct HeardBanner: View {
         if !listener.partialText.isEmpty { return (listener.partialText, false) }
         guard let u = listener.log.first, now.timeIntervalSince(u.time) < Self.showSeconds, !u.text.isEmpty else { return nil }
         if let command = u.command {
-            return u.accepted ? ("○ " + label(command), true) : (u.text, false)
+            return u.accepted ? ("○ " + label(command, heard: u.text), true) : (u.text, false)
         }
-        if u.accepted, let note = u.note { return ("○ " + note, true) }
+        // 「スコア 7-9（A +1）」の括弧は出さない（どちらに入ったかはスコアボードの「+1」でわかる）
+        if u.accepted, let note = u.note { return ("○ " + (note.components(separatedBy: "（").first ?? note), true) }
         return (u.note == nil ? u.text : "？ " + u.text, false)
     }
 
-    private func label(_ command: VoiceCommand) -> String {
-        if case .point(let player) = command { return name(player) + " +1" }
+    private func label(_ command: VoiceCommand, heard: String) -> String {
+        // 得点は聞き取った言葉だけ
+        if case .point = command { return heard }
         return SpeechListener.describe(command)
     }
 }

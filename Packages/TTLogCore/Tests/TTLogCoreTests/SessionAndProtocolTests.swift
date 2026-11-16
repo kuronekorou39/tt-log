@@ -71,6 +71,20 @@ final class SessionLogTests: XCTestCase {
         XCTAssertEqual(games[1].points.map(\.at), [at(210)])
     }
 
+    func testNextGameMidGame() {
+        var log = SessionLog(config: MatchConfig(), startedAt: t0)
+        log.append(.point(winner: 0), at: at(10), source: .tap)
+        XCTAssertTrue(log.append(.startNextGame, at: at(20), source: .voice))
+        let games = log.games()
+        XCTAssertEqual(games.count, 2)
+        XCTAssertEqual(games[0].endedAt, at(20))
+        XCTAssertNil(games[0].winner)
+        XCTAssertEqual(games[0].points.count, 1)
+        _ = log.popLast() // 戻すと途中のゲームに戻る
+        XCTAssertEqual(log.state.scores, [1, 0])
+        XCTAssertEqual(log.state.gameIndex, 0)
+    }
+
     func testPointsKeepServerAndSource() {
         var log = SessionLog(config: MatchConfig(firstServer: 1), startedAt: t0)
         log.append(.point(winner: 0), at: at(1), source: .voice) // サーブ 1
@@ -117,8 +131,8 @@ final class SessionLogTests: XCTestCase {
         XCTAssertEqual(log.state.scores, [0, 0])
         XCTAssertTrue(log.redo(undone!))
         XCTAssertEqual(log.state.scores, [0, 1])
-        // ゲーム中に「次のゲーム」はやり直せない
-        XCTAssertFalse(log.redo(TimedEvent(event: .startNextGame, at: at(2), source: .tap)))
+        // 受け付けない操作はやり直せない（ゲーム中に3人目の得点）
+        XCTAssertFalse(log.redo(TimedEvent(event: .point(winner: 2), at: at(2), source: .tap)))
     }
 
     func testToggleServerAndSwapEnds() {

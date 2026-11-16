@@ -31,6 +31,7 @@ public struct MatchConfig: Hashable, Codable, Sendable {
 
 public enum MatchEvent: Hashable, Codable, Sendable {
     case point(winner: Int)
+    /// 次のゲームを始める。ゲームの途中でも進められる（そのゲームは勝者なしで残る）。
     case startNextGame
     /// いまのゲームの得点を 0-0 に戻す（終わったゲームなら、終わる前に戻す）。
     case resetGame
@@ -83,7 +84,7 @@ public enum RuleEngine {
     }
 
     /// 操作を1つ反映した状態を返す。いまの状態で受け付けない操作なら nil。
-    /// （ゲーム終了中の得点、ゲーム中の「次のゲーム」、試合終了後の操作など）
+    /// （ゲーム終了中の得点、0-0 での「次のゲーム」、ゲームマッチ終了後の操作など）
     public static func apply(_ event: MatchEvent, to state: MatchState, config: MatchConfig) -> MatchState? {
         var s = state
         switch event {
@@ -110,7 +111,12 @@ public enum RuleEngine {
             }
 
         case .startNextGame:
-            guard case .gameOver = s.phase else { return nil }
+            // 途中で切り上げて次へ進んでもよい（練習で多い）。0-0 のままと、ゲームマッチ終了後は進めない
+            switch s.phase {
+            case .gameOver: break
+            case .playing: guard s.scores != [0, 0] else { return nil }
+            case .matchOver: return nil
+            }
             s.gameIndex += 1
             s.scores = [0, 0]
             s.phase = .playing

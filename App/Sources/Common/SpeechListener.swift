@@ -96,7 +96,7 @@ final class SpeechListener: ObservableObject {
     static func hints(callNames: [String]) -> [String] {
         let names = callNames.filter { !$0.isEmpty }
         return names + names.flatMap { ["\($0)ポイント", "\($0)点"] }
-            + ["戻して", "戻す", "戻せ", "元に戻す", "取り消し", "進める", "次のゲーム", "入れ替え", "リセット",
+            + ["戻して", "戻す", "戻せ", "元に戻す", "取り消し", "進める", "次のゲーム", "ネクストゲーム", "入れ替え", "リセット",
                "オール", "ラブオール", "ワンラブ"]
             + VoiceCommandMatcher.terms.map(\.label) + ["ジュース"]
     }
@@ -255,7 +255,7 @@ final class SpeechListener: ObservableObject {
         case .undo: return "戻す"
         case .redo: return "進める"
         case .nextGame: return "次のゲーム"
-        case .swapEnds: return "左右入れ替え"
+        case .swapEnds: return "入れ替え"
         case .resetGame: return "リセット"
         }
     }

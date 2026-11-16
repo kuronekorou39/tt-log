@@ -115,6 +115,8 @@ public struct SessionLog: Codable, Hashable, Sendable {
                     games[games.count - 1].winner = w
                 }
             case .startNextGame:
+                // 途中で切り上げたゲームは、ここを終わりの時刻にする（勝者はなし）
+                if games[games.count - 1].endedAt == nil { games[games.count - 1].endedAt = e.at }
                 games.append(GameTimeline(index: next.gameIndex, startedAt: e.at))
             case .resetGame:
                 games[games.count - 1].points = []

@@ -287,7 +287,7 @@ struct VoiceTestView: View {
         case .undo: return "戻す"
         case .redo: return "進める"
         case .nextGame: return "次のゲーム"
-        case .swapEnds: return "左右入れ替え"
+        case .swapEnds: return "入れ替え"
         case .resetGame: return "リセット"
         }
     }

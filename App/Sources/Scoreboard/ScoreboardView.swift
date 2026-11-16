@@ -68,7 +68,7 @@ struct ScoreboardView: View {
                                       onPoint: { player in model.handle(.point(player: player), source: .tap) },
                                       onUndo: { model.handle(.undo, source: .tap) })
                         .overlay(alignment: .top) {
-                            HeardBanner(listener: model.listener, name: { model.name($0) },
+                            HeardBanner(listener: model.listener,
                                         height: max(44, min(96, proxy.size.height * 0.13)))
                                 .padding(.top, 6)
                         }
@@ -113,8 +113,10 @@ struct ScoreboardView: View {
                                       callTags: model.callTags)
             }
         }
-        .confirmationDialog("記録を終えますか？", isPresented: $showEndConfirm, titleVisibility: .visible) {
+        // iPad ではメニューから出す confirmationDialog が出ないことがあるので alert にする
+        .alert("記録を終えますか？", isPresented: $showEndConfirm) {
             Button("終える", role: .destructive) { endAndShowResult() }
+            Button("キャンセル", role: .cancel) {}
         }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
@@ -177,7 +179,8 @@ struct ScoreboardView: View {
                 if model.state != nil {
                     Divider()
                     Button(role: .destructive) {
-                        showEndConfirm = true
+                        // メニューが閉じきってから出す（閉じる途中だと出ない）
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { showEndConfirm = true }
                     } label: { Label("記録を終える", systemImage: "stop.circle") }
                 }
             } label: {
@@ -194,71 +197,37 @@ struct ScoreboardView: View {
     // MARK: - 下の帯
 
     private func bottomBar(_ state: MatchState, compact: Bool) -> some View {
-        HStack {
-            Button {
-                model.handle(.undo, source: .tap)
-            } label: {
-                Label("戻す", systemImage: "arrow.uturn.backward").font(.title3)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .disabled(model.log?.events.isEmpty ?? true)
-            .accessibilityLabel("戻す")
-            Button {
-                model.redo()
-            } label: {
-                Label("1つ進める", systemImage: "arrow.uturn.forward").font(.title3)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .disabled(model.redoStack.isEmpty)
-            .accessibilityLabel("戻した操作をもう一度")
+        HStack(spacing: compact ? 4 : 10) {
+            barButton("Undo", "arrow.uturn.backward") { model.handle(.undo, source: .tap) }
+                .disabled(model.log?.events.isEmpty ?? true)
+            barButton("Redo", "arrow.uturn.forward") { model.redo() }
+                .disabled(model.redoStack.isEmpty)
             Spacer()
-            switch state.phase {
-            case .playing:
-                Button {
-                    model.toggleServer()
-                } label: {
-                    Label("サーブ交代", systemImage: "circle.lefthalf.filled").font(.title3)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .accessibilityLabel("サーブ交代")
-            case .gameOver:
-                Button {
-                    model.handle(.nextGame, source: .tap)
-                } label: {
-                    Label("次のゲーム", systemImage: "forward.fill").font(.title3.bold())
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .accessibilityLabel("次のゲーム")
-            case .matchOver:
+            if state.phase == .playing {
+                barButton("サーブ交代", "circle.lefthalf.filled") { model.toggleServer() }
+            }
+            if case .matchOver = state.phase {
                 Button {
                     showEndConfirm = true
                 } label: {
-                    Label("記録を終える", systemImage: "flag.checkered").font(.title3.bold())
+                    Label("記録を終える", systemImage: "flag.checkered").font(.body.bold())
                 }
                 .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+            } else if case .gameOver = state.phase {
+                Button {
+                    model.handle(.nextGame, source: .tap)
+                } label: {
+                    Label("次のゲーム", systemImage: "forward.fill").font(.body.bold())
+                }
+                .buttonStyle(.borderedProminent)
+            } else {
+                // 途中で切り上げて次へ（0-0 のままでは進めない）
+                barButton("次のゲーム", "forward.fill") { model.handle(.nextGame, source: .tap) }
+                    .disabled(state.scores == [0, 0])
             }
-            Button {
-                model.swapEnds()
-            } label: {
-                Label("左右入れ替え", systemImage: "arrow.left.arrow.right").font(.title3)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            Button {
-                model.handle(.resetGame, source: .tap)
-            } label: {
-                Label("リセット", systemImage: "arrow.counterclockwise").font(.title3)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .disabled(state.scores == [0, 0])
-            .accessibilityLabel("リセット")
-            .accessibilityLabel("左右入れ替え")
+            barButton("入れ替え", "arrow.left.arrow.right") { model.swapEnds() }
+            barButton("リセット", "arrow.counterclockwise") { model.handle(.resetGame, source: .tap) }
+                .disabled(state.scores == [0, 0])
             Spacer()
             PartialTextView(listener: model.listener)
                 .font(compact ? .caption : .body)
@@ -266,7 +235,19 @@ struct ScoreboardView: View {
                 .layoutPriority(-1)
         }
         .padding(.horizontal)
-        .padding(.vertical, compact ? 4 : 10)
+        .padding(.vertical, compact ? 2 : 4)
+    }
+
+    /// 下の帯の控えめなボタン（スコアより目立たせない）。
+    private func barButton(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.callout)
+                .frame(minWidth: 44, minHeight: 44)
+        }
+        .buttonStyle(.borderless)
+        .tint(Color.secondary)
+        .accessibilityLabel(title)
     }
 
     private var idleView: some View {
