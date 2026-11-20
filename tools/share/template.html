@@ -62,20 +62,12 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 .seek .tip { position:absolute; top:-6px; transform:translate(-50%,-100%); background:var(--fg); color:var(--bg); font-size:.8rem;
   padding:3px 8px; border-radius:6px; white-space:nowrap; pointer-events:none; display:none; z-index:2; }
 
-/* 右の切り替え */
-.tabs { display:flex; gap:4px; padding:6px; border-bottom:1px solid var(--line); }
-.tabs button { flex:1; border:0; background:none; padding:7px; border-radius:8px; cursor:pointer; color:var(--muted); font-weight:600; }
-.tabs button.on { background:var(--hl); color:var(--fg); }
-.list { overflow:auto; }
-.hl { display:grid; grid-template-columns:auto 1fr auto; gap:2px 10px; align-items:center; width:100%; padding:8px 10px;
-  border:0; border-bottom:1px solid var(--line); background:none; text-align:left; cursor:pointer; }
-.hl.sel { background:var(--hl); }
-.hl .sc { font-weight:800; font-variant-numeric:tabular-nums; }
-.hl .tags { grid-column:2 / -1; display:flex; flex-wrap:wrap; gap:4px; }
-.hl .tags span { font-size:.75rem; padding:1px 7px; border-radius:99px; background:var(--track); }
-.hl .no { font-size:.8rem; color:var(--muted); }
-.playall { margin:8px 10px; padding:8px; border-radius:8px; border:1px solid var(--line); background:var(--card); cursor:pointer; font-weight:600; }
-.playall.on { background:var(--fg); color:var(--bg); }
+/* 印（★ は自分で付けたもの、☆ は長いラリーの候補） */
+:root { --star:#e0a100; }
+.seek .mk .st { font-size:.8rem; line-height:1; color:var(--star); }
+.seek .mk.cand .st { opacity:.55; }
+.seek .mk.marked b, .seek .mk.cand b { visibility:visible; }
+.controls #mark.on { background:var(--star); border-color:var(--star); color:#fff; }
 
 /* ゲームの一覧と流れ */
 .games { display:flex; flex-direction:column; }
@@ -101,7 +93,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
   .stage { min-height:0; }
   .right { min-height:0; display:grid; grid-template-rows:minmax(0,1fr) auto; gap:14px; }
   .right .panel { min-height:0; }
-  .right .side { display:grid; grid-template-rows:auto minmax(0,1fr); }
+  .right .games { overflow:auto; }
 }
 
 /* ---- スマホ：縦に並べてスクロール ---- */
@@ -141,18 +133,13 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
       <button data-rate="0.5">0.5×</button><button data-rate="1" class="on">1×</button><button data-rate="2">2×</button>
       <span class="sep"></span>
       <button id="fit">全体</button><button id="close">寄る</button>
+      <span class="sep"></span>
+      <button id="mark" aria-label="印を付ける">☆</button><button id="playmarks">★を続けて再生</button><button id="savemarks" hidden>★を保存</button>
     </div>
   </section>
 
   <section class="right">
-    <div class="panel side">
-      <div class="tabs"><button id="tabGames" class="on">ゲーム</button><button id="tabHl">見どころ</button></div>
-      <div class="list games" id="games"></div>
-      <div class="list" id="hlbox" hidden>
-        <button class="playall" id="playall">▶ 続けて再生</button>
-        <div id="hls"></div>
-      </div>
-    </div>
+    <div class="panel games" id="games"></div>
     <div class="panel" style="padding:6px 10px">
       <table class="stats">
         <thead><tr><th></th><th>得点</th><th>サーブ</th><th>レシーブ</th><th>連続</th></tr></thead>
@@ -162,13 +149,15 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
   </section>
 </div>
 
+<!-- 保存した印（なければ読まれない） -->
+<script src="data/marks.js"></script>
 <script>
 const DATA = {{DATA}};
 // ラリーが見つからなかった点は、点が入った時刻のこれだけ前から見せる
 const LEAD = 8;
 // ラリーの頭の少し前から見せる（サーブの構えから）
 const PRE = 1.5;
-// 見どころを続けて再生するとき、ラリーの終わりからこれだけ見てから次へ
+// 印を続けて再生するとき、ラリーの終わりからこれだけ見てから次へ
 const POST = 2;
 // 「寄る」の倍率と、映す中心（映像の縦の位置。天井を切って台と2人に寄せる）
 const CLOSE = { zoom: 1.35, cx: 0.5, cy: 0.6 };
@@ -185,6 +174,7 @@ const store = { get(k) { try { return localStorage.getItem(k); } catch { return 
 
 // ---------- 流れのグラフ（中央線より上は A のリード、下は B のリード） ----------
 function flowSVG(g, id, mark) {
+  const gi = DATA.games.indexOf(g);
   const W = 300, H = 36, M = H / 2, n = g.points.length;
   const ds = [0, ...g.points.map(p => p.s[0] - p.s[1])];
   const max = Math.max(3, ...ds.map(Math.abs));
@@ -202,6 +192,12 @@ function flowSVG(g, id, mark) {
     <g clip-path="url(#t${id})"><path d="${area}" fill="var(--a-soft)"/><path d="${line}" fill="none" stroke="var(--a)" stroke-width="2" vector-effect="non-scaling-stroke"/></g>
     <g clip-path="url(#u${id})"><path d="${area}" fill="var(--b-soft)"/><path d="${line}" fill="none" stroke="var(--b)" stroke-width="2" vector-effect="non-scaling-stroke"/></g>
     <line x1="0" x2="${W}" y1="${M}" y2="${M}" stroke="var(--muted)" stroke-width="1" opacity=".55" vector-effect="non-scaling-stroke"/>
+    ${g.points.map((p, k) => {
+      const m = markOf(gi, k);
+      if (!m) return '';
+      const px = x(k + 1).toFixed(1);
+      return `<line x1="${px}" x2="${px}" y1="0" y2="${H}" stroke="var(--star)" stroke-width="${m === 'star' ? 3 : 2}" opacity="${m === 'star' ? .55 : .25}" vector-effect="non-scaling-stroke"/>`;
+    }).join('')}
     ${markX == null ? '' : `<line x1="${markX}" x2="${markX}" y1="0" y2="${H}" stroke="var(--fg)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`}
   </svg>`;
 }
@@ -245,7 +241,10 @@ function renderMarkers() {
     m.className = `mk ${p.w === 0 ? 'a' : 'b'}`;
     m.style.left = `${x}px`;
     m.style.color = p.w === 0 ? 'var(--a)' : 'var(--b)';
-    m.innerHTML = `<b>${p.s[0]}-${p.s[1]}</b><i></i>`;
+    const mark = markOf(current, DATA.games[current].points.indexOf(p));
+    const star = mark ? `<span class="st">${mark === 'star' ? '★' : '☆'}</span>` : '';
+    m.innerHTML = p.w === 0 ? `${star}<b>${p.s[0]}-${p.s[1]}</b><i></i>` : `${star}<b>${p.s[0]}-${p.s[1]}</b><i></i>`;
+    if (mark) m.classList.add(mark === 'star' ? 'marked' : 'cand');
     // 文字が重なるところは数字を隠す（触れると出る）
     const label = `${p.s[0]}-${p.s[1]}`.length * 7 + 8;
     if (x - lastX[p.w] < label) m.classList.add('hide'); else lastX[p.w] = x;
@@ -291,6 +290,11 @@ function updateHead() {
   document.getElementById('now').textContent = p ? `${p.s[0]} - ${p.s[1]}` : '0 - 0';
   seek.querySelectorAll('.mk').forEach(m => m.classList.toggle('cur', !!p && +m.dataset.vt === p.vt));
   if (k !== lastMark) { lastMark = k; renderGames(k); }
+  const fi = focusIndex();
+  const fm = fi >= 0 ? markOf(current, fi) : null;
+  const mb = document.getElementById('mark');
+  mb.textContent = fm === 'star' ? '★' : '☆';
+  mb.classList.toggle('on', fm === 'star');
 }
 
 function jump(p) {
@@ -330,55 +334,83 @@ function select(i, autoplay) {
 // その点のラリーの見始め
 function startOf(p) { return Math.max(0, p.r ? p.r[0] - PRE : p.vt - LEAD); }
 
-// ---------- 見どころ ----------
-let playlist = null; // 続けて再生しているときの、いまの見どころの番号
-let stopAt = null;   // そこまで見たら次の見どころへ
+// ---------- 印 ----------
+// 点ごとの印。1 = ★、0 = 外した（候補の ☆ も出さない）。ないものは、候補なら ☆
+// data/marks.js（保存したもの）に、このブラウザで付け外ししたものを重ねる
+const MARK_KEY = `marks-${DATA.id}`;
+const keyOf = (gi, k) => `${DATA.games[gi].n}-${k + 1}`;
+let marks = { ...(window.MARKS || {}) };
+let localMarks = {};
+try { localMarks = JSON.parse(store.get(MARK_KEY)) || {}; } catch {}
+Object.assign(marks, localMarks);
 
-function renderHighlights(sel) {
-  const box = document.getElementById('hls');
-  box.innerHTML = DATA.highlights.map((h, i) => {
-    const g = DATA.games[h.g], p = g.points[h.k];
-    return `<button class="hl ${i === sel ? 'sel' : ''}" data-i="${i}">
-      <span class="no">第${g.n}G</span>
-      <span class="sc" style="color:${p.w === 0 ? 'var(--a)' : 'var(--b)'}">${p.s[0]} - ${p.s[1]}</span>
-      <small>${DATA.names[p.w]}</small>
-      <span class="tags">${h.tags.map(t => `<span>${t}</span>`).join('')}</span>
-    </button>`;
-  }).join('');
-  box.querySelectorAll('.hl').forEach(b => b.onclick = () => playHighlight(+b.dataset.i, false));
+function markOf(gi, k) {
+  const key = keyOf(gi, k);
+  if (marks[key] === 1) return 'star';
+  if (marks[key] === 0) return null;
+  return DATA.candidates.includes(key) ? 'cand' : null;
 }
 
-function playHighlight(i, continuous) {
-  const h = DATA.highlights[i];
-  if (!h) { stopPlaylist(); return; }
-  playlist = continuous ? i : null;
-  document.getElementById('playall').classList.toggle('on', continuous);
-  renderHighlights(i);
-  const p = DATA.games[h.g].points[h.k];
-  stopAt = continuous ? (p.r ? p.r[1] : p.vt) + POST : null;
+// いま見ている点：再生位置がラリーの中ならその点、そうでなければ直前に入った点
+function focusIndex() {
+  const ps = DATA.games[current].points, t = v.currentTime;
+  const inRally = ps.findIndex(p => p.vt !== null && startOf(p) - 1 <= t && t <= p.vt + 1);
+  return inRally >= 0 ? inRally : currentIndex();
+}
+
+function toggleMark() {
+  const k = focusIndex();
+  if (k < 0) return;
+  const key = keyOf(current, k);
+  marks[key] = markOf(current, k) === 'star' ? 0 : 1;
+  localMarks[key] = marks[key];
+  store.set(MARK_KEY, JSON.stringify(localMarks));
+  document.getElementById('savemarks').hidden = false;
+  renderMarkers(); lastMark = null; updateHead();
+}
+
+function saveMarks() {
+  const body = `// TTLog の印（★）。index.html と同じフォルダの data/ に置く\nwindow.MARKS = ${JSON.stringify(marks, null, 1)};\n`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([body], { type: 'text/javascript' }));
+  a.download = 'marks.js';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+let playlist = null; // 続けて再生しているときの、いまの印の番号
+let stopAt = null;   // そこまで見たら次の印へ
+
+function markedList() {
+  const out = [];
+  DATA.games.forEach((g, gi) => g.points.forEach((p, k) => { if (p.vt !== null && markOf(gi, k)) out.push([gi, k]); }));
+  return out;
+}
+
+function playMarked(i) {
+  const list = markedList();
+  if (!list[i]) { stopPlaylist(); return; }
+  playlist = i;
+  document.getElementById('playmarks').classList.add('on');
+  const [gi, k] = list[i];
+  const p = DATA.games[gi].points[k];
+  stopAt = (p.r ? p.r[1] : p.vt) + POST;
   const go = () => { v.currentTime = startOf(p); v.play(); };
-  if (current !== h.g) { select(h.g, false); v.addEventListener('loadedmetadata', go, { once: true }); }
+  if (current !== gi) { select(gi, false); v.addEventListener('loadedmetadata', go, { once: true }); }
   else go();
 }
 
 function stopPlaylist() {
   playlist = null; stopAt = null;
-  document.getElementById('playall').classList.remove('on');
+  document.getElementById('playmarks').classList.remove('on');
 }
 
 v.addEventListener('timeupdate', () => {
-  if (playlist !== null && stopAt !== null && v.currentTime >= stopAt) playHighlight(playlist + 1, true);
+  if (playlist !== null && stopAt !== null && v.currentTime >= stopAt) playMarked(playlist + 1);
 });
-document.getElementById('playall').onclick = () => playlist === null ? playHighlight(0, true) : (stopPlaylist(), v.pause());
-
-function showTab(hl) {
-  document.getElementById('tabGames').classList.toggle('on', !hl);
-  document.getElementById('tabHl').classList.toggle('on', hl);
-  document.getElementById('games').hidden = hl;
-  document.getElementById('hlbox').hidden = !hl;
-}
-document.getElementById('tabGames').onclick = () => showTab(false);
-document.getElementById('tabHl').onclick = () => showTab(true);
+document.getElementById('playmarks').onclick = () => playlist === null ? playMarked(0) : (stopPlaylist(), v.pause());
+document.getElementById('mark').onclick = toggleMark;
+document.getElementById('savemarks').onclick = saveMarks;
 
 v.addEventListener('loadedmetadata', () => { renderMarkers(); applyView(); });
 v.addEventListener('timeupdate', updateHead);
@@ -401,6 +433,7 @@ addEventListener('keydown', e => {
   else if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
   else if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
   else if (e.key === 'ArrowDown') { e.preventDefault(); select(Math.min(current + 1, DATA.games.length - 1), true); }
+  else if (e.key === 'm' || e.key === 'M') { toggleMark(); }
   else if (e.key === 'ArrowUp') { e.preventDefault(); select(Math.max(current - 1, 0), true); }
 });
 addEventListener('resize', () => { renderMarkers(); applyView(); });
@@ -453,7 +486,6 @@ stage.addEventListener('dblclick', () => { document.fullscreenElement ? document
 document.addEventListener('fullscreenchange', () => setTimeout(applyView, 50));
 
 try { const saved = JSON.parse(store.get('view')); if (saved && saved.zoom) view = saved; } catch {}
-renderHighlights(null);
 select(0, false);
 </script>
 </body>

@@ -13,7 +13,7 @@ iPad のスコアボードの記録（SwiftData の default.store）と、iPhone
     python tools/share/make_share.py --store <default.store> --camera <Sessions/フォルダ> --out share/2026-11-20
 
 動画をつなぐのに ffmpeg / ffprobe を使う（PATH にあること）。
-ラリーを探すのに numpy / scipy を使う（rallies.py）。見どころは highlights.py で選ぶ。
+ラリーを探すのに numpy / scipy を使う（rallies.py）。見どころの候補（☆）は highlights.py で選ぶ。ページで付けた印（★）は data/marks.js に保存する。
 """
 
 import argparse
@@ -211,11 +211,11 @@ def main():
                             f"{p['rally']['start']:.1f}" if p.get("rally") else "",
                             f"{p['rally']['end'] - p['rally']['start']:.1f}" if p.get("rally") else ""])
 
-    write_html(out / "index.html", names, log, games)
+    write_html(out / "index.html", index["id"], names, log, games)
     print(f"できました: {out.resolve()}")
 
 
-def write_html(path: Path, names: list[str], log: dict, games: list[dict]):
+def write_html(path: Path, session_id: str, names: list[str], log: dict, games: list[dict]):
     started = apple_time(log["startedAt"]).astimezone(JST)
     won = [sum(1 for g in games if g["winner"] == p) for p in range(2)]
     st = stats(games)
@@ -245,7 +245,7 @@ def write_html(path: Path, names: list[str], log: dict, games: list[dict]):
     page = page.replace("{{A}}", html.escape(names[0])).replace("{{B}}", html.escape(names[1]))
     page = page.replace("{{WA}}", str(won[0])).replace("{{WB}}", str(won[1]))
     page = page.replace("{{STATS}}", rows)
-    page = page.replace("{{DATA}}", json.dumps({"names": names, "games": data, "highlights": highlights.pick(games)}, ensure_ascii=False))
+    page = page.replace("{{DATA}}", json.dumps({"id": session_id, "names": names, "games": data, "candidates": highlights.candidates(games)}, ensure_ascii=False))
     path.write_text(page, encoding="utf-8")
 
 
