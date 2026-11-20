@@ -11,6 +11,26 @@ public enum VoiceCommand: Hashable, Sendable {
     case swapEnds
     /// いまのゲームの得点を 0-0 に戻す。
     case resetGame
+
+    /// 得点以外の操作。
+    public static let operations: [VoiceCommand] = [.undo, .redo, .nextGame, .swapEnds, .resetGame]
+
+    /// 保存に使う名前（得点は nil）。
+    public var key: String? {
+        switch self {
+        case .point: return nil
+        case .undo: return "undo"
+        case .redo: return "redo"
+        case .nextGame: return "nextGame"
+        case .swapEnds: return "swapEnds"
+        case .resetGame: return "resetGame"
+        }
+    }
+
+    public init?(key: String) {
+        guard let c = Self.operations.first(where: { $0.key == key }) else { return nil }
+        self = c
+    }
 }
 
 /// 聞き取った発話（ひらがなの読み）を操作に対応させる。
@@ -85,7 +105,8 @@ public struct VoiceCommandMatcher: Sendable {
 
     /// - Parameter playerWords: 選手ごとの呼び方（ひらがな）。外側の並び順が `.point(player:)` の番号になる。
     ///   2人のどちらにも当たる読みは、どちらにも決められないので受け付けない。
-    public init(playerWords: [[String]]) {
+    /// - Parameter operations: 声で受け付ける得点以外の操作。入れないものは操作語として聞かない。
+    public init(playerWords: [[String]], operations: Set<VoiceCommand> = Set(VoiceCommand.operations)) {
         var owners: [String: Set<Int>] = [:]
         for (i, words) in playerWords.enumerated() {
             for word in words where !KanaNormalizer.canonical(word).isEmpty {
@@ -103,11 +124,11 @@ public struct VoiceCommandMatcher: Sendable {
             t[key] = .point(player: players.first!)
         }
         // 操作語は選手名より優先する（同じ読みの選手がいても操作が効くように）
-        for r in Self.undoReadings { t[KanaNormalizer.canonical(r)] = .undo }
-        for r in Self.redoReadings { t[KanaNormalizer.canonical(r)] = .redo }
-        for r in Self.nextGameReadings { t[KanaNormalizer.canonical(r)] = .nextGame }
-        for r in Self.swapEndsReadings { t[KanaNormalizer.canonical(r)] = .swapEnds }
-        for r in Self.resetReadings { t[KanaNormalizer.canonical(r)] = .resetGame }
+        for (command, readings) in [(VoiceCommand.undo, Self.undoReadings), (.redo, Self.redoReadings),
+                                    (.nextGame, Self.nextGameReadings), (.swapEnds, Self.swapEndsReadings),
+                                    (.resetGame, Self.resetReadings)] where operations.contains(command) {
+            for r in readings { t[KanaNormalizer.canonical(r)] = command }
+        }
         table = t
         var terms: [String: String] = [:]
         for (label, readings) in Self.terms {

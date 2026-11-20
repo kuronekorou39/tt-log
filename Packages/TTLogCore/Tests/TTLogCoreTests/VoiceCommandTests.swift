@@ -102,6 +102,17 @@ final class VoiceCommandMatcherTests: XCTestCase {
         XCTAssertEqual(m.match(reading: "いちごてん"), .point(player: 0))
     }
 
+    func testOnlyChosenOperations() {
+        let m = VoiceCommandMatcher(playerWords: [["ひだり"], ["みぎ"]], operations: [.nextGame])
+        XCTAssertEqual(m.match(reading: "つぎのげーむ"), .nextGame)
+        XCTAssertNil(m.match(reading: "もどって"))
+        XCTAssertNil(m.match(reading: "りせっと"))
+        XCTAssertNil(m.match(reading: "いれかえ"))
+        XCTAssertEqual(m.match(reading: "みぎ"), .point(player: 1))
+        XCTAssertEqual(VoiceCommand(key: "resetGame"), .resetGame)
+        XCTAssertNil(VoiceCommand(key: "point"))
+    }
+
     func testCommands() {
         XCTAssertEqual(matcher.match(reading: "もどして"), .undo)
         XCTAssertEqual(matcher.match(reading: "つぎのげーむ"), .nextGame)

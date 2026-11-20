@@ -29,6 +29,8 @@ struct ScoreboardView: View {
     @AppStorage("voice.recordsAudio") private var recordsAudio = true
     @AppStorage("voice.taskHint") private var taskHint = SFSpeechRecognitionTaskHint.confirmation.rawValue
     @AppStorage(MicMode.storageKey) private var micMode = MicMode.standard.rawValue
+    /// 声でも受け付ける得点以外の操作（キーをカンマ区切り）。誤反応しやすいので既定は「次のゲーム」だけ。
+    @AppStorage("voice.operations") private var voiceOperationsRaw = "nextGame"
 
     enum Sheet: Identifiable {
         case newSession, players, history, settings, design
@@ -197,14 +199,15 @@ struct ScoreboardView: View {
     // MARK: - 下の帯
 
     private func bottomBar(_ state: MatchState, compact: Bool) -> some View {
-        HStack(spacing: compact ? 4 : 10) {
-            barButton("Undo", "arrow.uturn.backward") { model.handle(.undo, source: .tap) }
+        // 押し間違えないよう、ボタンの間は広めにあける
+        HStack(spacing: compact ? 20 : 40) {
+            barButton("Undo", "arrow.uturn.backward", voice: .undo) { model.handle(.undo, source: .tap) }
                 .disabled(model.log?.events.isEmpty ?? true)
-            barButton("Redo", "arrow.uturn.forward") { model.redo() }
+            barButton("Redo", "arrow.uturn.forward", voice: .redo) { model.redo() }
                 .disabled(model.redoStack.isEmpty)
-            Spacer()
+            Spacer(minLength: 0)
             if state.phase == .playing {
-                barButton("サーブ交代", "circle.lefthalf.filled") { model.toggleServer() }
+                barButton("サーブ交代", "circle.lefthalf.filled", voice: nil) { model.toggleServer() }
             }
             if case .matchOver = state.phase {
                 Button {
@@ -217,18 +220,19 @@ struct ScoreboardView: View {
                 Button {
                     model.handle(.nextGame, source: .tap)
                 } label: {
-                    Label("次のゲーム", systemImage: "forward.fill").font(.body.bold())
+                    barLabel("次のゲーム", "forward.fill", voice: .nextGame).font(.body.bold())
                 }
                 .buttonStyle(.borderedProminent)
+                .contextMenu { voiceToggle(.nextGame) }
             } else {
                 // 途中で切り上げて次へ（0-0 のままでは進めない）
-                barButton("次のゲーム", "forward.fill") { model.handle(.nextGame, source: .tap) }
+                barButton("次のゲーム", "forward.fill", voice: .nextGame) { model.handle(.nextGame, source: .tap) }
                     .disabled(state.scores == [0, 0])
             }
-            barButton("入れ替え", "arrow.left.arrow.right") { model.swapEnds() }
-            barButton("リセット", "arrow.counterclockwise") { model.handle(.resetGame, source: .tap) }
+            barButton("入れ替え", "arrow.left.arrow.right", voice: .swapEnds) { model.swapEnds() }
+            barButton("リセット", "arrow.counterclockwise", voice: .resetGame) { model.handle(.resetGame, source: .tap) }
                 .disabled(state.scores == [0, 0])
-            Spacer()
+            Spacer(minLength: 0)
             PartialTextView(listener: model.listener)
                 .font(compact ? .caption : .body)
                 .frame(maxWidth: compact ? 160 : 240)
@@ -238,16 +242,43 @@ struct ScoreboardView: View {
         .padding(.vertical, compact ? 2 : 4)
     }
 
-    /// 下の帯の控えめなボタン（スコアより目立たせない）。
-    private func barButton(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
+    /// 下の帯の控えめなボタン（スコアより目立たせない）。長押しで、声でも操作するかを切り替える。
+    private func barButton(_ title: String, _ icon: String, voice: VoiceCommand?,
+                           action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: icon)
+            barLabel(title, icon, voice: voice)
                 .font(.callout)
                 .frame(minWidth: 44, minHeight: 44)
         }
         .buttonStyle(.borderless)
         .tint(Color.secondary)
         .accessibilityLabel(title)
+        .contextMenu { if let voice { voiceToggle(voice) } }
+    }
+
+    /// 声でも操作できるボタンには、マイクの印を付ける。
+    private func barLabel(_ title: String, _ icon: String, voice: VoiceCommand?) -> some View {
+        HStack(spacing: 4) {
+            Label(title, systemImage: icon)
+            if let voice, voiceOperations.contains(voice) {
+                Image(systemName: "mic.fill").font(.caption2)
+            }
+        }
+    }
+
+    private func voiceToggle(_ command: VoiceCommand) -> some View {
+        let on = voiceOperations.contains(command)
+        return Button {
+            var set = voiceOperations
+            if on { set.remove(command) } else { set.insert(command) }
+            voiceOperationsRaw = set.compactMap(\.key).sorted().joined(separator: ",")
+        } label: {
+            Label(on ? "声では操作しない" : "声でも操作する", systemImage: on ? "mic.slash" : "mic")
+        }
+    }
+
+    private var voiceOperations: Set<VoiceCommand> {
+        Set(voiceOperationsRaw.split(separator: ",").compactMap { VoiceCommand(key: String($0)) })
     }
 
     private var idleView: some View {
@@ -293,7 +324,7 @@ struct ScoreboardView: View {
 
     private var settingsKey: [String] {
         [String(soundEnabled), String(volume), callStyle, leftWord, rightWord, String(deadTime),
-         String(silenceMs), String(instantMode), String(recordsAudio), String(taskHint), micMode]
+         String(silenceMs), String(instantMode), String(recordsAudio), String(taskHint), micMode, voiceOperationsRaw]
     }
 
     private func applySettings() {
@@ -301,6 +332,7 @@ struct ScoreboardView: View {
         model.tones.volume = Float(volume)
         model.callStyle = CallStyle(rawValue: callStyle) ?? .side
         model.customWords = (leftWord, rightWord)
+        model.voiceOperations = voiceOperations
         model.listener.gate.deadTime = deadTime
         model.listener.silenceInterval = .milliseconds(silenceMs)
         model.listener.instantMode = instantMode

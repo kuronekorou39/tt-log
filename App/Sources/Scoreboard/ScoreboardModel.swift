@@ -21,6 +21,8 @@ final class ScoreboardModel: ObservableObject {
     var callStyle = CallStyle.side { didSet { updateVoiceWords() } }
     /// 「自由に決める」のときの言葉（画面の左、右）。
     var customWords = ("ひだり", "みぎ") { didSet { updateVoiceWords() } }
+    /// 声でも受け付ける得点以外の操作（下のボタンの長押しで選ぶ）。
+    var voiceOperations: Set<VoiceCommand> = [.nextGame] { didSet { updateVoiceWords() } }
 
     private var context: ModelContext?
 
@@ -223,7 +225,7 @@ final class ScoreboardModel: ObservableObject {
             [callStyle.tag(for: p, left: left, customWords: customWords).word]
                 + (p < players.count ? [players[p].callName] : [])
         }
-        listener.matcher = VoiceCommandMatcher(playerWords: words)
+        listener.matcher = VoiceCommandMatcher(playerWords: words, operations: voiceOperations)
         listener.contextualStrings = SpeechListener.hints(callNames: words.flatMap { $0 })
         listener.wordsSummary = zip(["A", "B"], words)
             .map { label, list in label + ":" + list.filter { !$0.isEmpty }.joined(separator: "/") }

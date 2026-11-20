@@ -86,7 +86,7 @@ struct ScoreboardSettingsView: View {
                 } header: {
                     Text("声での操作")
                 } footer: {
-                    Text("ほかに「戻す」「進める」「入れ替え」「リセット」「次のゲーム」")
+                    Text("ほかに「次のゲーム」（ボタンの長押しで追加）")
                 }
                 Section("聞き取りの調整") {
                     Picker("マイクの処理", selection: $micMode) {
