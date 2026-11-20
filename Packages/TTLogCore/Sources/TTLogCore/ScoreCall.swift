@@ -11,6 +11,53 @@ public enum ScoreCallParser {
         let s = Array(normalize(reading).unicodeScalars)
         var results = Set<[Int]>()
         search(s, from: 0, numbers: [], into: &results)
+        // 数字だけの読み（「7676」= 76-76）は、ほかの読み方も候補に足す。決めるのは ScoreCallResolver
+        results.formUnion(repeatedPair(reading))
+        results.formUnion(hyphenPairs(reading))
+        return results
+    }
+
+    /// 同じスコアを2回言って数字がつながったもの（「7676」）。
+    private static func repeatedPair(_ reading: String) -> Set<[Int]> {
+        let chars = Array(reading)
+        guard chars.count >= 2, chars.count % 2 == 0, chars.allSatisfy(\.isASCII), chars.allSatisfy(\.isNumber) else { return [] }
+        let half = chars.count / 2
+        guard chars[..<half] == chars[half...] else { return [] }
+        var results = Set<[Int]>()
+        search(Array(String(chars[..<half]).unicodeScalars), from: 0, numbers: [], into: &results)
+        return results
+    }
+
+    /// 会話の中の「3-1」のような、認識がハイフンでつないだ数の組（「3-1からの」「面白いなぁ2-0」）。
+    /// 認識はスコアを言ったときだけハイフンでつなぐので、前後に言葉があっても拾う。
+    /// 3つ以上つながったら（「5-6-3」）、となり合う組をすべて候補にする。
+    private static func hyphenPairs(_ reading: String) -> Set<[Int]> {
+        var results = Set<[Int]>()
+        var groups: [[Int]] = [[]]
+        var digits = ""
+        var lastWasHyphen = false
+        func flushNumber() {
+            if let n = Int(digits) { groups[groups.count - 1].append(n) }
+            digits = ""
+        }
+        for ch in reading {
+            if ch.isASCII, ch.isNumber {
+                if digits.isEmpty, !lastWasHyphen, !(groups.last?.isEmpty ?? true) { groups.append([]) }
+                digits.append(ch)
+                lastWasHyphen = false
+            } else if ch == "-", !digits.isEmpty {
+                flushNumber()
+                lastWasHyphen = true
+            } else {
+                flushNumber()
+                if !(groups.last?.isEmpty ?? true) { groups.append([]) }
+                lastWasHyphen = false
+            }
+        }
+        flushNumber()
+        for g in groups where g.count >= 2 {
+            for i in 0..<(g.count - 1) { results.insert([g[i], g[i + 1]]) }
+        }
         return results
     }
 

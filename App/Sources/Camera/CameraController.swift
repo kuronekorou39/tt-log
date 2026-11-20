@@ -355,11 +355,12 @@ final class CameraController: ObservableObject {
         let now = Date()
         if recording != nil {
             if recorder.isRecording {
-                if recorder.recordedBytes > lastBytes {
+                // 前の録画の値が遅れて届くことがあるので、いまの録画のファイルの値だけを見る
+                if recorder.recordedURL?.lastPathComponent == recordingFile, recorder.recordedBytes > lastBytes {
                     lastBytes = recorder.recordedBytes
                     lastGrowthAt = now
                 } else if let grew = lastGrowthAt, now.timeIntervalSince(grew) > Self.stallSeconds {
-                    note("書き込みが止まったので撮り直す")
+                    note("書き込みが止まったので撮り直す（\(lastBytes / 1_000_000)MB）")
                     problem = "録画が止まりました"
                     lastGrowthAt = now
                     recorder.stopRecording()

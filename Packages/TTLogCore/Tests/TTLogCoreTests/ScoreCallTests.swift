@@ -5,6 +5,16 @@ import XCTest
 final class ScoreCallParserTests: XCTestCase {
     private func pairs(_ s: String) -> Set<[Int]> { ScoreCallParser.pairs(in: s) }
 
+    func testScoreInsideTalk() {
+        // 2026-11-20 の練習から
+        XCTAssertEqual(pairs("3-1かの"), [[3, 1]])
+        XCTAssertEqual(pairs("おもしろいなぁ2-0"), [[2, 0]])
+        XCTAssertTrue(pairs("5-6-3").isSuperset(of: [[5, 6], [6, 3]]))
+        XCTAssertTrue(pairs("7676").contains([7, 6]))
+        XCTAssertTrue(pairs("4-").isEmpty)
+        XCTAssertTrue(pairs("12じに3にん").isEmpty) // ハイフンのない数は会話の中では拾わない
+    }
+
     func testMisheardScore() {
         XCTAssertEqual(pairs("だんなさん"), [[3, 3]])
         XCTAssertTrue(pairs("だんなさんが").isEmpty)

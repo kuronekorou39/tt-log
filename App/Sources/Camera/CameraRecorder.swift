@@ -13,6 +13,9 @@ final class CameraRecorder: NSObject, ObservableObject {
     @Published private(set) var errorMessage: String?
     /// いまの録画のファイルの大きさ（バイト）。書き込みが進んでいるかを見るため。
     @Published private(set) var recordedBytes: Int64 = 0
+    /// `recordedBytes` がどの録画のものか。前の録画の値を次の録画のものと取り違えないため
+    /// （2026-11-20 の練習で、前の録画の大きさに追いつくまで「書き込みが止まった」とみなし、28秒ごとに撮り直していた）。
+    private(set) var recordedURL: URL?
 
     let session = AVCaptureSession()
 
@@ -86,8 +89,12 @@ final class CameraRecorder: NSObject, ObservableObject {
 
     private func updateRecordedBytes() {
         queue.async { [self] in
+            let url = output.isRecording ? output.outputFileURL : nil
             let bytes = output.isRecording ? output.recordedFileSize : 0
-            DispatchQueue.main.async { self.recordedBytes = bytes }
+            DispatchQueue.main.async {
+                self.recordedURL = url
+                self.recordedBytes = bytes
+            }
         }
     }
 
