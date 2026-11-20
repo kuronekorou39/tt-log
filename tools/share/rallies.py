@@ -132,3 +132,40 @@ def attach_rallies(video: Path, points: list[dict]) -> None:
                 p["fixed_vt"] = c[-1] + FIXED_AFTER_LAST_HIT
         prev = end
         i = j + 1
+
+
+# 「間を飛ばす」で残す長さ。1点あたり、点を入れた時刻からこれだけ前まで（サーブの構え＋ラリー＋少しの間）
+KEEP_PER_POINT = 25.0
+# 点を入れた後に残す長さ（秒）
+KEEP_AFTER = 1.5
+
+
+def play_spans(points: list[dict]) -> list[list[float]]:
+    """試合をしている区間（動画の秒）。点を入れた時刻だけから決める（打球音は話し声や足音と区別しきれず、
+    ラリーを切ってしまうため。2026-11-20 第1ゲーム 7-5、第4ゲーム 3-2）。
+
+    前の点からこの点までを、1点あたり KEEP_PER_POINT 秒まで残す。続けて押した n 点は n 倍まで。
+    飛ぶのは、ゲーム前の打ち合い・休憩・長い話など、点と点の間が長く空いたところだけ。"""
+    spans: list[list[float]] = []
+    prev = None
+    i = 0
+    vts = [p["vt"] for p in points]
+    while i < len(vts):
+        if vts[i] is None:
+            i += 1
+            continue
+        j = i
+        while j + 1 < len(vts) and vts[j + 1] is not None and vts[j + 1] - vts[j] < BATCH_GAP:
+            j += 1
+        end = vts[j]
+        start = end - KEEP_PER_POINT * (j - i + 1)
+        if prev is not None:
+            start = max(start, prev)
+        span = [max(0.0, start), end + KEEP_AFTER]
+        if spans and span[0] <= spans[-1][1]:
+            spans[-1][1] = span[1]
+        else:
+            spans.append(span)
+        prev = end
+        i = j + 1
+    return spans

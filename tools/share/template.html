@@ -40,8 +40,10 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 .stage .now { position:absolute; left:10px; top:8px; background:rgba(0,0,0,.55); color:#fff; font-weight:800;
   font-size:1.1rem; padding:2px 10px; border-radius:8px; pointer-events:none; font-variant-numeric:tabular-nums; }
 
-.controls { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-.controls button { border:1px solid var(--line); background:var(--card); border-radius:8px; padding:5px 10px; cursor:pointer; min-height:34px; }
+.controls { display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
+.controls button { border:1px solid transparent; background:none; border-radius:8px; padding:4px 9px; cursor:pointer; min-height:36px; min-width:36px; font-size:.95rem; }
+.controls button:hover { background:var(--track); }
+.controls .grp { display:flex; gap:2px; align-items:center; }
 .controls button.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
 .controls .time { font-variant-numeric:tabular-nums; color:var(--muted); margin-right:auto; padding-left:4px; }
 .controls .sep { width:1px; height:20px; background:var(--line); margin:0 4px; }
@@ -50,7 +52,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 .seek { position:relative; height:76px; cursor:pointer; user-select:none; }
 .seek .track { position:absolute; left:0; right:0; top:32px; height:12px; border-radius:6px; background:var(--track); overflow:hidden; }
 .seek .played { position:absolute; left:0; top:0; bottom:0; background:var(--played); }
-.seek .band { position:absolute; top:0; bottom:0; opacity:.55; }
+.seek .band { position:absolute; top:0; bottom:0; opacity:.35; }
 .seek .head { position:absolute; top:24px; width:3px; height:28px; margin-left:-1px; background:var(--fg); border-radius:2px; pointer-events:none; }
 .seek .mk { position:absolute; width:20px; margin-left:-10px; display:flex; flex-direction:column; align-items:center; }
 .seek .mk.a { top:0; } .seek .mk.b { top:46px; flex-direction:column-reverse; }
@@ -80,9 +82,16 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 .game .sc small { font-weight:400; margin-left:6px; }
 .game svg { grid-column:1 / -1; width:100%; height:36px; display:block; margin-top:2px; }
 
+/* 情報のポップオーバー */
+.info { border:0; background:none; cursor:pointer; color:var(--muted); font-size:1.1rem; width:32px; height:32px; border-radius:50%; }
+.info:hover { background:var(--track); }
+#infopop { position:fixed; top:56px; right:14px; width:min(380px, calc(100vw - 24px)); max-height:calc(100vh - 80px); overflow:auto;
+  background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:20; }
+#infopop p { margin:4px 0 10px; font-size:.85rem; }
+#infopop .stats { margin-bottom:12px; }
 .stats { width:100%; border-collapse:collapse; font-size:.85rem; }
 .stats th, .stats td { padding:5px 4px; text-align:center; font-variant-numeric:tabular-nums; border-top:1px solid var(--line); }
-.stats th:first-child { text-align:left; }
+.stats th:first-child, .stats tbody th { text-align:left; font-weight:500; }
 .stats thead th { color:var(--muted); font-weight:500; border-top:0; }
 
 /* ---- PC：1画面に収める ---- */
@@ -91,7 +100,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
   .app { height:100vh; display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:14px; padding:14px; }
   .left { min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto auto; gap:10px; }
   .stage { min-height:0; }
-  .right { min-height:0; display:grid; grid-template-rows:minmax(0,1fr) auto; gap:14px; }
+  .right { min-height:0; display:grid; grid-template-rows:minmax(0,1fr); }
   .right .panel { min-height:0; }
   .right .games { overflow:auto; }
 }
@@ -99,11 +108,15 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 /* ---- スマホ：縦に並べてスクロール ---- */
 @media not all and (min-width: 960px) and (min-height: 560px) {
   .app { display:flex; flex-direction:column; gap:12px; padding:12px 12px 40px; }
-  .left { display:flex; flex-direction:column; gap:8px; }
+  .app { padding-top:0; }
+  .left { display:flex; flex-direction:column; gap:6px; position:sticky; top:0; z-index:5; background:var(--bg); padding-top:10px; padding-bottom:4px; }
+  header { flex-wrap:nowrap; }
+  header h1 { font-size:.8rem; }
   .stage { aspect-ratio:16/9; }
   .total { font-size:1.3rem; }
   .right { display:flex; flex-direction:column; gap:12px; }
-  .controls button { padding:6px 9px; }
+  .controls button { padding:4px 7px; }
+  .seek { height:70px; }
 }
 </style>
 </head>
@@ -112,7 +125,10 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
   <section class="left">
     <header>
       <h1>{{DATE}}</h1>
-      <div class="total"><span class="a">{{A}} {{WA}}</span> - <span class="b">{{WB}} {{B}}</span></div>
+      <div style="display:flex; align-items:center; gap:4px">
+        <div class="total"><span class="a">{{A}} {{WA}}</span> - <span class="b">{{WB}} {{B}}</span></div>
+        <button class="info" id="infobtn" aria-label="くわしいデータ">ⓘ</button>
+      </div>
     </header>
     <div class="stage" id="stage">
       <video id="v" playsinline preload="metadata"></video>
@@ -126,32 +142,30 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
       <div class="tip" id="tip"></div>
     </div>
     <div class="controls">
-      <button id="play" aria-label="再生">▶</button>
-      <button id="prev" aria-label="前の点">⏮</button>
-      <button id="next" aria-label="次の点">⏭</button>
+      <div class="grp">
+        <button id="play" aria-label="再生">▶</button>
+        <button id="prev" aria-label="前の点">⏮</button>
+        <button id="next" aria-label="次の点">⏭</button>
+      </div>
       <span class="time" id="time">0:00 / 0:00</span>
-      <button data-rate="0.5">0.5×</button><button data-rate="1" class="on">1×</button><button data-rate="2">2×</button>
-      <span class="sep"></span>
-      <button id="fit">全体</button><button id="close">寄る</button>
-      <span class="sep"></span>
-      <button id="rallyonly">間を飛ばす</button>
-      <button id="mark" aria-label="印を付ける">☆</button><button id="playmarks">★を続けて再生</button><button id="savemarks" hidden>★を保存</button>
+      <div class="grp">
+        <button id="rate" aria-label="速さ">1×</button>
+        <button id="zoom" aria-label="寄る">寄る</button>
+        <button id="rallyonly" aria-label="試合の間を飛ばす">詰める</button>
+        <button id="voice" aria-label="胸元マイクの音" hidden>🎙</button>
+        <button id="mark" aria-label="★を付ける">☆</button>
+        <button id="playmarks" aria-label="★だけ再生">★▶</button>
+      </div>
     </div>
+    <audio id="mic" preload="auto"></audio>
   </section>
 
   <section class="right">
     <div class="panel games" id="games"></div>
-    <div class="panel" style="padding:6px 10px">
-      <table class="stats">
-        <thead><tr><th></th><th>得点</th><th>サーブ</th><th>レシーブ</th><th>連続</th></tr></thead>
-        <tbody>{{STATS}}</tbody>
-      </table>
-    </div>
   </section>
 </div>
+<div id="infopop" hidden>{{STATS}}</div>
 
-<!-- 保存した印（なければ読まれない） -->
-<script src="data/marks.js"></script>
 <script>
 const DATA = {{DATA}};
 // ラリーが見つからなかった点は、点が入った時刻のこれだけ前から見せる
@@ -226,13 +240,13 @@ function renderMarkers() {
   const width = seek.clientWidth;
   // ラリーの区間をうすく塗る
   const track = seek.querySelector('.track');
-  DATA.games[current].points.forEach(p => {
-    if (!p.r) return;
+  // 試合をしている区間（「詰める」で残すところ）をうすく塗る
+  DATA.games[current].spans.forEach(([a, e]) => {
     const b = document.createElement('div');
     b.className = 'band';
-    b.style.left = `${p.r[0] / d * 100}%`;
-    b.style.width = `${Math.max(0.3, (p.r[1] - p.r[0]) / d * 100)}%`;
-    b.style.background = p.w === 0 ? 'var(--a)' : 'var(--b)';
+    b.style.left = `${a / d * 100}%`;
+    b.style.width = `${Math.max(0.3, (e - a) / d * 100)}%`;
+    b.style.background = 'var(--muted)';
     track.appendChild(b);
   });
   let lastX = [-99, -99];
@@ -337,13 +351,11 @@ function startOf(p) { return Math.max(0, p.r ? p.r[0] - PRE : p.vt - LEAD); }
 
 // ---------- 印 ----------
 // 点ごとの印。1 = ★、0 = 外した（候補の ☆ も出さない）。ないものは、候補なら ☆
-// data/marks.js（保存したもの）に、このブラウザで付け外ししたものを重ねる
+// このブラウザにだけ覚える（あとで自分で見返す用）
 const MARK_KEY = `marks-${DATA.id}`;
 const keyOf = (gi, k) => `${DATA.games[gi].n}-${k + 1}`;
-let marks = { ...(window.MARKS || {}) };
-let localMarks = {};
-try { localMarks = JSON.parse(store.get(MARK_KEY)) || {}; } catch {}
-Object.assign(marks, localMarks);
+let marks = {};
+try { marks = JSON.parse(store.get(MARK_KEY)) || {}; } catch {}
 
 function markOf(gi, k) {
   const key = keyOf(gi, k);
@@ -364,20 +376,10 @@ function toggleMark() {
   if (k < 0) return;
   const key = keyOf(current, k);
   marks[key] = markOf(current, k) === 'star' ? 0 : 1;
-  localMarks[key] = marks[key];
-  store.set(MARK_KEY, JSON.stringify(localMarks));
-  document.getElementById('savemarks').hidden = false;
+  store.set(MARK_KEY, JSON.stringify(marks));
   renderMarkers(); lastMark = null; updateHead();
 }
 
-function saveMarks() {
-  const body = `// TTLog の印（★）。index.html と同じフォルダの data/ に置く\nwindow.MARKS = ${JSON.stringify(marks, null, 1)};\n`;
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([body], { type: 'text/javascript' }));
-  a.download = 'marks.js';
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
 
 let playlist = null; // 続けて再生しているときの、いまの印の番号
 let stopAt = null;   // そこまで見たら次の印へ
@@ -415,10 +417,7 @@ document.getElementById('mark').onclick = toggleMark;
 // ---------- 間を飛ばす ----------
 // ラリーの区間（サーブの構えからラリーの終わりの少しあと）以外を飛ばす。ゲームの最後まで来たら次のゲームへ
 let rallyOnly = store.get('rallyOnly') === '1';
-function spans() {
-  return DATA.games[current].points.filter(p => p.vt !== null)
-    .map(p => [startOf(p), p.r ? p.r[1] : p.vt + 0.5]);
-}
+function spans() { return DATA.games[current].spans; }
 function skipToRally() {
   if (!rallyOnly || playlist !== null || v.paused || v.seeking) return;
   const t = v.currentTime;
@@ -440,7 +439,7 @@ document.getElementById('rallyonly').onclick = () => {
   skipToRally();
 };
 showRallyOnly();
-document.getElementById('savemarks').onclick = saveMarks;
+
 
 v.addEventListener('loadedmetadata', () => { renderMarkers(); applyView(); });
 v.addEventListener('timeupdate', updateHead);
@@ -451,11 +450,14 @@ document.getElementById('play').onclick = () => v.paused ? v.play() : v.pause();
 document.getElementById('prev').onclick = () => step(-1);
 document.getElementById('next').onclick = () => step(1);
 
+const RATES = [1, 2, 0.5];
 let rate = 1;
-document.querySelectorAll('[data-rate]').forEach(b => b.onclick = () => {
-  rate = +b.dataset.rate; v.playbackRate = rate;
-  document.querySelectorAll('[data-rate]').forEach(x => x.classList.toggle('on', x === b));
-});
+document.getElementById('rate').onclick = () => {
+  rate = RATES[(RATES.indexOf(rate) + 1) % RATES.length];
+  v.playbackRate = rate;
+  document.getElementById('rate').textContent = `${rate}×`;
+  document.getElementById('rate').classList.toggle('on', rate !== 1);
+};
 
 addEventListener('keydown', e => {
   if (e.target.closest('input,textarea')) return;
@@ -467,6 +469,34 @@ addEventListener('keydown', e => {
   else if (e.key === 'ArrowUp') { e.preventDefault(); select(Math.max(current - 1, 0), true); }
 });
 addEventListener('resize', () => { renderMarkers(); applyView(); });
+
+// ---------- 情報 ----------
+const pop = document.getElementById('infopop');
+document.getElementById('infobtn').onclick = e => { e.stopPropagation(); pop.hidden = !pop.hidden; };
+document.addEventListener('click', e => { if (!pop.hidden && !pop.contains(e.target)) pop.hidden = true; });
+addEventListener('keydown', e => { if (e.key === 'Escape') pop.hidden = true; });
+
+// ---------- 胸元マイクの音（スコアボードが残した声の録音を、動画に合わせて流す） ----------
+const mic = document.getElementById('mic');
+let voiceOn = store.get('voiceOn') === '1';
+function syncMic(force) {
+  const g = DATA.games[current];
+  if (!voiceOn || !g.voice) { mic.pause(); return; }
+  if (!mic.src.endsWith(g.voice)) mic.src = g.voice;
+  mic.playbackRate = v.playbackRate;
+  if (force || Math.abs(mic.currentTime - v.currentTime) > 0.25) { try { mic.currentTime = v.currentTime; } catch {} }
+  if (v.paused) mic.pause(); else mic.play().catch(() => {});
+}
+function showVoice() {
+  const b = document.getElementById('voice');
+  b.hidden = !DATA.games.some(g => g.voice);
+  b.classList.toggle('on', voiceOn);
+}
+document.getElementById('voice').onclick = () => { voiceOn = !voiceOn; store.set('voiceOn', voiceOn ? '1' : '0'); showVoice(); syncMic(true); };
+['play', 'pause', 'seeked', 'ratechange'].forEach(ev => v.addEventListener(ev, () => syncMic(true)));
+v.addEventListener('timeupdate', () => syncMic(false));
+v.addEventListener('emptied', () => mic.pause());
+showVoice();
 
 // ---------- 画角（拡大と、ドラッグで位置合わせ） ----------
 // 映像が枠に収まる大きさ（contain）を基準に、zoom 倍して、映像上の (cx, cy) を枠の中央に置く
@@ -484,8 +514,7 @@ function applyView() {
   v.style.width = `${dw}px`; v.style.height = `${dh}px`;
   v.style.left = '0'; v.style.top = '0'; v.style.right = 'auto'; v.style.bottom = 'auto';
   v.style.transform = `translate(${tx}px, ${ty}px)`;
-  document.getElementById('fit').classList.toggle('on', view.zoom === 1);
-  document.getElementById('close').classList.toggle('on', view.zoom !== 1);
+  document.getElementById('zoom').classList.toggle('on', view.zoom !== 1);
   store.set('view', JSON.stringify(view));
 }
 function setZoom(z, keepCenter) {
@@ -495,8 +524,10 @@ function setZoom(z, keepCenter) {
   clearTimeout(setZoom.t); setZoom.t = setTimeout(() => tag.classList.remove('show'), 800);
   applyView();
 }
-document.getElementById('fit').onclick = () => { view = { zoom: 1, cx: .5, cy: .5 }; setZoom(1); };
-document.getElementById('close').onclick = () => { view = { ...CLOSE }; setZoom(CLOSE.zoom); };
+document.getElementById('zoom').onclick = () => {
+  if (view.zoom !== 1) { view = { zoom: 1, cx: .5, cy: .5 }; setZoom(1); }
+  else { view = { ...CLOSE }; setZoom(CLOSE.zoom); }
+};
 stage.addEventListener('wheel', e => { e.preventDefault(); setZoom(view.zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08)); }, { passive: false });
 
 // ドラッグで動かす。動かさずに離したら再生／一時停止

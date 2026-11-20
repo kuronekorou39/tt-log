@@ -10,10 +10,10 @@ iPad のスコアボードの記録（SwiftData の default.store）と、iPhone
       data/session.json スコアボードの記録そのもの
 
 使い方:
-    python tools/share/make_share.py --store <default.store> --camera <Sessions/フォルダ> --out share/2026-11-20
+    python tools/share/make_share.py --store <default.store> --camera <Sessions/フォルダ> --voice <VoiceLogs> --out share/2026-11-20
 
 動画をつなぐのに ffmpeg / ffprobe を使う（PATH にあること）。
-ラリーを探すのに numpy / scipy を使う（rallies.py）。見どころの候補（☆）は highlights.py で選ぶ。ページで付けた印（★）は data/marks.js に保存する。
+ラリーを探すのに numpy / scipy を使う（rallies.py）。見どころの候補（☆）は highlights.py で選ぶ。ページで付けた印（★）は見た人のブラウザにだけ残る。
 """
 
 import argparse
@@ -151,13 +151,26 @@ def video_time(parts: list[dict], at: dt.datetime) -> float | None:
     return None
 
 
+# 「競り合い」とみなす点数（両方がこれ以上）
+CLOSE_FROM = 9
+
+
 def stats(games: list[dict]) -> list[dict]:
-    s = [{"points": 0, "srvWon": 0, "srvAll": 0, "rcvWon": 0, "rcvAll": 0, "run": 0} for _ in range(2)]
+    s = [{"points": 0, "srvWon": 0, "srvAll": 0, "rcvWon": 0, "rcvAll": 0, "run": 0, "games": 0,
+          "closeWon": 0, "lead": 0} for _ in range(2)]
     run, runner = 0, None
     for g in games:
         run, runner = 0, None
+        if g["winner"] is not None:
+            s[g["winner"]]["games"] += 1
+        before = [0, 0]
         for p in g["points"]:
             w, sv = p["winner"], p["server"]
+            # 終盤の競り合い（両方 9 点以上）で取った点
+            if min(before) >= CLOSE_FROM:
+                s[w]["closeWon"] += 1
+            before = p["scores"]
+            s[w]["lead"] = max(s[w]["lead"], before[w] - before[1 - w])
             s[w]["points"] += 1
             s[sv]["srvAll"] += 1
             s[1 - sv]["rcvAll"] += 1
@@ -178,11 +191,16 @@ def main():
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--no-video", action="store_true", help="動画を新しく作らない（まとめだけ作り直す）")
     ap.add_argument("--no-rally", action="store_true", help="動画の音からラリーを探さない")
+    ap.add_argument("--voice", type=Path, help="iPad の VoiceLogs（log.tsv と audio/）。あれば声の音声を動画に重ねられる")
     args = ap.parse_args()
 
     index = json.loads((args.camera / "index.json").read_text(encoding="utf-8"))
     names, log = load_session(args.store, index["id"])
     games = build_games(log)
+    voice_log = None
+    if args.voice:
+        import voice
+        voice_log = voice.load_log(args.voice)
 
     out = args.out
     (out / "data").mkdir(parents=True, exist_ok=True)
@@ -196,6 +214,16 @@ def main():
         g["parts"] = len(parts)
         for p in g["points"]:
             p["vt"] = video_time(parts, p["at"]) if parts else None
+        from rallies import play_spans
+        # 押した時刻のままで決める（続けて押した点の時刻を直す前）
+        g["spans"] = play_spans(g["points"])
+        g["voice"] = None
+        if voice_log and g["video"]:
+            import voice
+            name_v = f"game{g['index'] + 1:02d}-voice.m4a"
+            target = out / "videos" / name_v
+            if target.exists() or voice.build_track(voice_log, parts, target):
+                g["voice"] = f"videos/{name_v}"
         if g["video"] and not args.no_rally:
             from rallies import attach_rallies
             attach_rallies(out / g["video"], g["points"])
@@ -230,6 +258,8 @@ def write_html(path: Path, session_id: str, names: list[str], log: dict, games: 
     data = [{
         "n": g["index"] + 1,
         "video": g["video"],
+        "voice": g["voice"],
+        "spans": [[round(a, 2), round(b, 2)] for a, b in g["spans"]],
         "winner": g["winner"],
         "final": g["points"][-1]["scores"],
         "minutes": round(((g["end"] or g["points"][-1]["at"]) - g["points"][0]["at"]).total_seconds() / 60),
@@ -242,12 +272,33 @@ def write_html(path: Path, session_id: str, names: list[str], log: dict, games: 
     def pct(a, b):
         return f"{round(100 * a / b)}%" if b else "—"
 
-    rows = "".join(
-        f"<tr><th>{html.escape(names[i])}</th><td>{st[i]['points']}</td>"
-        f"<td>{pct(st[i]['srvWon'], st[i]['srvAll'])} <small>({st[i]['srvWon']}/{st[i]['srvAll']})</small></td>"
-        f"<td>{pct(st[i]['rcvWon'], st[i]['rcvAll'])} <small>({st[i]['rcvWon']}/{st[i]['rcvAll']})</small></td>"
-        f"<td>{st[i]['run']}</td></tr>"
-        for i in range(2)
+    def row(label, f):
+        return f"<tr><th>{label}</th>" + "".join(f"<td>{f(i)}</td>" for i in range(2)) + "</tr>"
+
+    first, last = games[0]["points"][0]["at"], games[-1]["points"][-1]["at"]
+    rally_lengths = [p["rally"]["length"] for g in games for p in g["points"] if p.get("rally")]
+    rows = (
+        f"<p class='muted'>{len(games)}ゲーム・{sum(len(g['points']) for g in games)}点・"
+        f"{round((last - first).total_seconds() / 60)}分</p>"
+        f"<table class='stats'><thead><tr><th></th><th class='a'>{html.escape(names[0])}</th>"
+        f"<th class='b'>{html.escape(names[1])}</th></tr></thead><tbody>"
+        + row("ゲーム", lambda i: st[i]["games"])
+        + row("得点", lambda i: st[i]["points"])
+        + row("サーブで取った", lambda i: f"{pct(st[i]['srvWon'], st[i]['srvAll'])} <small>{st[i]['srvWon']}/{st[i]['srvAll']}</small>")
+        + row("レシーブで取った", lambda i: f"{pct(st[i]['rcvWon'], st[i]['rcvAll'])} <small>{st[i]['rcvWon']}/{st[i]['rcvAll']}</small>")
+        + row("最長連続", lambda i: st[i]["run"])
+        + row("最大リード", lambda i: st[i]["lead"])
+        + row(f"{CLOSE_FROM}-{CLOSE_FROM}以降", lambda i: st[i]["closeWon"])
+        + "</tbody></table>"
+        + "<table class='stats'><thead><tr><th></th><th>スコア</th><th>時間</th></tr></thead><tbody>"
+        + "".join(
+            f"<tr><th>第{g['index'] + 1}ゲーム</th>"
+            f"<td class='{'' if g['winner'] is None else 'ab'[g['winner']]}'>{g['points'][-1]['scores'][0]} - {g['points'][-1]['scores'][1]}</td>"
+            f"<td>{round(((g['end'] or g['points'][-1]['at']) - g['points'][0]['at']).total_seconds() / 60)}分</td></tr>"
+            for g in games)
+        + "</tbody></table>"
+        + (f"<p class='muted'>ラリー（推定）：平均 {sum(rally_lengths) / len(rally_lengths):.1f}秒・最長 {max(rally_lengths):.1f}秒</p>"
+           if rally_lengths else "")
     )
     page = (Path(__file__).with_name("template.html")).read_text(encoding="utf-8").replace("{{TITLE}}", f"{started:%Y-%m-%d} 卓球")
     page = page.replace("{{DATE}}", f"{started:%Y年%m月%d日 %H:%M}")
