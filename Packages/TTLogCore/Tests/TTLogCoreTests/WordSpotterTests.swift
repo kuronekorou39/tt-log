@@ -29,6 +29,8 @@ final class WordSpotterTests: XCTestCase {
         XCTAssertEqual(hits(["みぎ", "よし"]).map(\.status), [.accepted])
         XCTAssertEqual(hits(["みぎ", "やばい"]).map(\.status), [.accepted])
         XCTAssertEqual(hits(["ひだり", "ないす"]).map(\.status), [.accepted])
+        XCTAssertEqual(hits(["みぎ", "か"]).map(\.status), [.accepted])
+        XCTAssertEqual(hits(["これ", "ひだり", "ね"]).map(\.status), [.accepted])
     }
 
     func testTwoWordsInOneBreath() {
