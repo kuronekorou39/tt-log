@@ -134,6 +134,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
       <span class="sep"></span>
       <button id="fit">全体</button><button id="close">寄る</button>
       <span class="sep"></span>
+      <button id="rallyonly">ラリーだけ</button>
       <button id="mark" aria-label="印を付ける">☆</button><button id="playmarks">★を続けて再生</button><button id="savemarks" hidden>★を保存</button>
     </div>
   </section>
@@ -410,6 +411,35 @@ v.addEventListener('timeupdate', () => {
 });
 document.getElementById('playmarks').onclick = () => playlist === null ? playMarked(0) : (stopPlaylist(), v.pause());
 document.getElementById('mark').onclick = toggleMark;
+
+// ---------- ラリーだけ再生 ----------
+// ラリーの区間（サーブの構えからラリーの終わりの少しあと）以外を飛ばす。ゲームの最後まで来たら次のゲームへ
+let rallyOnly = store.get('rallyOnly') === '1';
+function spans() {
+  return DATA.games[current].points.filter(p => p.vt !== null)
+    .map(p => [startOf(p), p.r ? p.r[1] + POST : p.vt + 0.5]);
+}
+function skipToRally() {
+  if (!rallyOnly || playlist !== null || v.paused || v.seeking) return;
+  const t = v.currentTime;
+  const ss = spans();
+  if (ss.some(([a, b]) => a <= t && t < b)) return;
+  const next = ss.find(([a]) => a > t);
+  if (next) { v.currentTime = next[0]; return; }
+  // このゲームのラリーは終わり。次のゲームの最初のラリーへ
+  if (current + 1 < DATA.games.length) select(current + 1, true);
+  else v.pause();
+}
+v.addEventListener('timeupdate', skipToRally);
+v.addEventListener('play', skipToRally);
+function showRallyOnly() { document.getElementById('rallyonly').classList.toggle('on', rallyOnly); }
+document.getElementById('rallyonly').onclick = () => {
+  rallyOnly = !rallyOnly;
+  store.set('rallyOnly', rallyOnly ? '1' : '0');
+  showRallyOnly();
+  skipToRally();
+};
+showRallyOnly();
 document.getElementById('savemarks').onclick = saveMarks;
 
 v.addEventListener('loadedmetadata', () => { renderMarkers(); applyView(); });
