@@ -10,3 +10,6 @@ build/
 .build/
 DerivedData/
 *.ipa
+
+# 友人に渡すまとめ（動画・実名を含む）
+/share/
