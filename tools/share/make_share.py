@@ -128,8 +128,9 @@ def join_videos(camera: Path, index: dict, game_index: int, out: Path) -> list[d
                 f.write(f"file '{(camera / c['file']).resolve().as_posix()}'\n")
             listing = f.name
         subprocess.run(
+            # iPhone の録画には映像・音声のほかに時刻などのデータの流れがあり、mp4 に入らないので映像と音声だけ
             ["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", listing,
-             "-c", "copy", "-movflags", "+faststart", str(out)],
+             "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-tag:v", "hvc1", "-movflags", "+faststart", str(out)],
             check=True,
         )
         Path(listing).unlink()
