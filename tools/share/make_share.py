@@ -13,6 +13,7 @@ iPad のスコアボードの記録（SwiftData の default.store）と、iPhone
     python tools/share/make_share.py --store <default.store> --camera <Sessions/フォルダ> --out share/2026-11-20
 
 動画をつなぐのに ffmpeg / ffprobe を使う（PATH にあること）。
+ラリーを探すのに numpy / scipy を使う（rallies.py）。見どころは highlights.py で選ぶ。
 """
 
 import argparse
@@ -26,6 +27,8 @@ import sqlite3
 import subprocess
 import tempfile
 import uuid
+
+import highlights
 from pathlib import Path
 
 # SwiftData（Core Data）の日時は 2001-01-01 からの秒
@@ -174,6 +177,7 @@ def main():
     ap.add_argument("--camera", required=True, type=Path, help="iPhone の Sessions/<フォルダ>")
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--no-video", action="store_true", help="動画を新しく作らない（まとめだけ作り直す）")
+    ap.add_argument("--no-rally", action="store_true", help="動画の音からラリーを探さない")
     args = ap.parse_args()
 
     index = json.loads((args.camera / "index.json").read_text(encoding="utf-8"))
@@ -192,15 +196,20 @@ def main():
         g["parts"] = len(parts)
         for p in g["points"]:
             p["vt"] = video_time(parts, p["at"]) if parts else None
+        if g["video"] and not args.no_rally:
+            from rallies import attach_rallies
+            attach_rallies(out / g["video"], g["points"])
 
     with open(out / "data" / "points.csv", "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
-        w.writerow(["ゲーム", "点", "時刻", "取った人", names[0], names[1], "サーブ", "動画の秒"])
+        w.writerow(["ゲーム", "点", "時刻", "取った人", names[0], names[1], "サーブ", "動画の秒", "ラリーの始まり", "ラリーの秒数"])
         for g in games:
             for k, p in enumerate(g["points"], 1):
                 w.writerow([g["index"] + 1, k, p["at"].astimezone(JST).strftime("%H:%M:%S"), names[p["winner"]],
                             p["scores"][0], p["scores"][1], names[p["server"]],
-                            "" if p["vt"] is None else f"{p['vt']:.1f}"])
+                            "" if p["vt"] is None else f"{p['vt']:.1f}",
+                            f"{p['rally']['start']:.1f}" if p.get("rally") else "",
+                            f"{p['rally']['end'] - p['rally']['start']:.1f}" if p.get("rally") else ""])
 
     write_html(out / "index.html", names, log, games)
     print(f"できました: {out.resolve()}")
@@ -217,6 +226,7 @@ def write_html(path: Path, names: list[str], log: dict, games: list[dict]):
         "final": g["points"][-1]["scores"],
         "minutes": round(((g["end"] or g["points"][-1]["at"]) - g["points"][0]["at"]).total_seconds() / 60),
         "points": [{"w": p["winner"], "s": p["scores"], "sv": p["server"], "vt": p["vt"],
+                    "r": [round(p["rally"]["start"], 2), round(p["rally"]["end"], 2)] if p.get("rally") else None,
                     "t": p["at"].astimezone(JST).strftime("%H:%M:%S")} for p in g["points"]],
     } for g in games]
 
@@ -235,7 +245,7 @@ def write_html(path: Path, names: list[str], log: dict, games: list[dict]):
     page = page.replace("{{A}}", html.escape(names[0])).replace("{{B}}", html.escape(names[1]))
     page = page.replace("{{WA}}", str(won[0])).replace("{{WB}}", str(won[1]))
     page = page.replace("{{STATS}}", rows)
-    page = page.replace("{{DATA}}", json.dumps({"names": names, "games": data}, ensure_ascii=False))
+    page = page.replace("{{DATA}}", json.dumps({"names": names, "games": data, "highlights": highlights.pick(games)}, ensure_ascii=False))
     path.write_text(page, encoding="utf-8")
 
 

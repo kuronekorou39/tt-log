@@ -50,6 +50,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 .seek { position:relative; height:76px; cursor:pointer; user-select:none; }
 .seek .track { position:absolute; left:0; right:0; top:32px; height:12px; border-radius:6px; background:var(--track); overflow:hidden; }
 .seek .played { position:absolute; left:0; top:0; bottom:0; background:var(--played); }
+.seek .band { position:absolute; top:0; bottom:0; opacity:.55; }
 .seek .head { position:absolute; top:24px; width:3px; height:28px; margin-left:-1px; background:var(--fg); border-radius:2px; pointer-events:none; }
 .seek .mk { position:absolute; width:20px; margin-left:-10px; display:flex; flex-direction:column; align-items:center; }
 .seek .mk.a { top:0; } .seek .mk.b { top:46px; flex-direction:column-reverse; }
@@ -60,6 +61,21 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 .seek .mk.cur i { height:14px; width:6px; }
 .seek .tip { position:absolute; top:-6px; transform:translate(-50%,-100%); background:var(--fg); color:var(--bg); font-size:.8rem;
   padding:3px 8px; border-radius:6px; white-space:nowrap; pointer-events:none; display:none; z-index:2; }
+
+/* 右の切り替え */
+.tabs { display:flex; gap:4px; padding:6px; border-bottom:1px solid var(--line); }
+.tabs button { flex:1; border:0; background:none; padding:7px; border-radius:8px; cursor:pointer; color:var(--muted); font-weight:600; }
+.tabs button.on { background:var(--hl); color:var(--fg); }
+.list { overflow:auto; }
+.hl { display:grid; grid-template-columns:auto 1fr auto; gap:2px 10px; align-items:center; width:100%; padding:8px 10px;
+  border:0; border-bottom:1px solid var(--line); background:none; text-align:left; cursor:pointer; }
+.hl.sel { background:var(--hl); }
+.hl .sc { font-weight:800; font-variant-numeric:tabular-nums; }
+.hl .tags { grid-column:2 / -1; display:flex; flex-wrap:wrap; gap:4px; }
+.hl .tags span { font-size:.75rem; padding:1px 7px; border-radius:99px; background:var(--track); }
+.hl .no { font-size:.8rem; color:var(--muted); }
+.playall { margin:8px 10px; padding:8px; border-radius:8px; border:1px solid var(--line); background:var(--card); cursor:pointer; font-weight:600; }
+.playall.on { background:var(--fg); color:var(--bg); }
 
 /* ゲームの一覧と流れ */
 .games { display:flex; flex-direction:column; }
@@ -84,8 +100,8 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
   .left { min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto auto; gap:10px; }
   .stage { min-height:0; }
   .right { min-height:0; display:grid; grid-template-rows:minmax(0,1fr) auto; gap:14px; }
-  .right .games { overflow:auto; }
   .right .panel { min-height:0; }
+  .right .side { display:grid; grid-template-rows:auto minmax(0,1fr); }
 }
 
 /* ---- スマホ：縦に並べてスクロール ---- */
@@ -129,7 +145,14 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
   </section>
 
   <section class="right">
-    <div class="panel games" id="games"></div>
+    <div class="panel side">
+      <div class="tabs"><button id="tabGames" class="on">ゲーム</button><button id="tabHl">見どころ</button></div>
+      <div class="list games" id="games"></div>
+      <div class="list" id="hlbox" hidden>
+        <button class="playall" id="playall">▶ 続けて再生</button>
+        <div id="hls"></div>
+      </div>
+    </div>
     <div class="panel" style="padding:6px 10px">
       <table class="stats">
         <thead><tr><th></th><th>得点</th><th>サーブ</th><th>レシーブ</th><th>連続</th></tr></thead>
@@ -141,8 +164,12 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 
 <script>
 const DATA = {{DATA}};
-// 点が入ったのはラリーの終わり。少し前から見せる
+// ラリーが見つからなかった点は、点が入った時刻のこれだけ前から見せる
 const LEAD = 8;
+// ラリーの頭の少し前から見せる（サーブの構えから）
+const PRE = 1.5;
+// 見どころを続けて再生するとき、ラリーの終わりからこれだけ見てから次へ
+const POST = 2;
 // 「寄る」の倍率と、映す中心（映像の縦の位置。天井を切って台と2人に寄せる）
 const CLOSE = { zoom: 1.35, cx: 0.5, cy: 0.6 };
 
@@ -189,17 +216,28 @@ function renderGames(mark) {
       ${flowSVG(g, i, i === current ? mark : null)}
     </button>`;
   }).join('');
-  box.querySelectorAll('.game').forEach(b => b.onclick = () => select(+b.dataset.i, true));
+  box.querySelectorAll('.game').forEach(b => b.onclick = () => { stopPlaylist(); select(+b.dataset.i, true); });
 }
 
 // ---------- シークバー ----------
 function points() { return DATA.games[current].points.filter(p => p.vt !== null); }
 
 function renderMarkers() {
-  seek.querySelectorAll('.mk').forEach(m => m.remove());
+  seek.querySelectorAll('.mk, .band').forEach(m => m.remove());
   const d = v.duration;
   if (!d) return;
   const width = seek.clientWidth;
+  // ラリーの区間をうすく塗る
+  const track = seek.querySelector('.track');
+  DATA.games[current].points.forEach(p => {
+    if (!p.r) return;
+    const b = document.createElement('div');
+    b.className = 'band';
+    b.style.left = `${p.r[0] / d * 100}%`;
+    b.style.width = `${Math.max(0.3, (p.r[1] - p.r[0]) / d * 100)}%`;
+    b.style.background = p.w === 0 ? 'var(--a)' : 'var(--b)';
+    track.appendChild(b);
+  });
   let lastX = [-99, -99];
   points().forEach(p => {
     const m = document.createElement('div');
@@ -256,15 +294,16 @@ function updateHead() {
 }
 
 function jump(p) {
-  v.currentTime = Math.max(0, p.vt - LEAD);
+  stopPlaylist();
+  v.currentTime = startOf(p);
   v.play();
 }
 
 function step(dir) {
   const ps = points();
   if (!ps.length) return;
-  const t = v.currentTime + LEAD;
-  const next = dir > 0 ? ps.find(p => p.vt > t + 0.5) : [...ps].reverse().find(p => p.vt < t - 1.5);
+  const t = v.currentTime;
+  const next = dir > 0 ? ps.find(p => startOf(p) > t + 0.5) : [...ps].reverse().find(p => startOf(p) < t - 1.5);
   if (next) jump(next); else if (dir < 0) v.currentTime = 0;
 }
 
@@ -278,15 +317,68 @@ function select(i, autoplay) {
   if (g.video) { v.src = g.video; } else { v.removeAttribute('src'); v.load(); }
   v.playbackRate = rate;
   renderGames(null);
-  seek.querySelectorAll('.mk').forEach(m => m.remove());
+  seek.querySelectorAll('.mk, .band').forEach(m => m.remove());
   if (autoplay && g.video) {
+    const first = g.points.find(p => p.vt !== null);
     v.addEventListener('loadedmetadata', () => {
-      const first = g.points.find(p => p.vt !== null);
-      if (first) v.currentTime = Math.max(0, first.vt - LEAD);
+      if (first) v.currentTime = startOf(first);
       v.play();
     }, { once: true });
   }
 }
+
+// その点のラリーの見始め
+function startOf(p) { return Math.max(0, p.r ? p.r[0] - PRE : p.vt - LEAD); }
+
+// ---------- 見どころ ----------
+let playlist = null; // 続けて再生しているときの、いまの見どころの番号
+let stopAt = null;   // そこまで見たら次の見どころへ
+
+function renderHighlights(sel) {
+  const box = document.getElementById('hls');
+  box.innerHTML = DATA.highlights.map((h, i) => {
+    const g = DATA.games[h.g], p = g.points[h.k];
+    return `<button class="hl ${i === sel ? 'sel' : ''}" data-i="${i}">
+      <span class="no">第${g.n}G</span>
+      <span class="sc" style="color:${p.w === 0 ? 'var(--a)' : 'var(--b)'}">${p.s[0]} - ${p.s[1]}</span>
+      <small>${DATA.names[p.w]}</small>
+      <span class="tags">${h.tags.map(t => `<span>${t}</span>`).join('')}</span>
+    </button>`;
+  }).join('');
+  box.querySelectorAll('.hl').forEach(b => b.onclick = () => playHighlight(+b.dataset.i, false));
+}
+
+function playHighlight(i, continuous) {
+  const h = DATA.highlights[i];
+  if (!h) { stopPlaylist(); return; }
+  playlist = continuous ? i : null;
+  document.getElementById('playall').classList.toggle('on', continuous);
+  renderHighlights(i);
+  const p = DATA.games[h.g].points[h.k];
+  stopAt = continuous ? (p.r ? p.r[1] : p.vt) + POST : null;
+  const go = () => { v.currentTime = startOf(p); v.play(); };
+  if (current !== h.g) { select(h.g, false); v.addEventListener('loadedmetadata', go, { once: true }); }
+  else go();
+}
+
+function stopPlaylist() {
+  playlist = null; stopAt = null;
+  document.getElementById('playall').classList.remove('on');
+}
+
+v.addEventListener('timeupdate', () => {
+  if (playlist !== null && stopAt !== null && v.currentTime >= stopAt) playHighlight(playlist + 1, true);
+});
+document.getElementById('playall').onclick = () => playlist === null ? playHighlight(0, true) : (stopPlaylist(), v.pause());
+
+function showTab(hl) {
+  document.getElementById('tabGames').classList.toggle('on', !hl);
+  document.getElementById('tabHl').classList.toggle('on', hl);
+  document.getElementById('games').hidden = hl;
+  document.getElementById('hlbox').hidden = !hl;
+}
+document.getElementById('tabGames').onclick = () => showTab(false);
+document.getElementById('tabHl').onclick = () => showTab(true);
 
 v.addEventListener('loadedmetadata', () => { renderMarkers(); applyView(); });
 v.addEventListener('timeupdate', updateHead);
@@ -361,6 +453,7 @@ stage.addEventListener('dblclick', () => { document.fullscreenElement ? document
 document.addEventListener('fullscreenchange', () => setTimeout(applyView, 50));
 
 try { const saved = JSON.parse(store.get('view')); if (saved && saved.zoom) view = saved; } catch {}
+renderHighlights(null);
 select(0, false);
 </script>
 </body>
