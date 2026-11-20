@@ -142,6 +142,14 @@ final class SpeechListener: ObservableObject {
     private var lastTextAt: Date?
     /// 最後に発話を区切った時刻。
     private var lastUtteranceAt: Date?
+    /// いまの認識を始めた時刻。
+    private var taskStartedAt: Date?
+    /// いまの認識は、聞き取れなかった声の聞き直しか。
+    private var replaying = false
+    /// 聞き直すとき、大きな音が始まったところより何秒前から流すか。
+    private static let replayLead = 0.5
+    /// 文字が出ないまま、これだけ続いた認識は作り直す（秒）。
+    private static let idleRestartSeconds = 20.0
 
     private var routeObserver: NSObjectProtocol?
     /// 受信機のマイクと本体のスピーカーを同時に使っているか。
@@ -303,7 +311,8 @@ final class SpeechListener: ObservableObject {
 
     // MARK: - 認識
 
-    private func startRecognition() {
+    /// - Parameter replay: 新しい認識に先に流す音声（聞き取れなかった声の聞き直し）。
+    private func startRecognition(replay: [AVAudioPCMBuffer] = []) {
         guard isListening, let recognizer else { return }
         generation += 1
         let gen = generation
@@ -312,7 +321,9 @@ final class SpeechListener: ObservableObject {
         instantFired = []
         instantSeenAt = []
         confirmTask?.cancel()
-        audioBox.clearRecent()
+        if replay.isEmpty { audioBox.clearRecent() }
+        replaying = !replay.isEmpty
+        taskStartedAt = Date()
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -320,7 +331,7 @@ final class SpeechListener: ObservableObject {
         request.taskHint = taskHint
         request.addsPunctuation = false
         request.contextualStrings = contextualStrings
-        audioBox.request = request
+        audioBox.setRequest(request, replay: replay)
         statusMessage = supportsOnDevice ? "聞き取り中（端末内）" : "聞き取り中（端末内認識に未対応・ネット経由）"
 
         task = Self.makeTask(recognizer: recognizer, request: request) { [weak self] texts, isFinal, errorMessage in
@@ -498,7 +509,7 @@ final class SpeechListener: ObservableObject {
         case .dictation: hint = "dictation"
         default: hint = "unspecified"
         }
-        return "区切り\(ms)ms 即時\(instantMode ? "ON" : "OFF") 二重防止\(gate.deadTime)秒 \(hint) マイク:\(micMode.title) 入力:\(inputName) 出力:\(outputName) 言葉 \(wordsSummary)"
+        return (replaying ? "聞き直し " : "") + "区切り\(ms)ms 即時\(instantMode ? "ON" : "OFF") 二重防止\(gate.deadTime)秒 \(hint) マイク:\(micMode.title) 入力:\(inputName) 出力:\(outputName) 言葉 \(wordsSummary)"
     }
 
     // MARK: - マイクの抜き差し
@@ -540,6 +551,7 @@ final class SpeechListener: ObservableObject {
     }
 
     private func checkBurst() {
+        refreshIdleTask()
         guard isListening, let at = audioBox.burstAt else { return }
         // 認識の文字は声より少し遅れて届くので、しばらく待ってから判断する
         guard Date().timeIntervalSince(at) > 2.0 else { return }
@@ -554,6 +566,27 @@ final class SpeechListener: ObservableObject {
             time: now, text: "", alternatives: [], partials: [], reading: "", command: nil, accepted: false,
             note: "聞き取れず（大きな音がしたが文字にならなかった）", audioFile: audioFile, settings: currentSettings
         ))
+        // 文字が出ないまま長く続いた認識は、声を聞き落としやすい（2026-11-20 の練習で、
+        // はっきり言ったスコアが1分近く続けて文字にならなかった）。
+        // 認識を作り直し、その音の少し前からの音声を流し直して聞き直す。
+        // 前の発話より前の音は流さない（受け付け済みの言葉を二重に入れないため）。
+        var seconds = now.timeIntervalSince(at) + Self.replayLead
+        if let lastUtteranceAt { seconds = min(seconds, now.timeIntervalSince(lastUtteranceAt)) }
+        restartRecognition(replay: audioBox.snapshotRecent(seconds: seconds))
+    }
+
+    /// 文字が出ないまま `idleRestartSeconds` 続いた認識を、静かなときに作り直す。
+    private func refreshIdleTask() {
+        guard isListening, currentTexts.isEmpty, audioBox.burstAt == nil, audioBox.isQuiet,
+              let started = taskStartedAt, Date().timeIntervalSince(started) > Self.idleRestartSeconds else { return }
+        restartRecognition(replay: [])
+    }
+
+    private func restartRecognition(replay: [AVAudioPCMBuffer]) {
+        silenceTask?.cancel()
+        task?.cancel()
+        audioBox.request?.endAudio()
+        startRecognition(replay: replay)
     }
 
     private func requestPermissions() async -> Bool {
@@ -639,12 +672,29 @@ private final class AudioBox: @unchecked Sendable {
         lock.lock(); _burstAt = nil; lock.unlock()
     }
 
+    /// 認識リクエストを差し替える。`replay` を先に流してから、続きのマイクの音声を流す。
+    func setRequest(_ newRequest: SFSpeechAudioBufferRecognitionRequest, replay: [AVAudioPCMBuffer]) {
+        lock.lock()
+        defer { lock.unlock() }
+        for b in replay { newRequest.append(b) }
+        _request = newRequest
+    }
+
+    /// いま大きな音が続いていないか。
+    var isQuiet: Bool {
+        lock.lock(); defer { lock.unlock() }; return loudFrames == 0
+    }
+
     func append(_ buffer: AVAudioPCMBuffer) {
-        request?.append(buffer)
-        guard let copy = Self.copy(buffer) else { return }
+        guard let copy = Self.copy(buffer) else {
+            request?.append(buffer)
+            return
+        }
         let level = Self.levelDB(copy)
         lock.lock()
         defer { lock.unlock() }
+        // 差し替え（聞き直しの音声を流している最中）と順番が入れ替わらないよう、ロックの中で流す
+        _request?.append(copy)
         let loud = level > floorDB + Self.burstMarginDB
         floorDB += (level - floorDB) * (loud ? 0.002 : 0.02)
         if loud {
@@ -676,6 +726,20 @@ private final class AudioBox: @unchecked Sendable {
     }
 
     func clearRecent() { _ = takeRecent() }
+
+    /// 直近 `seconds` 秒ぶんの音声を、手元から消さずに返す。
+    func snapshotRecent(seconds: Double) -> [AVAudioPCMBuffer] {
+        lock.lock()
+        defer { lock.unlock() }
+        var out: [AVAudioPCMBuffer] = []
+        var total = 0.0
+        for b in recent.reversed() {
+            guard total < seconds else { break }
+            out.append(b)
+            total += Double(b.frameLength) / b.format.sampleRate
+        }
+        return out.reversed()
+    }
 
     /// 直近の音声を、手元から消さずに写して返す。
     func snapshotRecent() -> [AVAudioPCMBuffer] {
