@@ -36,6 +36,7 @@ public enum WordSpotter {
     /// - Parameter tokens: 単語ごとの読み（ひらがな）。
     public static func hits(tokens: [String], matcher: VoiceCommandMatcher) -> [Hit] {
         let words = tokens.map(KanaNormalizer.canonical).filter { !$0.isEmpty }
+            .flatMap { splitJoinedWords($0, matcher: matcher) ?? [$0] }
         var result: [Hit] = []
         var i = 0
         while i < words.count {
@@ -63,6 +64,24 @@ public enum WordSpotter {
             i = next
         }
         return result
+    }
+
+    /// 得点の言葉が続けてくっついた単語（「右左」→「みぎひだり」）を言葉ごとに分ける。
+    /// 全体がちょうど得点の言葉の並びになるときだけ分ける（「君嫌い」のような単語は分けない）。
+    static func splitJoinedWords(_ word: String, matcher: VoiceCommandMatcher) -> [String]? {
+        guard matcher.pointPlayer(reading: word) == nil else { return nil }
+        func split(_ rest: Substring) -> [String]? {
+            if rest.isEmpty { return [] }
+            for end in rest.indices.dropFirst() + [rest.endIndex] {
+                let head = String(rest[rest.startIndex..<end])
+                if matcher.pointPlayer(reading: head) != nil, let tail = split(rest[end...]) {
+                    return [head] + tail
+                }
+            }
+            return nil
+        }
+        guard let parts = split(Substring(word)), parts.count > 1 else { return nil }
+        return parts
     }
 
     /// 言葉の後ろに来ても「続き」ではないもの。

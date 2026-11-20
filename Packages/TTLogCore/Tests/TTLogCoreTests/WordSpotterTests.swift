@@ -38,6 +38,14 @@ final class WordSpotterTests: XCTestCase {
         ])
     }
 
+    func testJoinedWordsInOneToken() {
+        // 「右左」が1つの単語として「みぎひだり」と読まれる
+        XCTAssertEqual(hits(["みぎひだり"]).map(\.player), [1, 0])
+        XCTAssertEqual(hits(["みぎひだり"]).map(\.status), [.accepted, .pending])
+        XCTAssertEqual(hits(["ひだりみぎ"]).map(\.player), [0, 1])
+        XCTAssertTrue(hits(["みぎひだりて"]).isEmpty) // 言葉の並びでなければ分けない
+    }
+
     func testPointWordsAcrossTokens() {
         // 「左点」→「ひだり」「てん」は1つの言葉
         XCTAssertEqual(hits(["ひだり", "てん"]), [.init(player: 0, tokenIndex: 0, status: .pending)])
@@ -51,6 +59,7 @@ final class WordSpotterTests: XCTestCase {
 
     func testMisheardAndNames() {
         XCTAssertEqual(hits(["ひだ"]).map(\.player), [0]) // 飛騨
+        XCTAssertEqual(hits(["みさと"]).map(\.player), [1]) // 美里
         XCTAssertEqual(hits(["ろう"]).map(\.player), [0])
     }
 }

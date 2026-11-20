@@ -11,6 +11,7 @@ enum ReadingConverter {
 
     /// 単語ごとの読み。話している途中の文字から言葉を探すときに使う（`WordSpotter`）。
     static func hiraganaTokens(_ text: String) -> [String] {
+        let text = replacingSides(text)
         let cfText = text as CFString
         let range = CFRange(location: 0, length: CFStringGetLength(cfText))
         let tokenizer = CFStringTokenizerCreate(
@@ -35,5 +36,15 @@ enum ReadingConverter {
             tokenType = CFStringTokenizerAdvanceToNextToken(tokenizer)
         }
         return out
+    }
+
+    /// 「右」「左」は読みを先に決めておく。字のままだと前後とつながって別の読みになることがある
+    /// （「右左」など）。「左右」（さゆう）は操作語に使うのでそのまま。
+    private static func replacingSides(_ text: String) -> String {
+        let keep = "\u{E000}"
+        return text.replacingOccurrences(of: "左右", with: keep)
+            .replacingOccurrences(of: "右", with: "みぎ")
+            .replacingOccurrences(of: "左", with: "ひだり")
+            .replacingOccurrences(of: keep, with: "左右")
     }
 }
