@@ -134,7 +134,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
       <span class="sep"></span>
       <button id="fit">全体</button><button id="close">寄る</button>
       <span class="sep"></span>
-      <button id="rallyonly">ラリーだけ</button>
+      <button id="rallyonly">間を飛ばす</button>
       <button id="mark" aria-label="印を付ける">☆</button><button id="playmarks">★を続けて再生</button><button id="savemarks" hidden>★を保存</button>
     </div>
   </section>
@@ -156,8 +156,8 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 const DATA = {{DATA}};
 // ラリーが見つからなかった点は、点が入った時刻のこれだけ前から見せる
 const LEAD = 8;
-// ラリーの頭の少し前から見せる（サーブの構えから）
-const PRE = 1.5;
+// ラリーの見せ始め（サーブの構え。make_share 側で決める）より、さらにこれだけ前から
+const PRE = 0.5;
 // 印を続けて再生するとき、ラリーの終わりからこれだけ見てから次へ
 const POST = 2;
 // 「寄る」の倍率と、映す中心（映像の縦の位置。天井を切って台と2人に寄せる）
@@ -395,7 +395,7 @@ function playMarked(i) {
   document.getElementById('playmarks').classList.add('on');
   const [gi, k] = list[i];
   const p = DATA.games[gi].points[k];
-  stopAt = (p.r ? p.r[1] : p.vt) + POST;
+  stopAt = p.r ? p.r[1] : p.vt + POST;
   const go = () => { v.currentTime = startOf(p); v.play(); };
   if (current !== gi) { select(gi, false); v.addEventListener('loadedmetadata', go, { once: true }); }
   else go();
@@ -412,12 +412,12 @@ v.addEventListener('timeupdate', () => {
 document.getElementById('playmarks').onclick = () => playlist === null ? playMarked(0) : (stopPlaylist(), v.pause());
 document.getElementById('mark').onclick = toggleMark;
 
-// ---------- ラリーだけ再生 ----------
+// ---------- 間を飛ばす ----------
 // ラリーの区間（サーブの構えからラリーの終わりの少しあと）以外を飛ばす。ゲームの最後まで来たら次のゲームへ
 let rallyOnly = store.get('rallyOnly') === '1';
 function spans() {
   return DATA.games[current].points.filter(p => p.vt !== null)
-    .map(p => [startOf(p), p.r ? p.r[1] + POST : p.vt + 0.5]);
+    .map(p => [startOf(p), p.r ? p.r[1] : p.vt + 0.5]);
 }
 function skipToRally() {
   if (!rallyOnly || playlist !== null || v.paused || v.seeking) return;

@@ -2,8 +2,11 @@
 
 得点の時刻は「声で言った・画面を押した」時刻なので、ラリーより少し後になる。
 声が通らずにあとで続けて押した点は、何点ぶんも同じ時刻になる。
-そこで、前の点からその点までの間に起きたラリーのうち最後のもの（続けて押した n 点なら最後の n 本）を、その点のラリーとみなす。
-0-0 でネット（レット）が続いても、最後のラリーが点になったものなので、それを選ぶ。
+そこで、前の点からその点までの間で、打球音がいちばん多く続いたかたまり（続けて押した n 点なら多い順に n 本）を、
+その点のラリーとみなす。最後のかたまりにしないのは、ラリーのあとの球拾いの音を選んでしまうため（2026-11-20 第1ゲーム 2-1）。
+
+見せ始めは、そのラリーを含む「音が続いている区間」の頭にする。サーブの前にボールを弾ませる音から始まるので、
+サーブの構えから見られる。区間は、打球音の間が ACTIVE_GAP 秒より空いたところで切る。
 """
 
 import subprocess
@@ -18,16 +21,29 @@ SAMPLE_RATE = 24000
 HIGHPASS_HZ = 2500
 FRAME = 0.005
 # 周りの音（1秒の中央値）より、これだけ大きければ打球音とみなす（dB）
-HIT_MARGIN_DB = 15
+HIT_MARGIN_DB = 12
 MIN_HIT_GAP = 0.12
+# ラリーの長さ（見どころの候補）は、はっきりした打球音だけで測る。弱い音まで拾うと、
+# 球拾いや声かけの音がつながって長く見える（2026-11-20：良いと言われた長いラリーが候補から外れた）
+CLEAR_HIT_MARGIN_DB = 15
 # 打球音の間がこれより空いたら別のラリー（秒）
 RALLY_GAP = 1.6
 # ラリーとみなす打球音の数（サーブ＋台で2つ、返球で3つ目）
 MIN_HITS = 3
+# 点を入れる何秒前までのラリーを探すか（1点あたり）。ゲームの最初の点で、
+# 始まる前の打ち合いを選ばないように（打ち合いは本番のラリーより長く続く）
+LOOKBACK = 40.0
 # 前の点を言った直後の音（拾う・弾ませる）を避ける（秒）
 AFTER_PREVIOUS = 1.0
-# サーブのトスは最初の打球音より少し前
-TOSS = 1.2
+# 「音が続いている区間」を切る間（秒）。球拾いや話している時間はこれより長い
+ACTIVE_GAP = 6.0
+# 区間の頭は、最初の音のこれだけ前（構えてから最初の音まで）
+LEAD_IN = 3.0
+# ただし見せ始めは、ラリーの最初の打球音からこれより前には戻らない（秒）。
+# 練習では球拾いや声かけの音が切れ目なく続き、区間だけだとゲームの頭まで戻ってしまう
+MAX_LEAD = 8.0
+# ラリーの終わりから、これだけ後まで見せる
+TAIL = 2.0
 
 
 def load_audio(video: Path) -> np.ndarray:
@@ -38,14 +54,14 @@ def load_audio(video: Path) -> np.ndarray:
     return np.frombuffer(raw, dtype=np.float32)
 
 
-def hit_times(audio: np.ndarray) -> np.ndarray:
+def hit_times(audio: np.ndarray, margin: float = HIT_MARGIN_DB) -> np.ndarray:
     y = sosfilt(butter(4, HIGHPASS_HZ, "hp", fs=SAMPLE_RATE, output="sos"), audio)
     hop = int(SAMPLE_RATE * FRAME)
     n = len(y) // hop
     env = np.sqrt((y[: n * hop].reshape(n, hop) ** 2).mean(axis=1))
     db = 20 * np.log10(env + 1e-9)
     onset = db - median_filter(db, size=int(1 / FRAME))
-    peaks, _ = find_peaks(onset, height=HIT_MARGIN_DB, distance=int(MIN_HIT_GAP / FRAME))
+    peaks, _ = find_peaks(onset, height=margin, distance=int(MIN_HIT_GAP / FRAME))
     return peaks * FRAME
 
 
@@ -59,9 +75,30 @@ def clusters(hits: np.ndarray, lo: float, hi: float) -> list[list[float]]:
     return [c for c in out if len(c) >= MIN_HITS]
 
 
+def clear_length(clear: np.ndarray, lo: float, hi: float) -> float:
+    """lo〜hi の中で、はっきりした打球音が続いたいちばん長いかたまりの長さ（秒）。"""
+    cs = clusters(clear, lo - 0.5, hi + 0.5)
+    return max((c[-1] - c[0] for c in cs), default=0.0)
+
+
+def active_start(hits: np.ndarray, t: float) -> float:
+    """t の打球音を含む「音が続いている区間」の頭（LEAD_IN 込み）。"""
+    before = hits[hits <= t][::-1]
+    start = t
+    for h in before:
+        if start - h > ACTIVE_GAP:
+            break
+        start = h
+    return float(start) - LEAD_IN
+
+
 def attach_rallies(video: Path, points: list[dict]) -> None:
-    """points（vt = 動画の中で点が入った秒）に rally = {start, end, hits} を付ける。見つからなければ付けない。"""
-    hits = hit_times(load_audio(video))
+    """points（vt = 動画の中で点が入った秒）に rally = {start, end, hits} を付ける。見つからなければ付けない。
+    start は見せ始め（サーブの構え）、end は見せ終わり。"""
+    audio = load_audio(video)
+    hits = hit_times(audio)
+    clear = hit_times(audio, CLEAR_HIT_MARGIN_DB)
+    shown_until = 0.0
     i = 0
     prev = 0.0
     while i < len(points):
@@ -73,9 +110,15 @@ def attach_rallies(video: Path, points: list[dict]) -> None:
         while j + 1 < len(points) and points[j + 1]["vt"] is not None and points[j + 1]["vt"] - points[i]["vt"] < 1.0:
             j += 1
         end = points[j]["vt"]
-        found = clusters(hits, prev + AFTER_PREVIOUS if i else 0.0, end)
         group = points[i : j + 1]
-        for p, c in zip(group[::-1], found[::-1]):
-            p["rally"] = {"start": max(0.0, c[0] - TOSS), "end": c[-1], "hits": len(c)}
+        lo = max(prev + AFTER_PREVIOUS if i else 0.0, end - LOOKBACK * len(group))
+        found = clusters(hits, lo, end) or clusters(hits, prev + AFTER_PREVIOUS if i else 0.0, end)
+        # 打球音の多い順に点の数だけ選び、時間の順に戻す
+        chosen = sorted(sorted(found, key=len)[::-1][: len(group)], key=lambda c: c[0])
+        for p, c in zip(group[len(group) - len(chosen):], chosen):
+            # 前の点の見せ終わりより前には戻らない（前のラリーと重ねない）
+            start = max(active_start(hits, c[0]), c[0] - MAX_LEAD, shown_until, prev + AFTER_PREVIOUS if i else 0.0, 0.0)
+            p["rally"] = {"start": start, "end": c[-1] + TAIL, "hits": len(c), "length": clear_length(clear, c[0], c[-1])}
+            shown_until = c[-1] + TAIL
         prev = end
         i = j + 1
