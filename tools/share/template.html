@@ -251,7 +251,7 @@ function renderMarkers() {
     if (x - lastX[p.w] < label) m.classList.add('hide'); else lastX[p.w] = x;
     m.dataset.vt = p.vt;
     m.onclick = e => { e.stopPropagation(); jump(p); };
-    m.onmouseenter = () => showTip(x, `${p.s[0]} - ${p.s[1]}　${DATA.names[p.w]}　${p.t}`);
+    m.onmouseenter = () => showTip(x, `${p.s[0]} - ${p.s[1]}　${DATA.names[p.w]}　${p.t}${p.fx ? '（時刻を推定）' : ''}`);
     m.onmouseleave = hideTip;
     seek.appendChild(m);
   });

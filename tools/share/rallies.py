@@ -1,7 +1,7 @@
 """動画の音から、ボールを打つ音（と台に弾む音）を拾ってラリーに分け、得点に結びつける。
 
 得点の時刻は「声で言った・画面を押した」時刻なので、ラリーより少し後になる。
-声が通らずにあとで続けて押した点は、何点ぶんも同じ時刻になる。
+声が通らずにあとで続けて押した点は、何点ぶんも同じ時刻になる。その時刻は、選んだラリーが終わった時刻に直す（fixed_vt）。
 そこで、前の点からその点までの間で、打球音がいちばん多く続いたかたまり（続けて押した n 点なら多い順に n 本）を、
 その点のラリーとみなす。最後のかたまりにしないのは、ラリーのあとの球拾いの音を選んでしまうため（2026-11-20 第1ゲーム 2-1）。
 
@@ -33,6 +33,10 @@ MIN_HITS = 3
 # 点を入れる何秒前までのラリーを探すか（1点あたり）。ゲームの最初の点で、
 # 始まる前の打ち合いを選ばないように（打ち合いは本番のラリーより長く続く）
 LOOKBACK = 40.0
+# 続けて押した点とみなす、押した間隔（秒）
+BATCH_GAP = 3.0
+# 続けて押した点の時刻は、そのラリーの最後の打球音のこれだけ後に直す
+FIXED_AFTER_LAST_HIT = 0.5
 # 前の点を言った直後の音（拾う・弾ませる）を避ける（秒）
 AFTER_PREVIOUS = 1.0
 # 「音が続いている区間」を切る間（秒）。球拾いや話している時間はこれより長い
@@ -65,14 +69,14 @@ def hit_times(audio: np.ndarray, margin: float = HIT_MARGIN_DB) -> np.ndarray:
     return peaks * FRAME
 
 
-def clusters(hits: np.ndarray, lo: float, hi: float) -> list[list[float]]:
+def clusters(hits: np.ndarray, lo: float, hi: float, min_hits: int = MIN_HITS) -> list[list[float]]:
     out: list[list[float]] = []
     for t in hits[(hits > lo) & (hits <= hi)]:
         if out and t - out[-1][-1] < RALLY_GAP:
             out[-1].append(float(t))
         else:
             out.append([float(t)])
-    return [c for c in out if len(c) >= MIN_HITS]
+    return [c for c in out if len(c) >= min_hits]
 
 
 def clear_length(clear: np.ndarray, lo: float, hi: float) -> float:
@@ -105,14 +109,17 @@ def attach_rallies(video: Path, points: list[dict]) -> None:
         if points[i]["vt"] is None:
             i += 1
             continue
-        # 同じ時刻（1秒以内）に続けて入れた点をまとめる
+        # 声が通らずに、あとで続けて押した点をまとめる
         j = i
-        while j + 1 < len(points) and points[j + 1]["vt"] is not None and points[j + 1]["vt"] - points[i]["vt"] < 1.0:
+        while j + 1 < len(points) and points[j + 1]["vt"] is not None and points[j + 1]["vt"] - points[j]["vt"] < BATCH_GAP:
             j += 1
         end = points[j]["vt"]
         group = points[i : j + 1]
         lo = max(prev + AFTER_PREVIOUS if i else 0.0, end - LOOKBACK * len(group))
         found = clusters(hits, lo, end) or clusters(hits, prev + AFTER_PREVIOUS if i else 0.0, end)
+        if len(found) < len(group):
+            # 続けて押した点のぶんラリーが見つからなければ、短いかたまり（サーブミスなど）も数える
+            found = clusters(hits, lo, end, min_hits=2) or found
         # 打球音の多い順に点の数だけ選び、時間の順に戻す
         chosen = sorted(sorted(found, key=len)[::-1][: len(group)], key=lambda c: c[0])
         for p, c in zip(group[len(group) - len(chosen):], chosen):
@@ -120,5 +127,8 @@ def attach_rallies(video: Path, points: list[dict]) -> None:
             start = max(active_start(hits, c[0]), c[0] - MAX_LEAD, shown_until, prev + AFTER_PREVIOUS if i else 0.0, 0.0)
             p["rally"] = {"start": start, "end": c[-1] + TAIL, "hits": len(c), "length": clear_length(clear, c[0], c[-1])}
             shown_until = c[-1] + TAIL
+            if len(group) > 1:
+                # 続けて押した点は、押した時刻ではなくラリーが終わった時刻に直す
+                p["fixed_vt"] = c[-1] + FIXED_AFTER_LAST_HIT
         prev = end
         i = j + 1

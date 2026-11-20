@@ -199,17 +199,25 @@ def main():
         if g["video"] and not args.no_rally:
             from rallies import attach_rallies
             attach_rallies(out / g["video"], g["points"])
+            for p in g["points"]:
+                if "fixed_vt" in p:
+                    # 続けて押した点の時刻を、ラリーが終わった時刻に直す
+                    p["tapped_at"] = p["at"]
+                    p["at"] = p["at"] + dt.timedelta(seconds=p["fixed_vt"] - p["vt"])
+                    p["vt"] = p["fixed_vt"]
 
     with open(out / "data" / "points.csv", "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
-        w.writerow(["ゲーム", "点", "時刻", "取った人", names[0], names[1], "サーブ", "動画の秒", "ラリーの始まり", "ラリーの秒数"])
+        w.writerow(["ゲーム", "点", "時刻", "取った人", names[0], names[1], "サーブ", "動画の秒", "ラリーの始まり", "ラリーの秒数",
+                    "押した時刻（直す前）"])
         for g in games:
             for k, p in enumerate(g["points"], 1):
                 w.writerow([g["index"] + 1, k, p["at"].astimezone(JST).strftime("%H:%M:%S"), names[p["winner"]],
                             p["scores"][0], p["scores"][1], names[p["server"]],
                             "" if p["vt"] is None else f"{p['vt']:.1f}",
                             f"{p['rally']['start']:.1f}" if p.get("rally") else "",
-                            f"{p['rally']['end'] - p['rally']['start']:.1f}" if p.get("rally") else ""])
+                            f"{p['rally']['end'] - p['rally']['start']:.1f}" if p.get("rally") else "",
+                            p["tapped_at"].astimezone(JST).strftime("%H:%M:%S") if "tapped_at" in p else ""])
 
     write_html(out / "index.html", index["id"], names, log, games)
     print(f"できました: {out.resolve()}")
@@ -227,6 +235,7 @@ def write_html(path: Path, session_id: str, names: list[str], log: dict, games: 
         "minutes": round(((g["end"] or g["points"][-1]["at"]) - g["points"][0]["at"]).total_seconds() / 60),
         "points": [{"w": p["winner"], "s": p["scores"], "sv": p["server"], "vt": p["vt"],
                     "r": [round(p["rally"]["start"], 2), round(p["rally"]["end"], 2)] if p.get("rally") else None,
+                    "fx": "tapped_at" in p,
                     "t": p["at"].astimezone(JST).strftime("%H:%M:%S")} for p in g["points"]],
     } for g in games]
 
