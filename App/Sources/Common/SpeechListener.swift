@@ -144,6 +144,8 @@ final class SpeechListener: ObservableObject {
     private var lastUtteranceAt: Date?
 
     private var routeObserver: NSObjectProtocol?
+    /// 受信機のマイクと本体のスピーカーを同時に使っているか。
+    private var multiRoute = false
     private var restartTask: Task<Void, Never>?
 
     private static let logLimit = 300
@@ -173,13 +175,19 @@ final class SpeechListener: ObservableObject {
         }
         do {
             let session = AVAudioSession.sharedInstance()
-            // .measurement は音声処理を切れるが再生音が小さくなるので、既定は .default（設定で選べる）
-            try session.setCategory(.playAndRecord, mode: micMode.sessionMode, options: [.defaultToSpeaker, .mixWithOthers])
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
             // 受信機などをつないでいれば、そちらを使う
             let external = session.availableInputs?.first { Self.externalInputs.contains($0.portType) }
-            try? session.setPreferredInput(external)
-            if let external { Self.keepSpeaker(session, input: external) }
+            multiRoute = false
+            if let external, Self.openMultiRoute(session, input: external) {
+                // 受信機のマイクで聞き、効果音は本体のスピーカーから出す
+                multiRoute = true
+            } else {
+                // .measurement は音声処理を切れるが再生音が小さくなるので、既定は .default（設定で選べる）
+                try session.setCategory(.playAndRecord, mode: micMode.sessionMode, options: [.defaultToSpeaker, .mixWithOthers])
+                try session.setActive(true, options: .notifyOthersOnDeactivation)
+                try? session.setPreferredInput(external)
+                if let external { Self.keepSpeaker(session, input: external) }
+            }
         } catch {
             statusMessage = "マイクを開けません: \(error.localizedDescription)"
             return
@@ -187,12 +195,14 @@ final class SpeechListener: ObservableObject {
         refreshRoute()
 
         let input = engine.inputNode
-        // 通話用の処理（反響を消す・音量の自動調整）は、録音の部品の側で有効にする
+        // 通話用の処理（反響を消す・音量の自動調整）は、録音の部品の側で有効にする。
+        // 受信機と本体スピーカーを同時に使うとき（multiRoute）は使えないので切る
+        let voiceProcessing = micMode == .voiceChat && !multiRoute
         do {
-            if input.isVoiceProcessingEnabled != (micMode == .voiceChat) {
-                try input.setVoiceProcessingEnabled(micMode == .voiceChat)
+            if input.isVoiceProcessingEnabled != voiceProcessing {
+                try input.setVoiceProcessingEnabled(voiceProcessing)
             }
-            if micMode == .voiceChat {
+            if voiceProcessing {
                 // 効果音など、ほかの音を小さくしすぎない
                 input.voiceProcessingOtherAudioDuckingConfiguration =
                     AVAudioVoiceProcessingOtherAudioDuckingConfiguration(enableAdvancedDucking: false, duckingLevel: .min)
@@ -201,7 +211,7 @@ final class SpeechListener: ObservableObject {
             statusMessage = "マイクの処理を切り替えられません: \(error.localizedDescription)"
         }
         input.removeTap(onBus: 0)
-        Self.installTap(on: input, box: audioBox)
+        Self.installTap(on: input, box: audioBox, channel: multiRoute ? Self.externalInputChannel() : nil)
         engine.prepare()
         do {
             try engine.start()
@@ -212,6 +222,37 @@ final class SpeechListener: ObservableObject {
         isListening = true
         startRecognition()
         watchBursts()
+    }
+
+    /// 受信機のマイクと本体のスピーカーを同時に使う形（multiRoute）で開く。
+    /// 受信機をつなぐと、ふつうは音も受信機へ行って聞こえない。スピーカーへ切り替えるとマイクも内蔵に戻る。
+    /// multiRoute なら両方を同時に使える。受信機のマイクか本体のスピーカーが使えなければ false。
+    private static func openMultiRoute(_ session: AVAudioSession, input: AVAudioSessionPortDescription) -> Bool {
+        do {
+            try session.setCategory(.multiRoute, mode: .default, options: [.mixWithOthers])
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            try? session.setPreferredInput(input)
+        } catch {
+            return false
+        }
+        let route = session.currentRoute
+        let ok = route.inputs.contains { externalInputs.contains($0.portType) }
+            && route.outputs.contains { $0.portType == .builtInSpeaker }
+        if !ok { try? session.setActive(false) }
+        return ok
+    }
+
+    /// multiRoute でマイクが複数あるとき、受信機の最初のチャンネルの位置（全マイクを並べた通し番号）。
+    /// 受信機だけなら nil（そのまま使う）。
+    private static func externalInputChannel() -> Int? {
+        let inputs = AVAudioSession.sharedInstance().currentRoute.inputs
+        guard inputs.count > 1 else { return nil }
+        var offset = 0
+        for port in inputs {
+            if externalInputs.contains(port.portType) { return offset }
+            offset += port.channels?.count ?? 1
+        }
+        return nil
     }
 
     /// 受信機をつなぐと効果音も受信機へ行って聞こえなくなるので、音は本体のスピーカーから出す。
@@ -532,8 +573,16 @@ final class SpeechListener: ObservableObject {
 
     // 以下は音声スレッド／認識スレッドから呼ばれるので、メインアクターから切り離しておく。
 
-    nonisolated private static func installTap(on node: AVAudioInputNode, box: AudioBox) {
-        let format = node.outputFormat(forBus: 0)
+    /// `channel` を指定したら、そのチャンネルだけを1チャンネルで受け取る（マイクが複数あるとき）。
+    nonisolated private static func installTap(on node: AVAudioInputNode, box: AudioBox, channel: Int?) {
+        var format = node.outputFormat(forBus: 0)
+        if let channel, let unit = node.audioUnit,
+           let mono = AVAudioFormat(standardFormatWithSampleRate: node.inputFormat(forBus: 0).sampleRate, channels: 1) {
+            var map: [Int32] = [Int32(channel)]
+            let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_ChannelMap, kAudioUnitScope_Input, 1,
+                                              &map, UInt32(MemoryLayout<Int32>.size))
+            if status == noErr { format = mono }
+        }
         node.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
             box.append(buffer)
         }

@@ -22,6 +22,12 @@ final class TonePlayer {
     }
 
     func play(_ kind: Kind) {
+        let map = Self.speakerChannelMap()
+        if map != appliedMap {
+            // つなぎ方が変わったら、止めてから出し先を切り替える
+            engine.stop()
+            applyChannelMap(map)
+        }
         // 音声認識が音声の設定を切り替えると、エンジンが止まることがある。そのつど動かし直す
         if !engine.isRunning {
             engine.stop()
@@ -31,6 +37,36 @@ final class TonePlayer {
         player.scheduleBuffer(buffer(for: kind), at: nil, options: .interrupts)
         // エンジンが止まると再生も止まる。isPlaying が残っていても鳴らないことがあるので毎回呼ぶ
         player.play()
+    }
+
+    /// 出し先のチャンネルの割り当て（いま反映しているもの）。nil はそのまま。
+    private var appliedMap: [Int32]?
+
+    /// 受信機と本体のスピーカーを同時に使っているとき（multiRoute）、本体のスピーカーだけから鳴らす割り当て。
+    /// 全部の出し先のチャンネルを並べ、スピーカーの位置にだけ音を入れる。それ以外のつなぎ方なら nil。
+    private static func speakerChannelMap() -> [Int32]? {
+        let session = AVAudioSession.sharedInstance()
+        guard session.category == .multiRoute else { return nil }
+        let outputs = session.currentRoute.outputs
+        guard outputs.count > 1, outputs.contains(where: { $0.portType == .builtInSpeaker }) else { return nil }
+        var map: [Int32] = []
+        for port in outputs {
+            let n = max(port.channels?.count ?? 1, 1)
+            map += Array(repeating: port.portType == .builtInSpeaker ? 0 : -1, count: n)
+        }
+        return map
+    }
+
+    private func applyChannelMap(_ map: [Int32]?) {
+        appliedMap = map
+        guard let unit = engine.outputNode.audioUnit else { return }
+        if var map {
+            AudioUnitSetProperty(unit, kAudioOutputUnitProperty_ChannelMap, kAudioUnitScope_Output, 0,
+                                 &map, UInt32(map.count * MemoryLayout<Int32>.size))
+        } else {
+            // 割り当てを外す（そのまま出す）
+            AudioUnitSetProperty(unit, kAudioOutputUnitProperty_ChannelMap, kAudioUnitScope_Output, 0, nil, 0)
+        }
     }
 
     /// (周波数 Hz, 長さ 秒) の並び。
