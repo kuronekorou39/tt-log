@@ -109,7 +109,7 @@ def probe_duration(path: Path) -> float:
     return float(out)
 
 
-def join_videos(camera: Path, index: dict, game_index: int, out: Path) -> list[dict]:
+def join_videos(camera: Path, index: dict, game_index: int, out: Path, make: bool = True) -> list[dict]:
     """そのゲームの録画をつないで1本にする。各部分の（撮り始め, 動画の中での位置, 長さ）を返す。"""
     clips = [c for c in index["clips"] if c.get("gameIndex") == game_index and (camera / c["file"]).exists()]
     # game02-10 が game02-2 より前に来ないよう、番号で並べる
@@ -122,7 +122,7 @@ def join_videos(camera: Path, index: dict, game_index: int, out: Path) -> list[d
         parts.append({"start": iso_time(c["startedAt"]), "offset": offset, "duration": d})
         offset += d
     out.parent.mkdir(parents=True, exist_ok=True)
-    if not out.exists():
+    if make and not out.exists():
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
             for c in clips:
                 f.write(f"file '{(camera / c['file']).resolve().as_posix()}'\n")
@@ -173,7 +173,7 @@ def main():
     ap.add_argument("--store", required=True, type=Path, help="iPad の default.store")
     ap.add_argument("--camera", required=True, type=Path, help="iPhone の Sessions/<フォルダ>")
     ap.add_argument("--out", required=True, type=Path)
-    ap.add_argument("--no-video", action="store_true", help="動画をつながない（まとめだけ作り直す）")
+    ap.add_argument("--no-video", action="store_true", help="動画を新しく作らない（まとめだけ作り直す）")
     args = ap.parse_args()
 
     index = json.loads((args.camera / "index.json").read_text(encoding="utf-8"))
@@ -187,7 +187,7 @@ def main():
 
     for g in games:
         name = f"game{g['index'] + 1:02d}.mp4"
-        parts = [] if args.no_video else join_videos(args.camera, index, g["index"], out / "videos" / name)
+        parts = join_videos(args.camera, index, g["index"], out / "videos" / name, make=not args.no_video)
         g["video"] = f"videos/{name}" if parts or (out / "videos" / name).exists() else None
         g["parts"] = len(parts)
         for p in g["points"]:
@@ -230,7 +230,7 @@ def write_html(path: Path, names: list[str], log: dict, games: list[dict]):
         f"<td>{st[i]['run']}</td></tr>"
         for i in range(2)
     )
-    page = TEMPLATE.replace("{{TITLE}}", f"{started:%Y-%m-%d} 卓球")
+    page = (Path(__file__).with_name("template.html")).read_text(encoding="utf-8").replace("{{TITLE}}", f"{started:%Y-%m-%d} 卓球")
     page = page.replace("{{DATE}}", f"{started:%Y年%m月%d日 %H:%M}")
     page = page.replace("{{A}}", html.escape(names[0])).replace("{{B}}", html.escape(names[1]))
     page = page.replace("{{WA}}", str(won[0])).replace("{{WB}}", str(won[1]))
@@ -238,135 +238,6 @@ def write_html(path: Path, names: list[str], log: dict, games: list[dict]):
     page = page.replace("{{DATA}}", json.dumps({"names": names, "games": data}, ensure_ascii=False))
     path.write_text(page, encoding="utf-8")
 
-
-TEMPLATE = """<!doctype html>
-<html lang="ja">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{TITLE}}</title>
-<style>
-:root { --bg:#f6f7f9; --card:#fff; --fg:#1d2330; --muted:#6b7280; --line:#e5e7eb; --a:#d1495b; --b:#2e86ab; --hl:#fff4d6; }
-@media (prefers-color-scheme: dark) {
-  :root { --bg:#111418; --card:#1a1f26; --fg:#e7e9ee; --muted:#9aa3af; --line:#2b323c; --a:#ef6f7f; --b:#5bb3d6; --hl:#3a3320; }
-}
-* { box-sizing: border-box; }
-body { margin:0; background:var(--bg); color:var(--fg); font-family: system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif; }
-main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; }
-header { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:8px; }
-h1 { font-size: 1.1rem; font-weight:600; color:var(--muted); margin:0; }
-.total { font-size: 2.2rem; font-weight: 800; letter-spacing: .02em; }
-.total .a { color: var(--a); } .total .b { color: var(--b); }
-.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-top:16px; }
-table { width:100%; border-collapse: collapse; }
-th, td { padding:8px 6px; border-bottom:1px solid var(--line); text-align:center; font-variant-numeric: tabular-nums; }
-th:first-child, td:first-child { text-align:left; }
-small { color: var(--muted); }
-.games tr { cursor:pointer; }
-.games tr.sel { background: var(--hl); }
-.win-a { color: var(--a); font-weight:700; } .win-b { color: var(--b); font-weight:700; }
-.layout { display:grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap:16px; }
-@media (max-width: 800px) { .layout { grid-template-columns: 1fr; } }
-video { width:100%; border-radius:8px; background:#000; aspect-ratio:16/9; }
-.novideo { padding:40px; text-align:center; color:var(--muted); }
-.plist { max-height: 460px; overflow:auto; }
-.plist button { display:flex; width:100%; gap:10px; align-items:center; border:0; background:none; color:inherit;
-  padding:6px 8px; border-bottom:1px solid var(--line); font: inherit; text-align:left; cursor:pointer; }
-.plist button:hover { background: var(--hl); }
-.plist button:disabled { cursor: default; opacity:.6; }
-.dot { width:10px; height:10px; border-radius:50%; flex: none; }
-.sc { font-weight:700; font-variant-numeric: tabular-nums; min-width: 3.5em; }
-.flow { width:100%; height:70px; display:block; }
-.legend { display:flex; gap:14px; font-size:.85rem; color:var(--muted); margin-top:6px; }
-</style>
-</head>
-<body>
-<main>
-<header>
-  <h1>{{DATE}}</h1>
-  <div class="total"><span class="a">{{A}} {{WA}}</span> - <span class="b">{{WB}} {{B}}</span></div>
-</header>
-
-<div class="card">
-  <table class="games" id="games"><thead><tr><th>ゲーム</th><th>スコア</th><th>時間</th><th>流れ</th></tr></thead><tbody></tbody></table>
-  <div class="legend"><span>流れ：上が {{A}}、下が {{B}} のリード</span></div>
-</div>
-
-<div class="layout">
-  <div class="card">
-    <div id="player"></div>
-  </div>
-  <div class="card">
-    <div class="plist" id="plist"></div>
-  </div>
-</div>
-
-<div class="card">
-  <table>
-    <thead><tr><th></th><th>得点</th><th>サーブで取った</th><th>レシーブで取った</th><th>最長連続</th></tr></thead>
-    <tbody>{{STATS}}</tbody>
-  </table>
-</div>
-</main>
-
-<script>
-const DATA = {{DATA}};
-const COLORS = ['var(--a)', 'var(--b)'];
-// 点を取ったのはラリーの終わり。少し前から見せる
-const LEAD = 8;
-let current = 0;
-
-function flow(g) {
-  const w = 220, h = 70, n = g.points.length;
-  let max = 3;
-  const ds = g.points.map(p => p.s[0] - p.s[1]);
-  ds.forEach(d => max = Math.max(max, Math.abs(d)));
-  const x = i => (i + 1) / n * (w - 4) + 2, y = d => h / 2 - d / max * (h / 2 - 4);
-  let path = `M2 ${h / 2}`;
-  ds.forEach((d, i) => path += ` L${x(i).toFixed(1)} ${y(d).toFixed(1)}`);
-  return `<svg class="flow" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><line x1="0" x2="${w}" y1="${h/2}" y2="${h/2}" stroke="currentColor" opacity=".2"/><path d="${path}" fill="none" stroke="currentColor" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
-}
-
-function renderGames() {
-  const tb = document.querySelector('#games tbody');
-  tb.innerHTML = DATA.games.map((g, i) => {
-    const cls = g.winner === null ? '' : (g.winner === 0 ? 'win-a' : 'win-b');
-    const note = g.winner === null ? ' <small>途中</small>' : '';
-    return `<tr data-i="${i}" class="${i === current ? 'sel' : ''}"><td>第${g.n}ゲーム</td>`
-      + `<td class="${cls}">${g.final[0]} - ${g.final[1]}${note}</td><td>${g.minutes}分</td><td style="width:40%">${flow(g)}</td></tr>`;
-  }).join('');
-  tb.querySelectorAll('tr').forEach(tr => tr.onclick = () => select(+tr.dataset.i));
-}
-
-function select(i) {
-  current = i;
-  renderGames();
-  const g = DATA.games[i];
-  const pl = document.getElementById('player');
-  pl.innerHTML = g.video
-    ? `<video id="v" controls preload="metadata" src="${g.video}"></video>`
-    : `<div class="novideo">このゲームの動画はありません</div>`;
-  const list = document.getElementById('plist');
-  list.innerHTML = g.points.map((p, k) =>
-    `<button data-k="${k}" ${p.vt === null || !g.video ? 'disabled' : ''}>`
-    + `<span class="dot" style="background:${COLORS[p.w]}"></span>`
-    + `<span class="sc">${p.s[0]} - ${p.s[1]}</span>`
-    + `<span>${DATA.names[p.w]}</span><small style="margin-left:auto">${p.t}</small></button>`).join('');
-  list.querySelectorAll('button').forEach(b => b.onclick = () => {
-    const p = g.points[+b.dataset.k];
-    const v = document.getElementById('v');
-    if (!v || p.vt === null) return;
-    v.currentTime = Math.max(0, p.vt - LEAD);
-    v.play();
-  });
-}
-
-renderGames();
-select(0);
-</script>
-</body>
-</html>
-"""
 
 if __name__ == "__main__":
     main()
