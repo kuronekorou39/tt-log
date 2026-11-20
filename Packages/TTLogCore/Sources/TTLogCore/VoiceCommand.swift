@@ -55,7 +55,7 @@ public struct VoiceCommandMatcher: Sendable {
         "とりけし", "とりけして", "やりなおし",
     ]
     public static let redoReadings = ["すすめる", "すすめて", "すすめ", "すすむ", "ひとつすすめて", "1つすすめて"]
-    public static let nextGameReadings = ["つぎのげーむ", "つぎのげーむへ", "ねくすとげーむ"]
+    public static let nextGameReadings = ["つぎのげーむ", "つぎのげーむへ", "ねくすとげーむ", "ねくすと", "つぎいこう", "つぎいこ"]
     public static let swapEndsReadings = ["いれかえ", "いれかえて", "さゆういれかえ"]
     public static let resetReadings = ["りせっと", "りせっとして"]
 

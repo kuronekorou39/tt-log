@@ -5,6 +5,11 @@ import XCTest
 final class ScoreCallParserTests: XCTestCase {
     private func pairs(_ s: String) -> Set<[Int]> { ScoreCallParser.pairs(in: s) }
 
+    func testMisheardScore() {
+        XCTAssertEqual(pairs("だんなさん"), [[3, 3]])
+        XCTAssertTrue(pairs("だんなさんが").isEmpty)
+    }
+
     func testEnglishStyle() {
         XCTAssertEqual(pairs("わんらぶ"), [[1, 0]])
         XCTAssertTrue(pairs("ツーファイブ").contains([2, 5]))
@@ -97,6 +102,8 @@ final class ScoreCallResolverTests: XCTestCase {
         // 直前は選手0 の点（1 を先に入れているので）。1つ前のスコア 0-2 を言えば取り消し
         XCTAssertEqual(resolve([0, 2], log(1, 2)), .undo)
         XCTAssertEqual(resolve([2, 0], log(1, 2)), .undo)
+        // 取り消しを使わない設定では決められない
+        XCTAssertNil(ScoreCallResolver.resolve(pairs: [[0, 2]], log: log(1, 2), allowsUndo: false))
     }
 
     func testCatchUpMissedPoints() {

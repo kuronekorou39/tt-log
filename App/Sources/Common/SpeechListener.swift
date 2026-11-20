@@ -96,7 +96,7 @@ final class SpeechListener: ObservableObject {
     static func hints(callNames: [String]) -> [String] {
         let names = callNames.filter { !$0.isEmpty }
         return names + names.flatMap { ["\($0)ポイント", "\($0)点"] }
-            + ["戻して", "戻す", "戻せ", "元に戻す", "取り消し", "進める", "次のゲーム", "ネクストゲーム", "入れ替え", "リセット",
+            + ["戻して", "戻す", "戻せ", "元に戻す", "取り消し", "進める", "次のゲーム", "ネクストゲーム", "ネクスト", "次行こう", "入れ替え", "リセット",
                "オール", "ラブオール", "ワンラブ"]
             + VoiceCommandMatcher.terms.map(\.label) + ["ジュース"]
     }

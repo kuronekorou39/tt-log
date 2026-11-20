@@ -158,7 +158,7 @@ final class ScoreboardModel: ObservableObject {
         let pairs = ScoreCallParser.pairs(in: reading)
         guard !pairs.isEmpty else { return nil }
         // 決められないときは鳴らさない（他の候補で決まるかもしれない。最後に listener が知らせる）
-        guard let resolution = ScoreCallResolver.resolve(pairs: pairs, log: log) else { return nil }
+        guard let resolution = ScoreCallResolver.resolve(pairs: pairs, log: log, allowsUndo: voiceOperations.contains(.undo)) else { return nil }
         let now = Date()
         switch resolution {
         case .confirm:

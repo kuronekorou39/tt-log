@@ -7,6 +7,7 @@ public enum ScoreCallParser {
     /// 発話の読みから、2つの数の組の候補をすべて返す（言った順のまま）。
     /// 区切り方が何通りもある（「じゅういち」= 11 か 10・1 か など）ので、候補は複数になりうる。
     public static func pairs(in reading: String) -> Set<[Int]> {
+        if let pair = misheard[normalize(reading)] { return [pair] }
         let s = Array(normalize(reading).unicodeScalars)
         var results = Set<[Int]>()
         search(s, from: 0, numbers: [], into: &results)
@@ -65,6 +66,11 @@ public enum ScoreCallParser {
     private static func normalize(_ text: String) -> String {
         KanaNormalizer.canonical(text.lowercased())
     }
+
+    /// 認識がスコアを別の言葉にしてしまうもの（発話全体がこれのときだけ）。
+    private static let misheard: [String: [Int]] = [
+        "だんなさん": [3, 3], // 「さんのさん」→「旦那さん」
+    ].reduce(into: [:]) { $0[normalize($1.key)] = $1.value }
 
     /// 「オール」。
     private static let alls: [[Unicode.Scalar]] = ["おーる", "all"].map {
@@ -129,10 +135,12 @@ public enum ScoreCallResolver {
 
     /// - Parameter pairs: 言った順の数の組（`ScoreCallParser.pairs`）。
     /// - Returns: 1つに決まればその操作。決まらない・筋が通らないなら nil。
-    public static func resolve(pairs: Set<[Int]>, log: SessionLog) -> Resolution? {
+    /// - Parameter allowsUndo: 1つ前のスコアを言ったら取り消すか。false なら決められない（nil）扱い。
+    ///   （同点で「よんのさん」と言うと、言った向きと逆の 3-4 に戻ってしまい分かりにくかったので、既定では使わない）
+    public static func resolve(pairs: Set<[Int]>, log: SessionLog, allowsUndo: Bool = true) -> Resolution? {
         let state = log.state
         let current = state.scores
-        let previous = previousScores(log)
+        let previous = allowsUndo ? previousScores(log) : nil
 
         // 言った2つの数を、どちらの選手に当てるか。両方の向きを試す
         struct Candidate: Hashable {
