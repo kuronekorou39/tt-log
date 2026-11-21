@@ -112,6 +112,11 @@ def probe_duration(path: Path) -> float:
     return float(out)
 
 
+# H.264 の書き出し（NVIDIA の GPU を使う。画質は cq、ビットレートの上限は maxrate）
+H264 = ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", "23", "-b:v", "0", "-maxrate", "16M",
+        "-bufsize", "32M", "-profile:v", "high", "-pix_fmt", "yuv420p"]
+
+
 def join_videos(camera: Path, index: dict, game_index: int, out: Path, make: bool = True) -> list[dict]:
     """そのゲームの録画をつないで1本にする。各部分の（撮り始め, 動画の中での位置, 長さ）を返す。"""
     clips = [c for c in index["clips"] if c.get("gameIndex") == game_index and (camera / c["file"]).exists()]
@@ -131,9 +136,10 @@ def join_videos(camera: Path, index: dict, game_index: int, out: Path, make: boo
                 f.write(f"file '{(camera / c['file']).resolve().as_posix()}'\n")
             listing = f.name
         subprocess.run(
-            # iPhone の録画には映像・音声のほかに時刻などのデータの流れがあり、mp4 に入らないので映像と音声だけ
+            # iPhone の録画には映像・音声のほかに時刻などのデータの流れがあり、mp4 に入らないので映像と音声だけ。
+            # 映像は HEVC のままだと Firefox などで再生できないので H.264 にする
             ["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", listing,
-             "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-tag:v", "hvc1", "-movflags", "+faststart", str(out)],
+             "-map", "0:v:0", "-map", "0:a:0?", *H264, "-c:a", "copy", "-movflags", "+faststart", str(out)],
             check=True,
         )
         Path(listing).unlink()
