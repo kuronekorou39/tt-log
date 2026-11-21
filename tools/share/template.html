@@ -37,8 +37,12 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 .stage .zoomtag { position:absolute; right:8px; top:8px; background:rgba(0,0,0,.55); color:#fff; font-size:.75rem;
   padding:2px 8px; border-radius:99px; pointer-events:none; opacity:0; transition:opacity .2s; }
 .stage .zoomtag.show { opacity:1; }
-.stage .now { position:absolute; left:10px; top:8px; background:rgba(0,0,0,.55); color:#fff; font-weight:800;
-  font-size:1.1rem; padding:2px 10px; border-radius:8px; pointer-events:none; font-variant-numeric:tabular-nums; }
+.stage .now { position:absolute; left:50%; transform:translateX(-50%); top:8px; background:rgba(0,0,0,.6); color:#fff; font-weight:800;
+  font-size:1.1rem; padding:2px 12px; border-radius:8px; pointer-events:none; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.stage .now .a { color:#ff9aa6; } .stage .now .b { color:#8fd3ef; }
+.stage .cap { position:absolute; left:50%; bottom:6%; transform:translateX(-50%); max-width:90%; text-align:center;
+  background:rgba(0,0,0,.65); color:#fff; font-weight:700; font-size:clamp(.95rem, 2.4vw, 1.5rem); padding:4px 14px;
+  border-radius:8px; pointer-events:none; }
 
 .controls { display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
 .controls button { border:1px solid transparent; background:none; border-radius:8px; padding:4px 9px; cursor:pointer; min-height:36px; min-width:36px; font-size:.95rem; }
@@ -134,6 +138,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
       <video id="v" playsinline preload="metadata"></video>
       <div class="empty" id="empty" hidden>動画なし</div>
       <div class="now" id="now"></div>
+      <div class="cap" id="cap" hidden></div>
       <div class="zoomtag" id="zoomtag"></div>
     </div>
     <div class="seek" id="seek">
@@ -146,15 +151,16 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
         <button id="play" aria-label="再生">▶</button>
         <button id="prev" aria-label="前の点">⏮</button>
         <button id="next" aria-label="次の点">⏭</button>
+        <button id="mark" aria-label="★を付ける" style="font-size:1.25rem">☆</button>
       </div>
       <span class="time" id="time">0:00 / 0:00</span>
       <div class="grp">
         <button id="rate" aria-label="速さ">1×</button>
         <button id="zoom" aria-label="寄る">寄る</button>
         <button id="rallyonly" aria-label="試合の間を飛ばす">詰める</button>
-        <button id="voice" aria-label="胸元マイクの音" hidden>声</button>
-        <button id="mark" aria-label="★を付ける">☆</button>
-        <button id="playmarks" aria-label="★だけ再生">★▶</button>
+        <button id="caps" aria-label="字幕" hidden>字幕</button>
+        <button id="voice" aria-label="胸元マイクの音" hidden>音声</button>
+        <button id="playmarks" aria-label="★だけ再生" hidden>★▶</button>
       </div>
     </div>
     <audio id="mic" preload="auto"></audio>
@@ -302,7 +308,10 @@ function updateHead() {
   document.getElementById('time').textContent = `${fmt(v.currentTime)} / ${fmt(d)}`;
   const k = currentIndex();
   const p = DATA.games[current].points[k];
-  document.getElementById('now').textContent = p ? `${p.s[0]} - ${p.s[1]}` : '0 - 0';
+  const g = DATA.games[current], l = g.vl, sc = p ? p.s : [0, 0];
+  document.getElementById('now').innerHTML =
+    `<span class="${'ab'[l]}">${DATA.names[l]}</span> ${sc[l]} - ${sc[1 - l]} <span class="${'ab'[1 - l]}">${DATA.names[1 - l]}</span>`;
+  showCaption();
   seek.querySelectorAll('.mk').forEach(m => m.classList.toggle('cur', !!p && +m.dataset.vt === p.vt));
   if (k !== lastMark) { lastMark = k; renderGames(k); }
   const fi = focusIndex();
@@ -377,6 +386,7 @@ function toggleMark() {
   const key = keyOf(current, k);
   marks[key] = markOf(current, k) === 'star' ? 0 : 1;
   store.set(MARK_KEY, JSON.stringify(marks));
+  showPlayMarks();
   renderMarkers(); lastMark = null; updateHead();
 }
 
@@ -386,7 +396,7 @@ let stopAt = null;   // そこまで見たら次の印へ
 
 function markedList() {
   const out = [];
-  DATA.games.forEach((g, gi) => g.points.forEach((p, k) => { if (p.vt !== null && markOf(gi, k)) out.push([gi, k]); }));
+  DATA.games.forEach((g, gi) => g.points.forEach((p, k) => { if (p.vt !== null && markOf(gi, k) === 'star') out.push([gi, k]); }));
   return out;
 }
 
@@ -413,6 +423,8 @@ v.addEventListener('timeupdate', () => {
 });
 document.getElementById('playmarks').onclick = () => playlist === null ? playMarked(0) : (stopPlaylist(), v.pause());
 document.getElementById('mark').onclick = toggleMark;
+function showPlayMarks() { document.getElementById('playmarks').hidden = markedList().length === 0; }
+showPlayMarks();
 
 // ---------- 間を飛ばす ----------
 // ラリーの区間（サーブの構えからラリーの終わりの少しあと）以外を飛ばす。ゲームの最後まで来たら次のゲームへ
@@ -475,6 +487,23 @@ const pop = document.getElementById('infopop');
 document.getElementById('infobtn').onclick = e => { e.stopPropagation(); pop.hidden = !pop.hidden; };
 document.addEventListener('click', e => { if (!pop.hidden && !pop.contains(e.target)) pop.hidden = true; });
 addEventListener('keydown', e => { if (e.key === 'Escape') pop.hidden = true; });
+
+// ---------- 字幕（スコアボードが聞き取った言葉） ----------
+let capsOn = store.get('capsOn') !== '0';
+function showCaption() {
+  const el = document.getElementById('cap');
+  const cs = DATA.games[current].captions || [];
+  const t = v.currentTime;
+  const c = capsOn ? cs.find(([a, b]) => a <= t && t < b) : null;
+  el.hidden = !c;
+  if (c) el.textContent = c[2];
+}
+document.getElementById('caps').hidden = !DATA.games.some(g => (g.captions || []).length);
+document.getElementById('caps').classList.toggle('on', capsOn);
+document.getElementById('caps').onclick = () => {
+  capsOn = !capsOn; store.set('capsOn', capsOn ? '1' : '0');
+  document.getElementById('caps').classList.toggle('on', capsOn); showCaption();
+};
 
 // ---------- 胸元マイクの音（スコアボードが残した声の録音を、動画に合わせて流す） ----------
 const mic = document.getElementById('mic');

@@ -135,7 +135,7 @@ def attach_rallies(video: Path, points: list[dict]) -> None:
 
 
 # 「間を飛ばす」で残す長さ。1点あたり、点を入れた時刻からこれだけ前まで（サーブの構え＋ラリー＋少しの間）
-KEEP_PER_POINT = 25.0
+KEEP_PER_POINT = 40.0
 # 点を入れた後に残す長さ（秒）
 KEEP_AFTER = 1.5
 
@@ -145,6 +145,8 @@ def play_spans(points: list[dict]) -> list[list[float]]:
     ラリーを切ってしまうため。2026-11-20 第1ゲーム 7-5、第4ゲーム 3-2）。
 
     前の点からこの点までを、1点あたり KEEP_PER_POINT 秒まで残す。続けて押した n 点は n 倍まで。
+    打球音から見つけたラリーがそれより前から始まっていれば、そこから残す（ボールを拾ってから点を入れると、
+    押すのが遅れてラリーの頭が切れるため。2026-11-20 第1ゲーム 2-0）。
     飛ぶのは、ゲーム前の打ち合い・休憩・長い話など、点と点の間が長く空いたところだけ。"""
     spans: list[list[float]] = []
     prev = None
@@ -159,6 +161,9 @@ def play_spans(points: list[dict]) -> list[list[float]]:
             j += 1
         end = vts[j]
         start = end - KEEP_PER_POINT * (j - i + 1)
+        starts = [points[k]["rally"]["start"] for k in range(i, j + 1) if points[k].get("rally")]
+        if starts:
+            start = min(start, min(starts))
         if prev is not None:
             start = max(start, prev)
         span = [max(0.0, start), end + KEEP_AFTER]

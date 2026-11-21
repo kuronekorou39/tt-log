@@ -140,14 +140,17 @@ def join_videos(camera: Path, index: dict, game_index: int, out: Path, make: boo
     return parts
 
 
-def video_time(parts: list[dict], at: dt.datetime) -> float | None:
-    """その時刻が、つないだ動画の何秒目か。録画の切れ目に落ちたら次の部分の頭。"""
-    for p in parts:
+def video_time(parts: list[dict], at: dt.datetime, shift: list[float] | None = None) -> float | None:
+    """その時刻が、つないだ動画の何秒目か。録画の切れ目に落ちたら次の部分の頭。
+
+    shift は部分ごとの撮り始めの時刻の誤差（声の録音と照らし合わせて求めたもの）。
+    """
+    for k, p in enumerate(parts):
         t = (at - p["start"]).total_seconds()
         if t < 0:
             return p["offset"]
         if t <= p["duration"]:
-            return p["offset"] + t
+            return p["offset"] + min(max(t + (shift[k] if shift else 0.0), 0.0), p["duration"])
     return None
 
 
@@ -191,7 +194,9 @@ def main():
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--no-video", action="store_true", help="動画を新しく作らない（まとめだけ作り直す）")
     ap.add_argument("--no-rally", action="store_true", help="動画の音からラリーを探さない")
-    ap.add_argument("--voice", type=Path, help="iPad の VoiceLogs（log.tsv と audio/）。あれば声の音声を動画に重ねられる")
+    ap.add_argument("--camera-same-side", action="store_true",
+                    help="カメラがスコアボードと同じ向きから撮っている（動画の左にいる人＝スコアボードの左の人）")
+    ap.add_argument("--voice", type=Path, help="iPad の VoiceLogs（log.tsv と audio/）。あれば声の音声と字幕を動画に重ねられる")
     args = ap.parse_args()
 
     index = json.loads((args.camera / "index.json").read_text(encoding="utf-8"))
@@ -212,21 +217,22 @@ def main():
         parts = join_videos(args.camera, index, g["index"], out / "videos" / name, make=not args.no_video)
         g["video"] = f"videos/{name}" if parts or (out / "videos" / name).exists() else None
         g["parts"] = len(parts)
-        for p in g["points"]:
-            p["vt"] = video_time(parts, p["at"]) if parts else None
-        from rallies import play_spans
-        # 押した時刻のままで決める（続けて押した点の時刻を直す前）
-        g["spans"] = play_spans(g["points"])
-        g["voice"] = None
-        if voice_log and g["video"]:
+        g["voice"], g["captions"], shift = None, [], None
+        if voice_log and g["video"] and (out / g["video"]).exists():
             import voice
             name_v = f"game{g['index'] + 1:02d}-voice.m4a"
-            target = out / "videos" / name_v
-            if target.exists() or voice.build_track(voice_log, parts, target):
-                g["voice"] = f"videos/{name_v}"
+            matched = voice.build(voice_log, parts, out / g["video"], out / "videos" / name_v)
+            if matched:
+                g["voice"], g["captions"], shift = f"videos/{name_v}", matched["captions"], matched["shift"]
+        for p in g["points"]:
+            p["vt"] = video_time(parts, p["at"], shift) if parts else None
         if g["video"] and not args.no_rally:
             from rallies import attach_rallies
             attach_rallies(out / g["video"], g["points"])
+        from rallies import play_spans
+        # 押した時刻のままで決める（続けて押した点の時刻を直す前）
+        g["spans"] = play_spans(g["points"])
+        if g["video"] and not args.no_rally:
             for p in g["points"]:
                 if "fixed_vt" in p:
                     # 続けて押した点の時刻を、ラリーが終わった時刻に直す
@@ -247,6 +253,12 @@ def main():
                             f"{p['rally']['end'] - p['rally']['start']:.1f}" if p.get("rally") else "",
                             p["tapped_at"].astimezone(JST).strftime("%H:%M:%S") if "tapped_at" in p else ""])
 
+    for g in games:
+        # スコアボードの左にいる人。ゲームごとにエンドを替える（連続形式。最終ゲームの途中の交代はない）
+        first_left = log["config"]["firstLeft"]
+        board_left = first_left if g["index"] % 2 == 0 else 1 - first_left
+        # 2026-11-20 はカメラがスコアボードと向かい合う側にあり、左右が逆だった
+        g["video_left"] = board_left if args.camera_same_side else 1 - board_left
     write_html(out / "index.html", index["id"], names, log, games)
     print(f"できました: {out.resolve()}")
 
@@ -259,6 +271,8 @@ def write_html(path: Path, session_id: str, names: list[str], log: dict, games: 
         "n": g["index"] + 1,
         "video": g["video"],
         "voice": g["voice"],
+        "vl": g["video_left"],
+        "captions": g.get("captions", []),
         "spans": [[round(a, 2), round(b, 2)] for a, b in g["spans"]],
         "winner": g["winner"],
         "final": g["points"][-1]["scores"],
