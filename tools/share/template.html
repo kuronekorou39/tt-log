@@ -170,12 +170,16 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
   .left { display:flex; flex-direction:column; gap:6px; position:sticky; top:0; z-index:5; background:var(--bg); padding-top:10px; padding-bottom:4px; }
   header { flex-wrap:nowrap; }
   header h1 { font-size:.8rem; }
-  .stage { aspect-ratio:16/9; }
+  .stage { aspect-ratio:auto; height:min(calc((100vw - 24px) * 9 / 16), 45vh); }
   .total { font-size:1.3rem; }
   .right { display:flex; flex-direction:column; gap:12px; }
   .controls button { padding:4px 7px; }
   .app { overflow-x:clip; }
   #facepop, #clippop { left:0; right:0; bottom:0; width:auto; max-height:52vh; border-radius:14px 14px 0 0; }
+}
+/* 低い窓（横向きのスマホなど）：動画とボタンを固定すると下が見えないので、全体をスクロール */
+@media not all and (min-width: 960px) and (min-height: 560px) {
+  @media (max-height: 640px) { .left { position:static; } }
 }
 </style>
 </head>
@@ -212,6 +216,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
       <span class="time" id="time">0:00 / 0:00</span>
       <div class="grp">
         <button id="rate" aria-label="速さ">1×</button>
+        <button id="score" aria-label="動画の上の点数">点数</button>
         <button id="caps" aria-label="字幕" hidden>字幕</button>
         <button id="voice" aria-label="胸元マイクの音" hidden>音声</button>
         <button id="rallyonly" aria-label="試合をしているところだけ再生">試合だけ</button>
@@ -540,6 +545,15 @@ document.addEventListener('click', e => { if (!pop.hidden && !pop.contains(e.tar
 addEventListener('keydown', e => { if (e.key === 'Escape') pop.hidden = true; });
 
 // ---------- 字幕（スコアボードが聞き取った言葉） ----------
+// 動画の上の点数
+let scoreOn = store.get('scoreOn') !== '0';
+function showScore() {
+  document.getElementById('now').hidden = !scoreOn;
+  document.getElementById('score').classList.toggle('on', scoreOn);
+}
+document.getElementById('score').onclick = () => { scoreOn = !scoreOn; store.set('scoreOn', scoreOn ? '1' : '0'); showScore(); };
+showScore();
+
 let capsOn = store.get('capsOn') !== '0';
 function showCaption() {
   const el = document.getElementById('cap');
