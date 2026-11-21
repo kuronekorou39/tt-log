@@ -104,7 +104,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
   cursor:pointer; min-height:32px; }
 #clippop button.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
 #clippop .go { background:var(--fg); color:var(--bg); font-weight:700; }
-#clippop .msg { color:var(--muted); font-size:.8rem; }
+#clippop .msg { font-size:.9rem; }
 #facepop { position:fixed; right:14px; bottom:14px; width:min(340px, calc(100vw - 24px)); max-height:calc(100vh - 80px);
   overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px;
   box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:20; display:grid; gap:10px; font-size:.9rem; }
@@ -196,13 +196,10 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
       <span class="time" id="time">0:00 / 0:00</span>
       <div class="grp">
         <button id="rate" aria-label="速さ">1×</button>
-        <button id="zoom" aria-label="寄る">寄る</button>
-        <button id="rallyonly" aria-label="試合の間を飛ばす">詰める</button>
         <button id="caps" aria-label="字幕" hidden>字幕</button>
         <button id="voice" aria-label="胸元マイクの音" hidden>音声</button>
-        <button id="playmarks" aria-label="★だけ再生" hidden>★▶</button>
         <button id="face" aria-label="顔を隠す" hidden>顔</button>
-        <button id="clip" aria-label="切り出し">切り出し</button>
+        <button id="save" aria-label="このゲームを動画で保存">保存</button>
       </div>
     </div>
     <audio id="mic" preload="auto"></audio>
@@ -215,10 +212,8 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 <div id="infopop" hidden>{{STATS}}</div>
 <div id="clippop" hidden>
   <button class="popx" id="clipx" aria-label="閉じる">✕</button>
-  <div class="row"><span>始め</span><span class="t" id="clipa"></span><button id="clipseta">今</button></div>
-  <div class="row"><span>終わり</span><span class="t" id="clipb"></span><button id="clipsetb">今</button></div>
-  <div class="row"><button class="go" id="clipgo">書き出す</button><button id="clipclose">閉じる</button></div>
   <div class="msg" id="clipmsg"></div>
+  <div class="row"><button id="clipstop">止めて保存</button></div>
   <input type="file" id="clipfile" accept="video/*" hidden>
 </div>
 <div id="facepop" hidden>
@@ -237,10 +232,6 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 const DATA = {{DATA}};
 // 範囲のない点は、点が入った時刻のこれだけ前から見せる
 const LEAD = 8;
-// 印を続けて再生するとき、ラリーの終わりからこれだけ見てから次へ
-const POST = 2;
-// 「寄る」の倍率と、映す中心（映像の縦の位置。天井を切って台と2人に寄せる）
-const CLOSE = { zoom: 1.35, cx: 0.5, cy: 0.6 };
 
 const v = document.getElementById('v');
 const stage = document.getElementById('stage');
@@ -447,86 +438,11 @@ function toggleMark() {
   const key = keyOf(current, k);
   marks[key] = markOf(current, k) === 'star' ? 0 : 1;
   store.set(MARK_KEY, JSON.stringify(marks));
-  showPlayMarks();
   renderMarkers(); lastMark = null; updateHead();
 }
 
 
-let playlist = null; // 続けて再生しているときの、いまの印の番号
-let stopAt = null;   // そこまで見たら次の印へ
-
-function markedList() {
-  const out = [];
-  DATA.games.forEach((g, gi) => g.points.forEach((p, k) => { if (p.vt !== null && markOf(gi, k) === 'star') out.push([gi, k]); }));
-  return out;
-}
-
-function playMarked(i) {
-  const list = markedList();
-  if (!list[i]) { stopPlaylist(); return; }
-  playlist = i;
-  document.getElementById('playmarks').classList.add('on');
-  const [gi, k] = list[i];
-  const p = DATA.games[gi].points[k];
-  stopAt = p.r ? p.r[1] : p.vt + POST;
-  const go = () => { v.currentTime = startOf(p); v.play(); };
-  if (current !== gi) { select(gi, false); v.addEventListener('loadedmetadata', go, { once: true }); }
-  else go();
-}
-
-function stopPlaylist() {
-  playlist = null; stopAt = null;
-  document.getElementById('playmarks').classList.remove('on');
-}
-
-v.addEventListener('timeupdate', () => {
-  if (playlist !== null && stopAt !== null && v.currentTime >= stopAt) playMarked(playlist + 1);
-});
-document.getElementById('playmarks').onclick = () => playlist === null ? playMarked(0) : (stopPlaylist(), v.pause());
 document.getElementById('mark').onclick = toggleMark;
-function showPlayMarks() { document.getElementById('playmarks').hidden = markedList().length === 0; }
-showPlayMarks();
-
-// ---------- 間を飛ばす ----------
-// ラリーの区間（サーブの構えからラリーの終わりの少しあと）以外を飛ばす。ゲームの最後まで来たら次のゲームへ
-let rallyOnly = store.get('rallyOnly') === '1';
-// 確認用（URL に ?cuts）：逆に、飛ばすところだけを流す。ゲーム前は最初の点の直前だけ
-const CUTS_ONLY = new URLSearchParams(location.search).has('cuts');
-const CUT_BEFORE_FIRST = 20;
-function spans() {
-  const ss = DATA.games[current].spans;
-  if (!CUTS_ONLY) return ss;
-  const out = ss.length ? [[Math.max(0, ss[0][0] - CUT_BEFORE_FIRST), ss[0][0]]] : [];
-  for (let k = 0; k + 1 < ss.length; k++) out.push([ss[k][1], ss[k + 1][0]]);
-  return out;
-}
-function skipToRally() {
-  if (!(rallyOnly || CUTS_ONLY) || playlist !== null || v.paused || v.seeking) return;
-  const t = v.currentTime;
-  const ss = spans();
-  if (ss.some(([a, b]) => a <= t && t < b)) return;
-  const next = ss.find(([a]) => a > t);
-  if (next) { v.currentTime = next[0]; return; }
-  // このゲームのラリーは終わり。次のゲームの最初のラリーへ
-  if (current + 1 < DATA.games.length) select(current + 1, true);
-  else v.pause();
-}
-v.addEventListener('timeupdate', skipToRally);
-v.addEventListener('play', skipToRally);
-function showRallyOnly() {
-  const b = document.getElementById('rallyonly');
-  b.classList.toggle('on', rallyOnly || CUTS_ONLY);
-  if (CUTS_ONLY) { b.textContent = 'カットだけ'; b.disabled = true; }
-}
-document.getElementById('rallyonly').onclick = () => {
-  rallyOnly = !rallyOnly;
-  store.set('rallyOnly', rallyOnly ? '1' : '0');
-  showRallyOnly();
-  skipToRally();
-};
-showRallyOnly();
-
-
 v.addEventListener('loadedmetadata', () => { renderMarkers(); applyView(); });
 v.addEventListener('timeupdate', updateHead);
 v.addEventListener('seeked', updateHead);
@@ -619,7 +535,6 @@ function applyView() {
   v.style.transform = `translate(${tx}px, ${ty}px)`;
   const m = document.getElementById('mask');
   m.style.width = `${dw}px`; m.style.height = `${dh}px`; m.style.transform = v.style.transform;
-  document.getElementById('zoom').classList.toggle('on', view.zoom !== 1);
   store.set('view', JSON.stringify(view));
 }
 function setZoom(z, keepCenter) {
@@ -629,16 +544,23 @@ function setZoom(z, keepCenter) {
   clearTimeout(setZoom.t); setZoom.t = setTimeout(() => tag.classList.remove('show'), 800);
   applyView();
 }
-document.getElementById('zoom').onclick = () => {
-  if (view.zoom !== 1) { view = { zoom: 1, cx: .5, cy: .5 }; setZoom(1); }
-  else { view = { ...CLOSE }; setZoom(CLOSE.zoom); }
-};
 stage.addEventListener('wheel', e => { e.preventDefault(); setZoom(view.zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08)); }, { passive: false });
 
-// ドラッグで動かす。動かさずに離したら再生／一時停止
-let drag = null;
-stage.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, cx: view.cx, cy: view.cy, moved: false }; stage.setPointerCapture(e.pointerId); });
+// ドラッグで動かす。2本指で広げる・縮める。動かさずに離したら再生／一時停止
+let drag = null, pinch = null;
+const touches = new Map();
+const spread = () => { const [a, b] = [...touches.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+stage.addEventListener('pointerdown', e => {
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  stage.setPointerCapture(e.pointerId);
+  if (touches.size === 2) { pinch = { d: spread(), zoom: view.zoom }; drag = null; return; }
+  drag = { x: e.clientX, y: e.clientY, cx: view.cx, cy: view.cy, moved: false };
+});
+const release = e => { touches.delete(e.pointerId); if (touches.size < 2) pinch = null; };
+stage.addEventListener('pointercancel', e => { release(e); drag = null; });
 stage.addEventListener('pointermove', e => {
+  if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && touches.size === 2) { setZoom(pinch.zoom * spread() / pinch.d); return; }
   if (!drag) return;
   const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
   if (Math.abs(dx) + Math.abs(dy) > 6) drag.moved = true;
@@ -647,7 +569,12 @@ stage.addEventListener('pointermove', e => {
   view.cx = drag.cx - dx / w; view.cy = drag.cy - dy / h;
   applyView();
 });
-stage.addEventListener('pointerup', () => { if (drag && !drag.moved && v.src) { v.paused ? v.play() : v.pause(); } drag = null; });
+stage.addEventListener('pointerup', e => {
+  const wasPinch = !!pinch || touches.size > 1;
+  release(e);
+  if (drag && !drag.moved && !wasPinch && v.src) { v.paused ? v.play() : v.pause(); }
+  drag = null;
+});
 stage.addEventListener('dblclick', () => { document.fullscreenElement ? document.exitFullscreen() : stage.requestFullscreen?.(); });
 document.addEventListener('fullscreenchange', () => setTimeout(applyView, 50));
 
@@ -935,31 +862,13 @@ v.addEventListener('loadedmetadata', () => { if (!facepop.hidden) renderFaceList
 document.getElementById('face').hidden = !HAS_FACES;
 showFaceMode();
 
-// ---------- 切り出し（範囲を、顔を隠して動画に書き出す） ----------
+// ---------- 保存（このゲームを、拡大と顔の設定のまま動画に書き出す） ----------
+// ブラウザで再生しながら録画するので、ゲームの長さだけ時間がかかる。途中で止めたら、そこまでを保存
 const clippop = document.getElementById('clippop');
 const clipmsg = document.getElementById('clipmsg');
-let clip = { a: 0, b: 0 };
 let recording = null;
-function showClip() {
-  document.getElementById('clipa').textContent = fmt1(clip.a);
-  document.getElementById('clipb').textContent = fmt1(clip.b);
-}
-function fmt1(t) { return `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`; }
-document.getElementById('clip').onclick = () => {
-  if (!clippop.hidden) { clippop.hidden = true; return; }
-  facepop.hidden = true;
-  // 今いる点の範囲から始める
-  const t = v.currentTime;
-  const p = DATA.games[current].points.find(p => p.r && p.r[0] <= t && t <= p.r[1]);
-  clip = p ? { a: p.r[0], b: p.r[1] } : { a: t, b: Math.min(t + 15, v.duration || t + 15) };
-  clipmsg.textContent = '';
-  showClip();
-  clippop.hidden = false;
-  fitSheet(clippop);
-};
-document.getElementById('clipclose').onclick = () => { clippop.hidden = true; };
-document.getElementById('clipseta').onclick = () => { clip.a = v.currentTime; if (clip.b <= clip.a) clip.b = clip.a + 5; showClip(); };
-document.getElementById('clipsetb').onclick = () => { clip.b = v.currentTime; if (clip.b <= clip.a) clip.a = Math.max(0, clip.b - 5); showClip(); };
+document.getElementById('clipx').onclick = () => { clippop.hidden = true; };
+document.getElementById('clipstop').onclick = () => { if (recording) recording.stop(); };
 
 // ファイルとして開いたページでは、ブラウザが動画の絵を書き出させてくれない。動画ファイルを選んでもらう
 const picked = {};
@@ -997,12 +906,16 @@ function pickMime() {
   const types = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
   return types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
 }
-document.getElementById('clipgo').onclick = async () => {
-  if (recording) { recording.stop(); return; }
+document.getElementById('save').onclick = async () => {
+  if (recording) { clippop.hidden = false; fitSheet(clippop); return; }
   const g = DATA.games[current];
   if (!g.video) return;
+  facepop.hidden = true;
+  clippop.hidden = false; fitSheet(clippop);
+  document.getElementById('clipstop').hidden = true;
+  clipmsg.textContent = '';
   const mime = pickMime();
-  if (!mime) { clipmsg.textContent = 'このブラウザでは書き出せません'; return; }
+  if (!mime) { clipmsg.textContent = 'このブラウザでは保存できません'; return; }
   let url = picked[g.n] || g.video;
   if (!picked[g.n] && !(await canExport(url))) url = await pickVideo(g.n);
   v.pause();
@@ -1013,6 +926,14 @@ document.getElementById('clipgo').onclick = async () => {
   const W = src.videoWidth, H = src.videoHeight;
   const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
+  // 顔を隠した1コマを描いてから、そのときの拡大のぶんを切り取る
+  const full = document.createElement('canvas'); full.width = W; full.height = H;
+  const fctx = full.getContext('2d');
+  const cropOf = () => {
+    const z = view.zoom, cw = 1 / z, ch = 1 / z;
+    const cx = Math.min(Math.max(view.cx, cw / 2), 1 - cw / 2), cy = Math.min(Math.max(view.cy, ch / 2), 1 - ch / 2);
+    return [(cx - cw / 2) * W, (cy - ch / 2) * H, cw * W, ch * H];
+  };
   const stream = canvas.captureStream(30);
   // 音：映像の音を録音にも、スピーカーにも流す
   const ac = new AudioContext();
@@ -1024,41 +945,47 @@ document.getElementById('clipgo').onclick = async () => {
   const chunks = [];
   const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12e6 });
   rec.ondataavailable = e => e.data.size && chunks.push(e.data);
-  const { a, b } = clip;
+  // 最初の点のサーブ前から、最後の点を入れたところまで
+  const ranged = g.points.filter(p => p.r);
+  const a = ranged.length ? ranged[0].r[0] : 0;
+  const b = ranged.length ? ranged[ranged.length - 1].r[1] : src.duration;
   src.currentTime = a;
   await new Promise(r => src.addEventListener('seeked', r, { once: true }));
   let done = false;
   const draw = () => {
     if (done) return;
-    ctx.drawImage(src, 0, 0, W, H);
-    drawMasks(ctx, src, W, H, W, H, g, headsAt(g.n, src.currentTime), src.currentTime, false, false);
-    clipmsg.textContent = `書き出し中 ${Math.max(0, src.currentTime - a).toFixed(0)} / ${(b - a).toFixed(0)}秒`;
+    fctx.drawImage(src, 0, 0, W, H);
+    drawMasks(fctx, src, W, H, W, H, g, headsAt(g.n, src.currentTime), src.currentTime, false, false);
+    ctx.drawImage(full, ...cropOf(), 0, 0, W, H);
+    clipmsg.textContent = `第${g.n}ゲームを保存中 ${fmt(src.currentTime - a)} / ${fmt(b - a)}`;
     if (src.currentTime >= b || src.ended) { rec.stop(); return; }
     if (src.requestVideoFrameCallback) src.requestVideoFrameCallback(draw); else requestAnimationFrame(draw);
   };
   rec.onstop = () => {
     done = true; recording = null;
     src.pause(); ac.close();
-    document.getElementById('clipgo').textContent = '書き出す';
+    document.getElementById('save').classList.remove('on');
+    document.getElementById('clipstop').hidden = true;
     const blob = new Blob(chunks, { type: mime.split(';')[0] });
     const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
-    const p = g.points.find(p => p.r && Math.abs(p.r[0] - a) < 0.01);
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `${document.title.split(" ")[0]}-第${g.n}ゲーム${p ? `-${p.s[0]}-${p.s[1]}` : `-${fmt1(a).replace(/[:.]/g, '')}`}.${ext}`;
-    link.textContent = '保存';
+    link.download = `${document.title.split(' ')[0]}-第${g.n}ゲーム.${ext}`;
+    link.textContent = link.download;
     clipmsg.innerHTML = '';
     clipmsg.append(link);
     link.click();
   };
   recording = rec;
-  document.getElementById('clipgo').textContent = '止める';
+  document.getElementById('save').classList.add('on');
+  document.getElementById('clipstop').hidden = false;
   ctx.drawImage(src, 0, 0, W, H);
   rec.start(500);
   draw();
   try { await ac.resume(); await src.play(); }
   catch { done = true; recording = null; rec.onstop = null; rec.stop(); ac.close();
-    document.getElementById('clipgo').textContent = '書き出す'; clipmsg.textContent = '再生できませんでした'; }
+    document.getElementById('save').classList.remove('on'); document.getElementById('clipstop').hidden = true;
+    clipmsg.textContent = '再生できませんでした'; }
 };
 
 try { const saved = JSON.parse(store.get('view')); if (saved && saved.zoom) view = saved; } catch {}
