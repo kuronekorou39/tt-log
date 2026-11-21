@@ -4,8 +4,9 @@
 向きに関係なく頭の位置と大きさを決める。PyTorch（torchvision）の Keypoint R-CNN を使う。
 
 出力は data/faces-gameNN.js（file:// で開いても読めるよう、JSON ではなくスクリプト）。
-  window.FACES[n] = {fps, frames: [[[x, y, r], ...], ...]}
+  window.FACES[n] = {fps, frames: [[[x, y, r, 番号], ...], ...], tracks: {番号: {side, t0, t1, n, img}}}
 x, y は頭の中心、r は半径。動画の幅・高さを 1 とした割合。
+番号は同じ人として続いている頭（トラック）。side は台の左の人（L）・右の人（R）・それ以外（X）の見立て。
 """
 
 import json
@@ -80,35 +81,99 @@ def _heads(out: dict) -> list[list[float]]:
     return heads
 
 
-def _track(per_frame: list[list[list[float]]]) -> list[list[list[float]]]:
-    """コマごとの頭をつなぎ、少し見失ったところは前の位置で埋める。"""
-    tracks: list[dict] = []  # {pos, missed}
+# 同じ人として、見失ってもこれだけのコマまでは探し続ける（隠すのは HOLD_FRAMES まで）
+REID_FRAMES = 30
+# これより短いトラックは、誤検知とみなして「その他」にする（コマ数）
+MIN_PLAYER_FRAMES = 15
+# 一覧に出す切り抜きの大きさ
+THUMB = 64
+
+
+def _track(per_frame: list[list[list[float]]]) -> tuple[list[list[list]], dict]:
+    """コマごとの頭をつないで番号を付ける。少し見失ったところは前の位置で埋める。
+
+    返り値は（コマごとの [x, y, r, 番号]、番号ごとの {コマ数, 始め, 終わり, 一番大きく映ったコマと位置}）。"""
+    tracks: list[dict] = []
+    info: dict[int, dict] = {}
     out = []
-    for heads in per_frame:
+    next_id = 1
+    for k, heads in enumerate(per_frame):
         used = set()
-        for tr in tracks:
-            best, dist = None, MATCH_DIST * WIDTH
-            for k, h in enumerate(heads):
+        # 最近まで見えていたものから先に割り当てる
+        for tr in sorted(tracks, key=lambda t: t["missed"]):
+            best, dist = None, MATCH_DIST * WIDTH * (1 + 0.1 * tr["missed"])
+            for j, h in enumerate(heads):
                 d = np.hypot(h[0] - tr["pos"][0], h[1] - tr["pos"][1])
-                if k not in used and d < dist:
-                    best, dist = k, d
+                if j not in used and d < dist:
+                    best, dist = j, d
             if best is None:
                 tr["missed"] += 1
             else:
                 used.add(best)
                 tr["pos"], tr["missed"] = heads[best], 0
-        tracks = [tr for tr in tracks if tr["missed"] <= HOLD_FRAMES]
-        tracks += [{"pos": h, "missed": 0} for k, h in enumerate(heads) if k not in used]
-        out.append([
-            [round(tr["pos"][0] / WIDTH, 4), round(tr["pos"][1] / HEIGHT, 4),
-             # 見失っている間は少しずつ大きくして、動いても外れにくく
-             round(tr["pos"][2] * (1 + 0.08 * tr["missed"]) / WIDTH, 4)]
-            for tr in tracks
-        ])
+                i = info[tr["id"]]
+                i["n"] += 1
+                i["t1"] = k
+                if heads[best][2] > i["best"][3]:
+                    i["best"] = [k, *heads[best]]
+        tracks = [tr for tr in tracks if tr["missed"] <= REID_FRAMES]
+        for j, h in enumerate(heads):
+            if j not in used:
+                tracks.append({"id": next_id, "pos": h, "missed": 0})
+                info[next_id] = {"n": 1, "t0": k, "t1": k, "best": [k, *h], "xs": []}
+                next_id += 1
+        frame = []
+        for tr in tracks:
+            if tr["missed"] > HOLD_FRAMES:
+                continue
+            x, y, r = tr["pos"]
+            if tr["missed"] == 0:
+                info[tr["id"]]["xs"].append(x / WIDTH)
+            # 見失っている間は少しずつ大きくして、動いても外れにくく
+            frame.append([round(x / WIDTH, 4), round(y / HEIGHT, 4), round(r * (1 + 0.08 * tr["missed"]) / WIDTH, 4), tr["id"]])
+        out.append(frame)
+    return out, info
+
+
+def _side(info: dict) -> str:
+    """トラックが、台の左の人（L）か右の人（R）か、それ以外（X）か。"""
+    if info["n"] < MIN_PLAYER_FRAMES:
+        return "X"
+    return "L" if np.median(info["xs"]) < 0.5 else "R"
+
+
+def _thumbs(video: Path, info: dict) -> dict[int, str]:
+    """トラックごとに、一番大きく映ったコマの頭を切り抜いた小さな画像（data URL）。"""
+    import base64
+
+    import cv2
+
+    out = {}
+    for tid, i in info.items():
+        k, x, y, r = i["best"]
+        raw = subprocess.run(
+            ["ffmpeg", "-v", "error", "-ss", f"{k / FPS:.2f}", "-i", str(video), "-frames:v", "1",
+             "-vf", f"scale={WIDTH}:{HEIGHT}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
+            capture_output=True,
+        ).stdout
+        if len(raw) < WIDTH * HEIGHT * 3:
+            continue
+        img = np.frombuffer(raw[: WIDTH * HEIGHT * 3], np.uint8).reshape(HEIGHT, WIDTH, 3)
+        a = max(int(r * 1.1), 8)
+        x0, y0 = max(int(x) - a, 0), max(int(y) - a, 0)
+        crop = img[y0 : int(y) + a, x0 : int(x) + a]
+        if crop.size == 0:
+            continue
+        ok, jpg = cv2.imencode(".jpg", cv2.resize(crop, (THUMB, THUMB)), [cv2.IMWRITE_JPEG_QUALITY, 70])
+        if ok:
+            out[tid] = "data:image/jpeg;base64," + base64.b64encode(jpg.tobytes()).decode()
     return out
 
 
-def find_heads(video: Path) -> dict:
+def detect(video: Path, cache: Path) -> list[list[list[float]]]:
+    """コマごとの頭（ピクセル）。時間がかかるので cache に残し、あれば使う。"""
+    if cache.exists():
+        return json.loads(cache.read_text(encoding="utf-8"))
     import torch
 
     model, device = _model()
@@ -116,8 +181,21 @@ def find_heads(video: Path) -> dict:
     with torch.no_grad():
         for rgb in _frames(video):
             x = torch.from_numpy(rgb.copy()).to(device).permute(2, 0, 1).float() / 255
-            per_frame.append(_heads(model([x])[0]))
-    return {"fps": FPS, "frames": _track(per_frame)}
+            per_frame.append([[round(v, 1) for v in h] for h in _heads(model([x])[0])])
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps(per_frame, separators=(",", ":")), encoding="utf-8")
+    return per_frame
+
+
+def find_heads(video: Path, cache: Path) -> dict:
+    frames, info = _track(detect(video, cache))
+    thumbs = _thumbs(video, info)
+    tracks = {
+        tid: {"side": _side(i), "t0": round(i["t0"] / FPS, 1), "t1": round(i["t1"] / FPS, 1), "n": i["n"],
+              "img": thumbs.get(tid)}
+        for tid, i in info.items()
+    }
+    return {"fps": FPS, "frames": frames, "tracks": tracks}
 
 
 def write_script(data: dict, game: int, path: Path) -> None:
@@ -139,6 +217,9 @@ if __name__ == "__main__":
         n = int(v.stem[4:])
         if args.games and n not in args.games:
             continue
-        data = find_heads(v)
+        # 見つけた頭は、共有するフォルダの外（隣）に残す
+        cache = args.out.parent / ".faces-cache" / args.out.name / f"game{n:02d}.json"
+        data = find_heads(v, cache)
         write_script(data, n, args.out / "data" / f"faces-game{n:02d}.js")
-        print(f"第{n}ゲーム: {len(data['frames'])}コマ", flush=True)
+        sides = [t["side"] for t in data["tracks"].values()]
+        print(f"game{n}: frames={len(data['frames'])} tracks={len(sides)} L={sides.count('L')} R={sides.count('R')}", flush=True)

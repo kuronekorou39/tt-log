@@ -105,6 +105,22 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 #clippop button.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
 #clippop .go { background:var(--fg); color:var(--bg); font-weight:700; }
 #clippop .msg { color:var(--muted); font-size:.8rem; }
+#facepop { position:fixed; right:14px; bottom:14px; width:min(340px, calc(100vw - 24px)); max-height:calc(100vh - 80px);
+  overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px;
+  box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:20; display:grid; gap:10px; font-size:.9rem; }
+#facepop .row { display:flex; align-items:center; gap:8px; }
+#facepop .row > span:first-child { width:4.5em; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#facepop button { border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:8px; padding:4px 10px;
+  cursor:pointer; min-height:32px; }
+#facepop button.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
+#facepop input { width:4em; font-size:1.2rem; text-align:center; border:1px solid var(--line); border-radius:8px;
+  background:var(--card); color:var(--fg); padding:2px; }
+#facepop .heads { display:grid; grid-template-columns:repeat(auto-fill, minmax(92px, 1fr)); gap:8px; }
+#facepop .hd { display:grid; gap:3px; justify-items:center; font-size:.75rem; color:var(--muted); padding:4px;
+  border-radius:8px; border:2px solid transparent; }
+#facepop .hd.cur { border-color:var(--fg); }
+#facepop .hd img { width:56px; height:56px; border-radius:8px; cursor:pointer; background:var(--track); }
+#facepop .hd select { max-width:88px; font-size:.75rem; }
 #infopop .stats { margin-bottom:12px; }
 .stats { width:100%; border-collapse:collapse; font-size:.85rem; }
 .stats th, .stats td { padding:5px 4px; text-align:center; font-variant-numeric:tabular-nums; border-top:1px solid var(--line); }
@@ -195,6 +211,14 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
   <div class="row"><button class="go" id="clipgo">書き出す</button><button id="clipclose">閉じる</button></div>
   <div class="msg" id="clipmsg"></div>
   <input type="file" id="clipfile" accept="video/*" hidden>
+</div>
+<div id="facepop" hidden>
+  <div class="row"><span>隠し方</span>
+    <button data-face="none">なし</button><button data-face="mosaic">モザイク</button><button data-face="emoji">絵文字</button></div>
+  <div id="facelabels"></div>
+  <div class="row"><span>見つけた頭</span><span id="facecount"></span></div>
+  <div class="heads" id="faceheads"></div>
+  <div class="row"><button id="faceclose">閉じる</button></div>
 </div>
 {{FACES}}
 
@@ -617,72 +641,158 @@ stage.addEventListener('dblclick', () => { document.fullscreenElement ? document
 document.addEventListener('fullscreenchange', () => setTimeout(applyView, 50));
 
 // ---------- 顔を隠す ----------
-// 頭の位置は data/faces-gameNN.js（0.1秒ごと）。間は、近い頭どうしをなめらかにつなぐ
+// 頭の位置は data/faces-gameNN.js（0.1秒ごと、続いている頭ごとに番号）。間は同じ番号どうしをなめらかにつなぐ
+// ラベル：p0・p1（選手）、x（その他）、off（隠さない）。絵文字と付け替えはこのブラウザに覚える
 const FACES = window.FACES || {};
-const EMOJI = '😀';
-let faceMode = store.get('faceMode') || 'none';
+const HAS_FACES = Object.keys(FACES).length > 0;
+let faceMode = HAS_FACES ? (store.get('faceMode') || 'none') : 'none';
+const EMOJI_KEY = `faceEmoji-${DATA.id}`, LABEL_KEY = `faceLabels-${DATA.id}`;
+let emojis = { p0: '😀', p1: '😎', x: '🙂' };
+try { Object.assign(emojis, JSON.parse(store.get(EMOJI_KEY)) || {}); } catch {}
+let faceLabels = {};
+try { faceLabels = JSON.parse(store.get(LABEL_KEY)) || {}; } catch {}
+const labelName = l => l === 'x' ? 'その他' : l === 'off' ? '隠さない' : DATA.names[+l[1]];
+
+function autoLabel(g, tid) {
+  const side = FACES[g.n]?.tracks?.[tid]?.side;
+  if (side === 'L') return `p${g.vl}`;
+  if (side === 'R') return `p${1 - g.vl}`;
+  return 'x';
+}
+function labelOf(g, tid) { return faceLabels[`${g.n}-${tid}`] || autoLabel(g, tid); }
+
 function headsAt(n, t) {
   const F = FACES[n];
   if (!F) return [];
   const k = t * F.fps, i = Math.floor(k), f = k - i;
   const a = F.frames[i] || [], b = F.frames[i + 1] || [];
   return a.map(h => {
-    let best = null, d = 0.08;
-    for (const o of b) { const e = Math.hypot(o[0] - h[0], o[1] - h[1]); if (e < d) { best = o; d = e; } }
-    return best ? h.map((x, j) => x + (best[j] - x) * f) : h;
+    const o = b.find(o => o[3] === h[3]);
+    return o ? [h[0] + (o[0] - h[0]) * f, h[1] + (o[1] - h[1]) * f, h[2] + (o[2] - h[2]) * f, h[3]] : h;
   });
 }
 const tile = document.createElement('canvas');
-// 映像 src（幅 sw・高さ sh）の上の頭を、ctx（幅 w・高さ h）に隠して描く
-function drawMasks(ctx, src, sw, sh, w, h, heads, mode) {
-  for (const [x, y, r] of heads) {
-    const R = r * sw;  // 映像のピクセルでの半径
-    if (mode === 'emoji') {
-      const size = 1.9 * R * w / sw;
+// 映像 src（幅 sw・高さ sh）の上の頭を、ctx（幅 w・高さ h）に隠して描く。tags なら上にラベルも
+function drawMasks(ctx, src, sw, sh, w, h, g, heads, mode, tags) {
+  for (const [x, y, r, tid] of heads) {
+    const label = labelOf(g, tid);
+    const emoji = label === 'off' ? '' : emojis[label];
+    const R = r * sw * w / sw;  // 描く先のピクセルでの半径
+    if (emoji && mode === 'emoji') {
+      const size = 1.9 * R;
       ctx.font = `${size}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(EMOJI, x * w, y * h + size * 0.05);
-    } else if (mode === 'mosaic') {
+      ctx.fillText(emoji, x * w, y * h + size * 0.05);
+    } else if (emoji && mode === 'mosaic') {
       // 頭のまわりを 8 マスに縮めてから、ぼかさずに広げる
-      const n = 8;
+      const n = 8, Rs = r * sw;
       tile.width = n; tile.height = n;
-      const tc = tile.getContext('2d');
-      tc.drawImage(src, x * sw - R, y * sh - R, 2 * R, 2 * R, 0, 0, n, n);
+      tile.getContext('2d').drawImage(src, x * sw - Rs, y * sh - Rs, 2 * Rs, 2 * Rs, 0, 0, n, n);
       ctx.save();
       ctx.imageSmoothingEnabled = false;
-      ctx.beginPath(); ctx.arc(x * w, y * h, R * w / sw, 0, Math.PI * 2); ctx.clip();
-      ctx.drawImage(tile, 0, 0, n, n, x * w - R * w / sw, y * h - R * w / sw, 2 * R * w / sw, 2 * R * w / sw);
+      ctx.beginPath(); ctx.arc(x * w, y * h, R, 0, Math.PI * 2); ctx.clip();
+      ctx.drawImage(tile, 0, 0, n, n, x * w - R, y * h - R, 2 * R, 2 * R);
       ctx.restore();
+    }
+    if (tags) {
+      const text = `${labelName(label)} #${tid}`;
+      const fs = Math.max(12, 13 * devicePixelRatio);
+      ctx.font = `bold ${fs}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      const tw = ctx.measureText(text).width + 8;
+      ctx.fillStyle = 'rgba(0,0,0,.65)';
+      ctx.fillRect(x * w - tw / 2, y * h - R - fs - 6, tw, fs + 4);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(text, x * w, y * h - R - 3);
     }
   }
 }
 const mask = document.getElementById('mask');
+const facepop = document.getElementById('facepop');
+let lastIds = '';
 function drawPreview() {
   const ctx = mask.getContext('2d');
   const w = Math.round(mask.clientWidth * devicePixelRatio), h = Math.round(mask.clientHeight * devicePixelRatio);
   if (mask.width !== w || mask.height !== h) { mask.width = w; mask.height = h; }
   ctx.clearRect(0, 0, w, h);
-  if (faceMode !== 'none' && v.videoWidth && !v.hidden)
-    drawMasks(ctx, v, v.videoWidth, v.videoHeight, w, h, headsAt(DATA.games[current].n, v.currentTime), faceMode);
+  const g = DATA.games[current];
+  if (HAS_FACES && v.videoWidth && !v.hidden) {
+    const heads = headsAt(g.n, v.currentTime);
+    if (faceMode !== 'none' || !facepop.hidden)
+      drawMasks(ctx, v, v.videoWidth, v.videoHeight, w, h, g, heads, faceMode, !facepop.hidden);
+    // 一覧で、今映っている頭に枠
+    const ids = heads.map(h => h[3]).join(',');
+    if (ids !== lastIds && !facepop.hidden) {
+      lastIds = ids;
+      const on = new Set(heads.map(h => String(h[3])));
+      document.querySelectorAll('#faceheads .hd').forEach(e => e.classList.toggle('cur', on.has(e.dataset.tid)));
+    }
+  }
   requestAnimationFrame(drawPreview);
 }
 requestAnimationFrame(drawPreview);
-const FACE_MODES = ['none', 'mosaic', 'emoji'];
+
 function showFaceMode() {
   document.querySelectorAll('[data-face]').forEach(b => b.classList.toggle('on', b.dataset.face === faceMode));
-  const fb = document.getElementById('face');
-  fb.textContent = { none: '顔', mosaic: 'モザイク', emoji: EMOJI }[faceMode];
-  fb.classList.toggle('on', faceMode !== 'none');
+  document.getElementById('face').classList.toggle('on', faceMode !== 'none');
 }
-document.getElementById('face').onclick = () => {
-  faceMode = FACE_MODES[(FACE_MODES.indexOf(faceMode) + 1) % FACE_MODES.length];
-  store.set('faceMode', faceMode); showFaceMode();
-};
 document.querySelectorAll('[data-face]').forEach(b => b.onclick = () => {
   faceMode = b.dataset.face; store.set('faceMode', faceMode); showFaceMode();
 });
-document.getElementById('facerow').hidden = !Object.keys(FACES).length;
-document.getElementById('face').hidden = !Object.keys(FACES).length;
-if (!Object.keys(FACES).length) faceMode = 'none';
+
+const LABELS = ['p0', 'p1', 'x', 'off'];
+function renderFaceList() {
+  // ラベルごとの絵文字（空にすると隠さない）
+  const box = document.getElementById('facelabels');
+  box.innerHTML = '';
+  ['p0', 'p1', 'x'].forEach(l => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const name = document.createElement('span');
+    name.textContent = labelName(l);
+    if (l !== 'x') name.className = 'ab'[+l[1]];
+    const input = document.createElement('input');
+    input.value = emojis[l]; input.maxLength = 8; input.setAttribute('aria-label', `${labelName(l)}の絵文字`);
+    input.oninput = () => { emojis[l] = input.value.trim(); store.set(EMOJI_KEY, JSON.stringify(emojis)); };
+    row.append(name, input);
+    box.append(row);
+  });
+  // このゲームで見つけた頭（長く映っていた順）
+  const g = DATA.games[current];
+  const tracks = Object.entries(FACES[g.n]?.tracks || {}).sort((a, b) => b[1].n - a[1].n);
+  document.getElementById('facecount').textContent = `第${g.n}ゲーム ${tracks.length}`;
+  const list = document.getElementById('faceheads');
+  list.innerHTML = '';
+  lastIds = '';
+  for (const [tid, tr] of tracks) {
+    const d = document.createElement('div');
+    d.className = 'hd'; d.dataset.tid = tid;
+    const img = document.createElement('img');
+    if (tr.img) img.src = tr.img;
+    img.title = 'ここへ';
+    img.onclick = () => { v.currentTime = tr.t0; };
+    const sel = document.createElement('select');
+    LABELS.forEach(l => sel.add(new Option(labelName(l), l)));
+    sel.value = labelOf(g, tid);
+    sel.onchange = () => {
+      const key = `${g.n}-${tid}`;
+      if (sel.value === autoLabel(g, tid)) delete faceLabels[key]; else faceLabels[key] = sel.value;
+      store.set(LABEL_KEY, JSON.stringify(faceLabels));
+    };
+    const info = document.createElement('span');
+    info.textContent = `#${tid} ${fmt(tr.t0)}–${fmt(tr.t1)}`;
+    d.append(img, info, sel);
+    list.append(d);
+  }
+}
+document.getElementById('face').onclick = () => {
+  if (!facepop.hidden) { facepop.hidden = true; return; }
+  clippop.hidden = true;
+  renderFaceList();
+  facepop.hidden = false;
+};
+document.getElementById('faceclose').onclick = () => { facepop.hidden = true; };
+v.addEventListener('loadedmetadata', () => { if (!facepop.hidden) renderFaceList(); });
+document.getElementById('facerow').hidden = !HAS_FACES;
+document.getElementById('face').hidden = !HAS_FACES;
 showFaceMode();
 
 // ---------- 切り出し（範囲を、顔を隠して動画に書き出す） ----------
@@ -697,6 +807,7 @@ function showClip() {
 function fmt1(t) { return `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`; }
 document.getElementById('clip').onclick = () => {
   if (!clippop.hidden) { clippop.hidden = true; return; }
+  facepop.hidden = true;
   // 今いる点の範囲から始める
   const t = v.currentTime;
   const p = DATA.games[current].points.find(p => p.r && p.r[0] <= t && t <= p.r[1]);
@@ -779,7 +890,7 @@ document.getElementById('clipgo').onclick = async () => {
   const draw = () => {
     if (done) return;
     ctx.drawImage(src, 0, 0, W, H);
-    if (mode !== 'none') drawMasks(ctx, src, W, H, W, H, headsAt(g.n, src.currentTime), mode);
+    if (mode !== 'none') drawMasks(ctx, src, W, H, W, H, g, headsAt(g.n, src.currentTime), mode, false);
     clipmsg.textContent = `書き出し中 ${Math.max(0, src.currentTime - a).toFixed(0)} / ${(b - a).toFixed(0)}秒`;
     if (src.currentTime >= b || src.ended) { rec.stop(); return; }
     if (src.requestVideoFrameCallback) src.requestVideoFrameCallback(draw); else requestAnimationFrame(draw);
