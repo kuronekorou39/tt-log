@@ -141,8 +141,11 @@ KEEP_PER_POINT = 10.0
 SERVE_LEAD = 4.0
 # これより短い間は飛ばさない（細かく飛ぶと見づらい）
 MIN_SKIP = 4.0
-# 点を入れた後に残す長さ（秒）
+# ゲームの最後の点を入れた後に残す長さ（秒）
 KEEP_AFTER = 1.5
+# 点を入れた後に残す長さ（次のサーブの構え＋サーブ＋短いラリー）。サーブミスのようにすぐ終わる点は、
+# ボールを拾ってから点を入れるので、プレーは前の点を入れた直後にある（2026-11-20 第3ゲーム 1-3 ほか）
+KEEP_AFTER_CALL = 15.0
 
 
 def play_spans(points: list[dict]) -> list[list[float]]:
@@ -152,6 +155,7 @@ def play_spans(points: list[dict]) -> list[list[float]]:
     前の点からこの点までを、1点あたり KEEP_PER_POINT 秒まで残す。続けて押した n 点は n 倍まで。
     打球音から見つけたラリーの最初の打球がそれより前なら、そのサーブの構えから残す（長いラリーや、ボールを拾ってから
     点を入れて押すのが遅れたときに、ラリーの頭が切れないように。2026-11-20 第1ゲーム 2-0）。
+    点を入れた後も KEEP_AFTER_CALL 秒は残す。
     飛ぶのは、ボール拾いや待ち・休憩など、点と点の間の何もしていないところ。"""
     spans: list[list[float]] = []
     prev = None
@@ -171,11 +175,13 @@ def play_spans(points: list[dict]) -> list[list[float]]:
             start = min(start, min(starts))
         if prev is not None:
             start = max(start, prev)
-        span = [max(0.0, start), end + KEEP_AFTER]
+        span = [max(0.0, start), end + KEEP_AFTER_CALL]
         if spans and span[0] - spans[-1][1] < MIN_SKIP:
             spans[-1][1] = span[1]
         else:
             spans.append(span)
         prev = end
         i = j + 1
+    if spans:
+        spans[-1][1] = prev + KEEP_AFTER
     return spans
