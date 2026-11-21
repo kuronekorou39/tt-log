@@ -53,13 +53,14 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 .controls .sep { width:1px; height:20px; background:var(--line); margin:0 4px; }
 
 /* 得点を並べたシークバー。上の段が A、下の段が B の点 */
-.seek { position:relative; height:76px; cursor:pointer; user-select:none; }
-.seek .track { position:absolute; left:0; right:0; top:32px; height:12px; border-radius:6px; background:var(--track); overflow:hidden; }
+/* 上の段（赤）：☆・点数・印、帯、下の段（青）：印・点数・☆。☆ がなくてもその分を空けて、位置をそろえる */
+.seek { position:relative; height:100px; cursor:pointer; user-select:none; }
+.seek .track { position:absolute; left:0; right:0; top:42px; height:12px; border-radius:6px; background:var(--track); overflow:hidden; }
 .seek .played { position:absolute; left:0; top:0; bottom:0; background:var(--played); }
 .seek .band { position:absolute; top:0; bottom:0; opacity:.3; box-shadow:inset -1px 0 0 var(--card); }
-.seek .head { position:absolute; top:24px; width:3px; height:28px; margin-left:-1px; background:var(--fg); border-radius:2px; pointer-events:none; }
+.seek .head { position:absolute; top:34px; width:3px; height:28px; margin-left:-1px; background:var(--fg); border-radius:2px; pointer-events:none; }
 .seek .mk { position:absolute; width:20px; margin-left:-10px; display:flex; flex-direction:column; align-items:center; }
-.seek .mk.a { top:0; } .seek .mk.b { top:46px; flex-direction:column-reverse; }
+.seek .mk.a { top:0; } .seek .mk.b { top:58px; flex-direction:column-reverse; }
 .seek .mk i { display:block; width:4px; height:10px; border-radius:2px; background:currentColor; }
 .seek .mk b { font-size:.72rem; font-weight:700; line-height:1.25; white-space:nowrap; font-variant-numeric:tabular-nums; }
 .seek .mk.hide b { visibility:hidden; }
@@ -70,7 +71,12 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 
 /* 印（★ は自分で付けたもの、☆ は長いラリーの候補） */
 :root { --star:#e0a100; }
-.seek .mk .st { font-size:.8rem; line-height:1; color:var(--star); }
+/* スクロールバー：細く、目立たない色に */
+* { scrollbar-width:thin; scrollbar-color:color-mix(in srgb, var(--muted) 35%, transparent) transparent; }
+::-webkit-scrollbar { width:8px; height:8px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:color-mix(in srgb, var(--muted) 35%, transparent); border-radius:4px; }
+.seek .mk .st { font-size:.8rem; line-height:1; height:14px; color:var(--star); }
 .seek .mk.cand .st { opacity:.55; }
 .seek .mk.marked b, .seek .mk.cand b { visibility:visible; }
 .controls #mark.on { background:var(--star); border-color:var(--star); color:#fff; }
@@ -168,7 +174,6 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
   .total { font-size:1.3rem; }
   .right { display:flex; flex-direction:column; gap:12px; }
   .controls button { padding:4px 7px; }
-  .seek { height:70px; }
   .app { overflow-x:clip; }
   #facepop, #clippop { left:0; right:0; bottom:0; width:auto; max-height:52vh; border-radius:14px 14px 0 0; }
 }
@@ -327,7 +332,7 @@ function renderMarkers() {
     m.style.left = `${x}px`;
     m.style.color = p.w === 0 ? 'var(--a)' : 'var(--b)';
     const mark = markOf(current, DATA.games[current].points.indexOf(p));
-    const star = mark ? `<span class="st">${mark === 'star' ? '★' : '☆'}</span>` : '';
+    const star = `<span class="st">${mark ? (mark === 'star' ? '★' : '☆') : ''}</span>`;
     m.innerHTML = p.w === 0 ? `${star}<b>${p.s[0]}-${p.s[1]}</b><i></i>` : `${star}<b>${p.s[0]}-${p.s[1]}</b><i></i>`;
     if (mark) m.classList.add(mark === 'star' ? 'marked' : 'cand');
     // 文字が重なるところは数字を隠す（触れると出る）
