@@ -360,7 +360,8 @@ function showError(e) {
   boot.innerHTML = '<div class="err">⚠</div><h2></h2><p></p><button>もう一度</button>';
   boot.querySelector('h2').textContent = title;
   boot.querySelector('p').textContent = detail || '';
-  boot.querySelector('button').onclick = () => location.reload();
+  // やり直すときは、覚えていたフォルダの中身も読み直す（アップロードし直した直後など）
+  boot.querySelector('button').onclick = () => { try { if (DRIVE) localStorage.removeItem(`drive-list-${DRIVE.folder}`); } catch {} location.reload(); };
   boot.hidden = false;
 }
 // 回の一覧（フォルダ名）から選ぶ。選ぶとリンクに #s= を足して開き直す
@@ -379,18 +380,40 @@ function showChooser(bases) {
 }
 async function driveList(id, prefix) {
   const q = encodeURIComponent(`'${id}' in parents and trashed=false`);
-  const r = await driveFetch(`${DRIVE.api}/files?q=${q}&fields=files(id,name,mimeType)&pageSize=1000&key=${encodeURIComponent(DRIVE.key)}`, 'フォルダ');
+  const r = await driveFetch(`${DRIVE.api}/files?q=${q}&fields=files(id,name,mimeType,modifiedTime)&pageSize=1000&key=${encodeURIComponent(DRIVE.key)}`, 'フォルダ');
   for (const f of (await r.json()).files || []) {
     if (f.mimeType === 'application/vnd.google-apps.folder') await driveList(f.id, `${prefix}${f.name}/`);
-    else DRIVE.ids[`${prefix}${f.name}`] = f.id;
+    else { DRIVE.ids[`${prefix}${f.name}`] = f.id; DRIVE.mod[`${prefix}${f.name}`] = f.modifiedTime || ''; }
   }
+}
+// ドライブは短い間に何度も読むと弾くので、フォルダの中身とデータはブラウザに覚えておく。
+// 中身の一覧は LIST_TTL の間だけ使い回す（その間にドライブで差し替えたものは、過ぎてから反映）
+const LIST_TTL = 10 * 60 * 1000;
+async function driveListCached() {
+  const key = `drive-list-${DRIVE.folder}`;
+  try {
+    const c = JSON.parse(localStorage.getItem(key));
+    if (c && Date.now() - c.at < LIST_TTL) { DRIVE.ids = c.ids; DRIVE.mod = c.mod; return; }
+  } catch {}
+  await driveList(DRIVE.folder, '');
+  try { localStorage.setItem(key, JSON.stringify({ at: Date.now(), ids: DRIVE.ids, mod: DRIVE.mod })); } catch {}
+}
+// ファイルの中身。同じファイル（ID と更新日時が同じ）なら、前に読んだものを使う
+async function driveText(path, url) {
+  const cacheKey = `https://cache.invalid/${DRIVE.ids[DRIVE.base + path]}/${encodeURIComponent(DRIVE.mod[DRIVE.base + path] || '')}`;
+  let cache = null;
+  try { cache = await caches.open('tt-share'); const hit = await cache.match(cacheKey); if (hit) return hit.text(); } catch {}
+  const text = await (await driveFetch(url, path)).text();
+  try { await cache?.put(cacheKey, new Response(text)); } catch {}
+  return text;
 }
 async function loadPage() {
   if (EMBEDDED) return EMBEDDED;
   if (!DRIVE) throw new ViewError('見るまとめが指定されていません', '共有されたリンクをそのまま開いてください（# から後ろも必要です）。');
   if (!DRIVE.key) throw new ViewError('リンクにキーがありません', '共有されたリンクをそのまま開いてください（k= の部分も必要です）。');
   showLoading('フォルダを確認中…');
-  await driveList(DRIVE.folder, '');
+  DRIVE.mod = {};
+  await driveListCached();
   // 共有したフォルダの中に、日付ごとのまとめのフォルダが並んでいてもよい。
   // 1つならそれを、いくつもあれば #s= の回か、一覧から選んでもらう
   const bases = Object.keys(DRIVE.ids).filter(p => p.endsWith('data/page.json'))
@@ -419,7 +442,7 @@ async function loadPage() {
   const get = async path => {
     const url = media(path);
     if (!url) throw new ViewError(`${path} が見つかりません`, 'アップロードが終わっているか確かめてください。');
-    return (await driveFetch(url, path)).text();
+    return driveText(path, url);
   };
   showLoading('データを読み込み中…');
   let page;
