@@ -41,6 +41,12 @@ header h1 .session:hover { border-color:var(--line); }
 /* 読み込み中・エラー（動画の場所に重ねる） */
 .boot { position:absolute; inset:0; display:grid; place-content:center; justify-items:center; gap:10px; padding:20px;
   background:#000; color:#ddd; text-align:center; z-index:3; }
+/* ドライブから見るとき、押すまで動画を読まない */
+.bigplay { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:84px; height:84px; border-radius:50%;
+  border:0; background:rgba(255,255,255,.92); color:#111; cursor:pointer; z-index:2; box-shadow:0 4px 20px rgba(0,0,0,.4);
+  display:grid; place-items:center; }
+.bigplay:hover { background:#fff; }
+.bigplay svg { width:40px; height:40px; fill:currentColor; margin-left:6px; }
 .boot .spin { width:34px; height:34px; border-radius:50%; border:3px solid rgba(255,255,255,.2); border-top-color:#fff;
   animation:spin .9s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
@@ -241,6 +247,7 @@ header h1 .session:hover { border-color:var(--line); }
       <canvas class="mask" id="mask"></canvas>
       <div class="empty" id="empty" hidden>動画なし</div>
       <div class="boot" id="boot" hidden></div>
+      <button class="bigplay" id="bigplay" aria-label="動画を読み込んで再生" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
       <div class="now" id="now"></div>
       <div class="cap" id="cap" hidden></div>
       <div class="zoomtag" id="zoomtag"></div>
@@ -581,7 +588,7 @@ function renderGames(mark) {
       ${flowSVG(g, i, i === current ? mark : null)}
     </button>`;
   }).join('');
-  box.querySelectorAll('.game').forEach(b => b.onclick = () => select(+b.dataset.i, true));
+  box.querySelectorAll('.game').forEach(b => b.onclick = () => select(+b.dataset.i, !DRIVE));
 }
 
 // ---------- シークバー ----------
@@ -690,21 +697,65 @@ function step(dir) {
 }
 
 // ---------- 再生 ----------
+// ドライブから見るときは、押されるまで動画を読まない（ドライブは何度も読むと弾くため）。
+// 読む前の位置と長さは覚えておき、play() されたら読み込んで、その位置から再生する
+let pending = null, pendingTime = 0;
+const bigplay = document.getElementById('bigplay');
+if (DRIVE) {
+  const proto = HTMLMediaElement.prototype;
+  const time = Object.getOwnPropertyDescriptor(proto, 'currentTime');
+  const dur = Object.getOwnPropertyDescriptor(proto, 'duration');
+  Object.defineProperty(v, 'currentTime', {
+    get() { return pending ? pendingTime : time.get.call(v); },
+    set(x) { if (pending) { pendingTime = x; updateHead(); } else time.set.call(v, x); },
+  });
+  Object.defineProperty(v, 'duration', { get() { return pending ? DATA.games[current].dur || NaN : dur.get.call(v); } });
+  v.play = function () {
+    if (pending) {
+      const url = pending, at = pendingTime;
+      pending = null; bigplay.hidden = true;
+      v.crossOrigin = 'anonymous';
+      showLoading('動画を読み込み中…');
+      v.src = url;
+      return new Promise((res, rej) => v.addEventListener('loadedmetadata', () => {
+        time.set.call(v, at);
+        proto.play.call(v).then(res, rej);
+      }, { once: true }));
+    }
+    return proto.play.call(v);
+  };
+  bigplay.onclick = e => { e.stopPropagation(); v.play().catch(() => {}); };
+  bigplay.addEventListener('pointerdown', e => e.stopPropagation());
+  bigplay.addEventListener('pointerup', e => e.stopPropagation());
+}
+
 function select(i, autoplay) {
   current = i;
   lastMark = null;
   const g = DATA.games[i];
   document.getElementById('empty').hidden = !!g.video;
   v.hidden = !g.video;
-  if (g.video) {
-    if (DRIVE) { v.crossOrigin = 'anonymous'; showLoading('動画を読み込み中…'); }
-    if (!media(g.video)) showError(new ViewError(`${g.video} が見つかりません`, 'videos フォルダのアップロードが終わっているか確かめてください。'));
-    else v.src = media(g.video);
-  } else { v.removeAttribute('src'); v.load(); boot.hidden = true; }
+  if (g.video && !media(g.video)) {
+    showError(new ViewError(`${g.video} が見つかりません`, 'videos フォルダのアップロードが終わっているか確かめてください。'));
+  } else if (g.video && DRIVE) {
+    // まだ読まない。大きな ▶ で読み込む
+    v.removeAttribute('src'); v.load();
+    // ▶ で、このゲームの最初のサーブ前から
+    const first = g.points.find(p => p.vt !== null);
+    pending = media(g.video); pendingTime = first ? startOf(first) : 0;
+    boot.hidden = true; bigplay.hidden = false;
+    setTimeout(() => { renderMarkers(); applyView(); updateHead(); });
+  } else if (g.video) {
+    v.src = media(g.video);
+  } else { pending = null; bigplay.hidden = true; v.removeAttribute('src'); v.load(); boot.hidden = true; }
   v.playbackRate = rate;
   renderGames(null);
   seek.querySelectorAll('.mk, .band').forEach(m => m.remove());
-  if (autoplay && g.video) {
+  if (autoplay && g.video && pending) {
+    const first = g.points.find(p => p.vt !== null);
+    if (first) pendingTime = startOf(first);
+    v.play().catch(() => {});
+  } else if (autoplay && g.video) {
     const first = g.points.find(p => p.vt !== null);
     v.addEventListener('loadedmetadata', () => {
       if (first) v.currentTime = startOf(first);

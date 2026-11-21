@@ -224,6 +224,7 @@ def main():
         parts = join_videos(args.camera, index, g["index"], out / "videos" / name, make=not args.no_video)
         g["video"] = f"videos/{name}" if parts or (out / "videos" / name).exists() else None
         g["parts"] = len(parts)
+        g["duration"] = parts[-1]["offset"] + parts[-1]["duration"] if parts else None
         g["voice"], g["captions"], shift = None, [], None
         if voice_log and g["video"] and (out / g["video"]).exists():
             import voice
@@ -283,6 +284,8 @@ def write_html(path: Path, session_id: str, names: list[str], log: dict, games: 
     data = [{
         "n": g["index"] + 1,
         "video": g["video"],
+        # 動画を読む前にシークバーを描くための長さ（秒）
+        "dur": round(g["duration"], 2) if g.get("duration") else None,
         "voice": g["voice"],
         "vl": g["video_left"],
         "captions": g.get("captions", []),
