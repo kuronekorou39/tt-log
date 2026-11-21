@@ -429,9 +429,18 @@ showPlayMarks();
 // ---------- 間を飛ばす ----------
 // ラリーの区間（サーブの構えからラリーの終わりの少しあと）以外を飛ばす。ゲームの最後まで来たら次のゲームへ
 let rallyOnly = store.get('rallyOnly') === '1';
-function spans() { return DATA.games[current].spans; }
+// 確認用（URL に ?cuts）：逆に、飛ばすところだけを流す。ゲーム前は最初の点の直前だけ
+const CUTS_ONLY = new URLSearchParams(location.search).has('cuts');
+const CUT_BEFORE_FIRST = 20;
+function spans() {
+  const ss = DATA.games[current].spans;
+  if (!CUTS_ONLY) return ss;
+  const out = ss.length ? [[Math.max(0, ss[0][0] - CUT_BEFORE_FIRST), ss[0][0]]] : [];
+  for (let k = 0; k + 1 < ss.length; k++) out.push([ss[k][1], ss[k + 1][0]]);
+  return out;
+}
 function skipToRally() {
-  if (!rallyOnly || playlist !== null || v.paused || v.seeking) return;
+  if (!(rallyOnly || CUTS_ONLY) || playlist !== null || v.paused || v.seeking) return;
   const t = v.currentTime;
   const ss = spans();
   if (ss.some(([a, b]) => a <= t && t < b)) return;
@@ -443,7 +452,11 @@ function skipToRally() {
 }
 v.addEventListener('timeupdate', skipToRally);
 v.addEventListener('play', skipToRally);
-function showRallyOnly() { document.getElementById('rallyonly').classList.toggle('on', rallyOnly); }
+function showRallyOnly() {
+  const b = document.getElementById('rallyonly');
+  b.classList.toggle('on', rallyOnly || CUTS_ONLY);
+  if (CUTS_ONLY) { b.textContent = 'カットだけ'; b.disabled = true; }
+}
 document.getElementById('rallyonly').onclick = () => {
   rallyOnly = !rallyOnly;
   store.set('rallyOnly', rallyOnly ? '1' : '0');

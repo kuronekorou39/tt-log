@@ -27,6 +27,8 @@ SEARCH = 2.5
 MIN_MATCH = 0.06
 # 字幕を、声が終わってから残す長さ（秒）
 CAPTION_HOLD = 1.5
+# 字幕を出すのは、録音の終わり（聞き取りが決まったところ）からこれだけ前まで。言葉の前のラリーの音で早く出ないように
+CAPTION_LEAD = 3.0
 
 
 def load_log(voice_dir: Path) -> list[dict]:
@@ -78,14 +80,28 @@ def _match(snippet: np.ndarray, ref: np.ndarray) -> tuple[int, float]:
 
 
 def _speech_start(mono: np.ndarray, rate: int) -> float:
-    """録音の中で声が始まる秒（大きい音の 1/10 を超えたところ）。"""
+    """録音の中で、聞き取った声が始まる秒。
+
+    録音には声の前の物音や話し声も入っているので、最後の大きな音のまとまり（＝聞き取った声）の頭を探す。
+    0.3 秒より短い切れ目は、言葉の途中の間とみなしてつなぐ。"""
     hop = rate // 50
     frames = len(mono) // hop
     if frames == 0:
         return 0.0
     level = np.sqrt((mono[: frames * hop].reshape(frames, hop) ** 2).mean(axis=1))
-    above = np.nonzero(level > level.max() * 0.1)[0]
-    return float(above[0] * hop / rate) if len(above) else 0.0
+    loud = np.nonzero(level > level.max() * 0.3)[0]
+    if not len(loud):
+        return 0.0
+    voiced = level > level.max() * 0.1
+    i, quiet = int(loud[-1]), 0
+    start = i
+    while i > 0 and quiet < 15:
+        i -= 1
+        if voiced[i]:
+            start, quiet = i, 0
+        else:
+            quiet += 1
+    return float(start * hop / rate)
 
 
 def _place(at: dt.datetime, parts: list[dict]) -> tuple[int, float] | None:
@@ -149,7 +165,7 @@ def build(log: list[dict], parts: list[dict], video: Path, out: Path | None) -> 
             # 前後の録音が重なるところは同じ音なので、上書きでよい
             track[a:b] = p["mono"][a - i0 : b - i0]
         if p["text"]:
-            begin = end - len(p["mono"]) / SAMPLE_RATE + _speech_start(p["mono"], SAMPLE_RATE)
+            begin = max(end - len(p["mono"]) / SAMPLE_RATE + _speech_start(p["mono"], SAMPLE_RATE), end - CAPTION_LEAD)
             captions.append([round(max(begin, 0), 2), round(end + CAPTION_HOLD, 2), p["text"]])
 
     # 次の字幕が出たら前の字幕は消す
