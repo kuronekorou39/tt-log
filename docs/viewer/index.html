@@ -1827,7 +1827,7 @@ async function runFastSave(g, url, tier, onInput) {
   conv.onProgress = p => {
     // 出だしは速さが安定しないので、少し進んでから残り時間を出す
     const left = p > 0.03 && elapsed() > 3 ? `　残り${fmtWait(elapsed() / p * (1 - p))}` : '';
-    clipmsg.textContent = `第${g.n}ゲーム（画質：${tier.label}）を保存中 ${Math.floor(p * 100)}%${left}`;
+    clipmsg.textContent = `第${g.n}ゲーム（画質：${tier.label}）を保存中 ${Math.floor(p * 100)}%　経過${fmt(elapsed())}${left}`;
   };
   recording = { stop: () => conv.cancel() };
   stopBtn.textContent = 'やめる'; stopBtn.hidden = false;
@@ -1933,12 +1933,13 @@ async function startSave(g, tier) {
   src.currentTime = a;
   await new Promise(r => src.addEventListener('seeked', r, { once: true }));
   let done = false;
+  const recStart = performance.now();
   const draw = () => {
     if (done) return;
     fctx.drawImage(src, 0, 0, W, H);
     drawMasks(fctx, src, W, H, W, H, g, headsAt(g.n, src.currentTime), src.currentTime, false, false);
     ctx.drawImage(full, ...cropOf(), 0, 0, OW, OH);
-    clipmsg.textContent = `第${g.n}ゲーム（画質：${tier.label}）を保存中 ${fmt(src.currentTime - a)} / ${fmt(b - a)}`;
+    clipmsg.textContent = `第${g.n}ゲーム（画質：${tier.label}）を保存中 ${fmt(src.currentTime - a)} / ${fmt(b - a)}　経過${fmt((performance.now() - recStart) / 1000)}`;
     if (src.currentTime >= b || src.ended) { rec.stop(); return; }
     if (src.requestVideoFrameCallback) src.requestVideoFrameCallback(draw); else requestAnimationFrame(draw);
   };
