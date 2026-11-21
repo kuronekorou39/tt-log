@@ -198,6 +198,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
         <button id="rate" aria-label="速さ">1×</button>
         <button id="caps" aria-label="字幕" hidden>字幕</button>
         <button id="voice" aria-label="胸元マイクの音" hidden>音声</button>
+        <button id="rallyonly" aria-label="点と点の間を飛ばして再生">飛ばす</button>
         <button id="face" aria-label="顔を隠す" hidden>顔</button>
         <button id="save" aria-label="このゲームを動画で保存">保存</button>
       </div>
@@ -443,6 +444,45 @@ function toggleMark() {
 
 
 document.getElementById('mark').onclick = toggleMark;
+// ---------- 間を飛ばす ----------
+// 点の範囲（サーブの少し前から点を入れたところ）の間を飛ばす。ゲームの最後まで来たら次のゲームへ
+let rallyOnly = store.get('rallyOnly') === '1';
+// 確認用（URL に ?cuts）：逆に、飛ばすところだけを流す。ゲーム前は最初の点の直前だけ
+const CUTS_ONLY = new URLSearchParams(location.search).has('cuts');
+const CUT_BEFORE_FIRST = 20;
+function spans() {
+  const ss = DATA.games[current].spans;
+  if (!CUTS_ONLY) return ss;
+  const out = ss.length ? [[Math.max(0, ss[0][0] - CUT_BEFORE_FIRST), ss[0][0]]] : [];
+  for (let k = 0; k + 1 < ss.length; k++) out.push([ss[k][1], ss[k + 1][0]]);
+  return out;
+}
+function skipToRally() {
+  if (!(rallyOnly || CUTS_ONLY) || v.paused || v.seeking) return;
+  const t = v.currentTime;
+  const ss = spans();
+  if (ss.some(([a, b]) => a <= t && t < b)) return;
+  const next = ss.find(([a]) => a > t);
+  if (next) { v.currentTime = next[0]; return; }
+  // このゲームのラリーは終わり。次のゲームの最初のラリーへ
+  if (current + 1 < DATA.games.length) select(current + 1, true);
+  else v.pause();
+}
+v.addEventListener('timeupdate', skipToRally);
+v.addEventListener('play', skipToRally);
+function showRallyOnly() {
+  const b = document.getElementById('rallyonly');
+  b.classList.toggle('on', rallyOnly || CUTS_ONLY);
+  if (CUTS_ONLY) { b.textContent = 'カットだけ'; b.disabled = true; }
+}
+document.getElementById('rallyonly').onclick = () => {
+  rallyOnly = !rallyOnly;
+  store.set('rallyOnly', rallyOnly ? '1' : '0');
+  showRallyOnly();
+  skipToRally();
+};
+showRallyOnly();
+
 v.addEventListener('loadedmetadata', () => { renderMarkers(); applyView(); });
 v.addEventListener('timeupdate', updateHead);
 v.addEventListener('seeked', updateHead);
