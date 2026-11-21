@@ -125,7 +125,8 @@ def attach_rallies(video: Path, points: list[dict]) -> None:
         for p, c in zip(group[len(group) - len(chosen):], chosen):
             # 前の点の見せ終わりより前には戻らない（前のラリーと重ねない）
             start = max(active_start(hits, c[0]), c[0] - MAX_LEAD, shown_until, prev + AFTER_PREVIOUS if i else 0.0, 0.0)
-            p["rally"] = {"start": start, "end": c[-1] + TAIL, "hits": len(c), "length": clear_length(clear, c[0], c[-1])}
+            p["rally"] = {"start": start, "end": c[-1] + TAIL, "first": float(c[0]), "hits": len(c),
+                          "length": clear_length(clear, c[0], c[-1])}
             shown_until = c[-1] + TAIL
             if len(group) > 1:
                 # 続けて押した点は、押した時刻ではなくラリーが終わった時刻に直す
@@ -134,8 +135,12 @@ def attach_rallies(video: Path, points: list[dict]) -> None:
         i = j + 1
 
 
-# 「間を飛ばす」で残す長さ。1点あたり、点を入れた時刻からこれだけ前まで（サーブの構え＋ラリー＋少しの間）
-KEEP_PER_POINT = 40.0
+# 「間を飛ばす」で残す長さ。1点あたり、点を入れた時刻からこれだけ前まで（サーブの構え＋短いラリー＋押すまでの間）
+KEEP_PER_POINT = 10.0
+# 見つけたラリーの最初の打球（サーブ）から、これだけ前から残す（サーブの構え）
+SERVE_LEAD = 4.0
+# これより短い間は飛ばさない（細かく飛ぶと見づらい）
+MIN_SKIP = 4.0
 # 点を入れた後に残す長さ（秒）
 KEEP_AFTER = 1.5
 
@@ -145,9 +150,9 @@ def play_spans(points: list[dict]) -> list[list[float]]:
     ラリーを切ってしまうため。2026-11-20 第1ゲーム 7-5、第4ゲーム 3-2）。
 
     前の点からこの点までを、1点あたり KEEP_PER_POINT 秒まで残す。続けて押した n 点は n 倍まで。
-    打球音から見つけたラリーがそれより前から始まっていれば、そこから残す（ボールを拾ってから点を入れると、
-    押すのが遅れてラリーの頭が切れるため。2026-11-20 第1ゲーム 2-0）。
-    飛ぶのは、ゲーム前の打ち合い・休憩・長い話など、点と点の間が長く空いたところだけ。"""
+    打球音から見つけたラリーの最初の打球がそれより前なら、そのサーブの構えから残す（長いラリーや、ボールを拾ってから
+    点を入れて押すのが遅れたときに、ラリーの頭が切れないように。2026-11-20 第1ゲーム 2-0）。
+    飛ぶのは、ボール拾いや待ち・休憩など、点と点の間の何もしていないところ。"""
     spans: list[list[float]] = []
     prev = None
     i = 0
@@ -161,13 +166,13 @@ def play_spans(points: list[dict]) -> list[list[float]]:
             j += 1
         end = vts[j]
         start = end - KEEP_PER_POINT * (j - i + 1)
-        starts = [points[k]["rally"]["start"] for k in range(i, j + 1) if points[k].get("rally")]
+        starts = [points[k]["rally"]["first"] - SERVE_LEAD for k in range(i, j + 1) if points[k].get("rally")]
         if starts:
             start = min(start, min(starts))
         if prev is not None:
             start = max(start, prev)
         span = [max(0.0, start), end + KEEP_AFTER]
-        if spans and span[0] <= spans[-1][1]:
+        if spans and span[0] - spans[-1][1] < MIN_SKIP:
             spans[-1][1] = span[1]
         else:
             spans.append(span)
