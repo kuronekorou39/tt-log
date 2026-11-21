@@ -56,7 +56,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 .seek { position:relative; height:76px; cursor:pointer; user-select:none; }
 .seek .track { position:absolute; left:0; right:0; top:32px; height:12px; border-radius:6px; background:var(--track); overflow:hidden; }
 .seek .played { position:absolute; left:0; top:0; bottom:0; background:var(--played); }
-.seek .band { position:absolute; top:0; bottom:0; opacity:.35; }
+.seek .band { position:absolute; top:0; bottom:0; opacity:.3; box-shadow:inset -1px 0 0 var(--card); }
 .seek .head { position:absolute; top:24px; width:3px; height:28px; margin-left:-1px; background:var(--fg); border-radius:2px; pointer-events:none; }
 .seek .mk { position:absolute; width:20px; margin-left:-10px; display:flex; flex-direction:column; align-items:center; }
 .seek .mk.a { top:0; } .seek .mk.b { top:46px; flex-direction:column-reverse; }
@@ -244,13 +244,15 @@ function renderMarkers() {
   const width = seek.clientWidth;
   // ラリーの区間をうすく塗る
   const track = seek.querySelector('.track');
-  // 試合をしている区間（「詰める」で残すところ）をうすく塗る
-  DATA.games[current].spans.forEach(([a, e]) => {
+  // 点ごとの範囲（サーブの少し前〜点を入れたところ）を、取った人の色でうすく塗る
+  const ranged = DATA.games[current].points.filter(p => p.r);
+  ranged.forEach((p, k) => {
+    const a = p.r[0], e = k + 1 < ranged.length ? Math.min(p.r[1], ranged[k + 1].r[0]) : p.r[1];
     const b = document.createElement('div');
     b.className = 'band';
     b.style.left = `${a / d * 100}%`;
     b.style.width = `${Math.max(0.3, (e - a) / d * 100)}%`;
-    b.style.background = 'var(--muted)';
+    b.style.background = p.w === 0 ? 'var(--a)' : 'var(--b)';
     track.appendChild(b);
   });
   let lastX = [-99, -99];
