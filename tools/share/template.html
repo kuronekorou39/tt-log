@@ -115,10 +115,20 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 #facepop button.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
 #facepop .who { display:grid; gap:6px; padding:10px; border:1px solid var(--line); border-radius:10px; }
 #facepop .who .name { font-weight:800; font-size:1.05rem; }
-#facepop .who .opts { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
-#facepop .who .sep { width:8px; }
-#facepop .who .opts button { font-size:1rem; min-height:40px; padding:4px 12px; }
-#facepop .who input { width:3.2em; font-size:1.6rem; text-align:center; border:1px solid var(--line); border-radius:8px;
+#facepop .who .opts { display:flex; gap:8px; align-items:center; }
+#facepop .who .head { display:flex; align-items:center; gap:6px; }
+#facepop .eye { border:0; background:none; padding:4px; min-height:0; width:34px; height:34px; color:var(--fg); border-radius:8px; }
+#facepop .eye.off { color:var(--muted); }
+#facepop .eye svg { width:22px; height:22px; display:block; margin:auto; }
+/* スライドする切り替え */
+.seg { display:inline-grid; grid-auto-flow:column; grid-auto-columns:1fr; position:relative; background:var(--track);
+  border-radius:10px; padding:3px; }
+.seg .knob { position:absolute; top:3px; bottom:3px; left:3px; border-radius:8px; background:var(--card);
+  box-shadow:0 1px 3px rgba(0,0,0,.2); transition:transform .18s ease; }
+#facepop .seg button { position:relative; z-index:1; border:0; background:none; color:var(--muted); min-height:36px;
+  padding:4px 10px; font-size:.95rem; white-space:nowrap; }
+#facepop .seg button.on { color:var(--fg); font-weight:700; background:none; }
+#facepop .who input { width:2.6em; font-size:1.4rem; text-align:center; border:1px solid var(--line); border-radius:8px;
   background:var(--card); color:var(--fg); padding:0 2px; min-height:40px; }
 #facepop .who input:disabled { opacity:.35; }
 #facepop .more { justify-self:start; }
@@ -159,6 +169,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
   .right { display:flex; flex-direction:column; gap:12px; }
   .controls button { padding:4px 7px; }
   .seek { height:70px; }
+  .app { overflow-x:clip; }
   #facepop, #clippop { left:0; right:0; bottom:0; width:auto; max-height:52vh; border-radius:14px 14px 0 0; }
 }
 </style>
@@ -331,7 +342,12 @@ function renderMarkers() {
   updateHead();
 }
 
-function showTip(x, text) { const t = document.getElementById('tip'); t.textContent = text; t.style.left = `${x}px`; t.style.display = 'block'; }
+function showTip(x, text) {
+  const t = document.getElementById('tip');
+  t.textContent = text; t.style.display = 'block';
+  const half = t.offsetWidth / 2, w = seek.clientWidth;
+  t.style.left = `${Math.min(Math.max(x, half), w - half)}px`;
+}
 function hideTip() { document.getElementById('tip').style.display = 'none'; }
 
 function seekFromEvent(e) {
@@ -798,55 +814,68 @@ function showFaceMode() { document.getElementById('face').classList.toggle('on',
 const MODES = [['none', 'なし'], ['mosaic', 'モザイク'], ['text', '文字']];
 
 const LABELS = ['p0', 'p1', 'x', 'off'];
+// 選んだところへ白い板がすべる切り替え。items は [値, 文字]
+function segmented(items, get, set) {
+  const box = document.createElement('div');
+  box.className = 'seg';
+  const knob = document.createElement('span');
+  knob.className = 'knob';
+  knob.style.width = `calc((100% - 6px) / ${items.length})`;
+  box.append(knob);
+  const buttons = items.map(([value, text]) => {
+    const b = document.createElement('button');
+    b.textContent = text;
+    b.onclick = () => { set(value); paint(); };
+    box.append(b);
+    return [value, b];
+  });
+  const paint = () => {
+    const k = Math.max(0, buttons.findIndex(([value]) => value === get()));
+    knob.style.transform = `translateX(${k * 100}%)`;
+    buttons.forEach(([value, b]) => b.classList.toggle('on', value === get()));
+  };
+  paint();
+  return box;
+}
+const EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7c2 0 3.8.7 5.2 1.6M22 12s-3.5 7-10 7c-2 0-3.8-.7-5.2-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="M3 3l18 18"/></svg>';
 function renderFaceList() {
-  // ラベルごとの隠し方と文字
+  // ラベルごとの設定：名前の表示（目）、隠し方、大きさ
   const box = document.getElementById('facelabels');
   box.innerHTML = '';
   ['p0', 'p1', 'x'].forEach(l => {
+    const set = faceSet[l];
+    const save = () => { store.set(SET_KEY, JSON.stringify(faceSet)); showFaceMode(); };
     const card = document.createElement('div');
     card.className = 'who';
+
+    const head = document.createElement('div');
+    head.className = 'head';
     const name = document.createElement('div');
     name.className = `name ${l === 'x' ? '' : 'ab'[+l[1]]}`;
     name.textContent = labelName(l);
-    const opts = document.createElement('div');
-    opts.className = 'opts';
+    const eye = document.createElement('button');
+    eye.className = 'eye';
+    const paintEye = () => {
+      eye.classList.toggle('off', !set.tag);
+      eye.innerHTML = set.tag ? EYE : EYE_OFF;
+      eye.setAttribute('aria-label', set.tag ? '名前を出している' : '名前を出していない');
+    };
+    eye.onclick = () => { set.tag = !set.tag; paintEye(); save(); };
+    paintEye();
+    head.append(name, eye);
+
     const input = document.createElement('input');
-    input.value = faceSet[l].text; input.maxLength = 8; input.setAttribute('aria-label', `${labelName(l)}の文字`);
-    const save = () => { store.set(SET_KEY, JSON.stringify(faceSet)); showFaceMode(); };
-    const buttons = MODES.map(([m, text]) => {
-      const b = document.createElement('button');
-      b.textContent = text;
-      b.onclick = () => { faceSet[l].mode = m; paint(); save(); };
-      return [m, b];
-    });
-    let paint = () => {
-      buttons.forEach(([m, b]) => b.classList.toggle('on', faceSet[l].mode === m));
-      input.disabled = faceSet[l].mode !== 'text';
-    };
-    input.oninput = () => { faceSet[l].text = input.value.trim(); save(); };
-    opts.append(...buttons.map(([, b]) => b), input);
-    const opts2 = document.createElement('div');
-    opts2.className = 'opts';
-    const tagBtn = document.createElement('button');
-    tagBtn.textContent = '名前';
-    tagBtn.onclick = () => { faceSet[l].tag = !faceSet[l].tag; paint(); save(); };
-    const sizeBtns = SIZES.map(([z, text]) => {
-      const b = document.createElement('button');
-      b.textContent = text;
-      b.onclick = () => { faceSet[l].size = z; paint(); save(); };
-      return [z, b];
-    });
-    const sep = document.createElement('span');
-    sep.className = 'sep';
-    opts2.append(tagBtn, sep, ...sizeBtns.map(([, b]) => b));
-    const paint0 = paint;
-    paint = () => {
-      paint0();
-      tagBtn.classList.toggle('on', faceSet[l].tag);
-      sizeBtns.forEach(([z, b]) => b.classList.toggle('on', faceSet[l].size === z));
-    };
-    paint();
-    card.append(name, opts, opts2);
+    input.value = set.text; input.maxLength = 8; input.setAttribute('aria-label', `${labelName(l)}の文字`);
+    input.oninput = () => { set.text = input.value.trim(); save(); };
+    const mode = segmented(MODES, () => set.mode, m => { set.mode = m; input.disabled = m !== 'text'; save(); });
+    input.disabled = set.mode !== 'text';
+    const row = document.createElement('div');
+    row.className = 'opts';
+    row.append(mode, input);
+    const size = segmented(SIZES, () => set.size, z => { set.size = z; save(); });
+
+    card.append(head, row, size);
     box.append(card);
   });
   // このゲームで見つけた頭（長く映っていた順）
