@@ -127,6 +127,9 @@ header h1 .session:hover { border-color:var(--line); }
 .game svg { grid-column:1 / -1; width:100%; height:36px; display:block; margin-top:2px; }
 
 /* 情報のポップオーバー */
+.drivelink { display:inline-grid; place-items:center; text-decoration:none; }
+.drivelink svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.boot a.drive { margin-top:4px; color:#fff; border:1px solid #666; border-radius:8px; padding:6px 16px; text-decoration:none; }
 .info { border:0; background:none; cursor:pointer; color:var(--muted); font-size:1.1rem; width:32px; height:32px; border-radius:50%; }
 .info:hover { background:var(--track); }
 #infopop, #facepop, #clippop { overscroll-behavior:contain; }
@@ -229,6 +232,7 @@ header h1 .session:hover { border-color:var(--line); }
       <h1 id="date"></h1>
       <div style="display:flex; align-items:center; gap:4px">
         <div class="total" id="total"></div>
+        <a class="info drivelink" id="drivelink" target="_blank" rel="noopener noreferrer" aria-label="ドライブで開く" title="ドライブで開く" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg></a>
         <button class="info" id="infobtn" aria-label="くわしいデータ">ⓘ</button>
       </div>
     </header>
@@ -299,7 +303,10 @@ header h1 .session:hover { border-color:var(--line); }
 const EMBEDDED = {{PAGE}};
 const DRIVE = (() => {
   const h = new URLSearchParams(location.hash.slice(1));
-  return h.get('d') ? { folder: h.get('d'), key: h.get('k') || '', api: h.get('api') || 'https://www.googleapis.com/drive/v3', ids: {}, base: '' } : null;
+  // 読み込み先を変える api= は、手元での確認用。公開したページでは使わせない（よそのデータを読ませられないように）
+  const local = ['localhost', '127.0.0.1'].includes(location.hostname);
+  const api = local && h.get('api') ? h.get('api') : 'https://www.googleapis.com/drive/v3';
+  return h.get('d') ? { folder: h.get('d'), key: h.get('k') || '', api, ids: {}, base: '' } : null;
 })();
 // ページの中の場所（videos/game01.mp4 など）を、読み込む URL に
 function media(path) {
@@ -350,16 +357,37 @@ async function inTurn(items, n, f) {
   await Promise.all(Array.from({ length: n }, async () => { while (queue.length) await f(queue.shift()); }));
 }
 const boot = document.getElementById('boot');
+// ドライブのページへのリンク。行き先は drive.google.com で固定し、URL からは ID だけを使う（ほかへ飛ばされないように）
+const DRIVE_ID = /^[A-Za-z0-9_-]{10,200}$/;
+function driveFolderUrl() {
+  return DRIVE && DRIVE_ID.test(DRIVE.folder) ? `https://drive.google.com/drive/folders/${encodeURIComponent(DRIVE.folder)}` : null;
+}
+function driveFileUrl(path) {
+  const id = DRIVE && DRIVE.ids[DRIVE.base + path];
+  return id && DRIVE_ID.test(id) ? `https://drive.google.com/file/d/${encodeURIComponent(id)}/view` : null;
+}
+{
+  const a = document.getElementById('drivelink'), url = driveFolderUrl();
+  if (url) { a.href = url; a.hidden = false; }
+}
 function showLoading(text) {
   boot.innerHTML = `<div class="spin"></div><p>${text}</p>`;
   boot.hidden = false;
 }
-function showError(e) {
+// link：ドライブで直接見るためのページ（なければフォルダ）
+function showError(e, link) {
   const title = e instanceof ViewError ? e.message : '読み込めませんでした';
   const detail = e instanceof ViewError ? e.detail : e.message;
   boot.innerHTML = '<div class="err">⚠</div><h2></h2><p></p><button>もう一度</button>';
   boot.querySelector('h2').textContent = title;
   boot.querySelector('p').textContent = detail || '';
+  const url = link || driveFolderUrl();
+  if (url) {
+    const a = document.createElement('a');
+    a.className = 'drive'; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.href = url;
+    a.textContent = link ? 'ドライブでこの動画を見る' : 'ドライブで開く';
+    boot.append(a);
+  }
   // やり直すときは、覚えていたフォルダの中身も読み直す（アップロードし直した直後など）
   boot.querySelector('button').onclick = () => { try { if (DRIVE) localStorage.removeItem(`drive-list-${DRIVE.folder}`); } catch {} location.reload(); };
   boot.hidden = false;
@@ -410,6 +438,7 @@ async function driveText(path, url) {
 async function loadPage() {
   if (EMBEDDED) return EMBEDDED;
   if (!DRIVE) throw new ViewError('見るまとめが指定されていません', '共有されたリンクをそのまま開いてください（# から後ろも必要です）。');
+  if (!DRIVE_ID.test(DRIVE.folder)) throw new ViewError('リンクが正しくありません', '共有されたリンクをそのまま開いてください（d= の部分が壊れています）。');
   if (!DRIVE.key) throw new ViewError('リンクにキーがありません', '共有されたリンクをそのまま開いてください（k= の部分も必要です）。');
   showLoading('フォルダを確認中…');
   DRIVE.mod = {};
@@ -764,8 +793,8 @@ v.addEventListener('loadeddata', () => { boot.hidden = true; });
 v.addEventListener('error', () => {
   if (!v.getAttribute('src')) return;
   showError(new ViewError('動画を読み込めませんでした', DRIVE
-    ? 'ドライブの読み込みの上限に達したか、共有設定が変わったのかもしれません。しばらくおいて開き直してください。'
-    : 'videos フォルダに動画があるか確かめてください。'));
+    ? 'ドライブの読み込みの上限に達したか、共有設定が変わったのかもしれません。しばらくおいて開き直すか、ドライブで直接見てください。'
+    : 'videos フォルダに動画があるか確かめてください。'), driveFileUrl(DATA.games[current].video));
 });
 v.addEventListener('timeupdate', updateHead);
 v.addEventListener('seeked', updateHead);
