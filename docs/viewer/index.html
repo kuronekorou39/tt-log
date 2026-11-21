@@ -7,9 +7,16 @@
 <script>
 // PC と横向きのスマホは、動画とゲーム一覧を横に並べて1画面に。縦長はスマホの配置
 const WIDE = '(min-width: 960px) and (min-height: 560px), (orientation: landscape) and (min-width: 560px)';
-const setWide = () => document.documentElement.classList.toggle('wide', matchMedia(WIDE).matches);
+// 全画面と、横向きのスマホ（低い）は、シークバーとボタンを動画の上に重ねる
+const LOW = '(max-height: 559px)';
+function setWide() {
+  const c = document.documentElement.classList, fs = c.contains('fs');
+  c.toggle('wide', fs || matchMedia(WIDE).matches);
+  c.toggle('ov', fs || (c.contains('wide') && matchMedia(LOW).matches));
+}
 setWide();
 matchMedia(WIDE).addEventListener('change', setWide);
+matchMedia(LOW).addEventListener('change', setWide);
 </script>
 <style>
 :root {
@@ -147,23 +154,6 @@ header h1 .session:hover { border-color:var(--line); }
 .info { border:0; background:none; cursor:pointer; color:var(--muted); font-size:1.1rem; width:32px; height:32px; border-radius:50%; }
 .info:hover { background:var(--track); }
 #infopop, #facepop, #clippop { overscroll-behavior:contain; }
-/* 全画面：動画の場所を画面いっぱいにし、自作の操作パネルを重ねる（iPhone は動画以外を全画面にできないため） */
-html.fs, html.fs body { overflow:hidden; }
-html.fs .stage { position:fixed; inset:0; z-index:40; border-radius:0; width:100vw; height:100vh; height:100dvh; }
-.fsbar { display:none; }
-html.fs .fsbar { display:grid; gap:6px; position:absolute; left:0; right:0; bottom:0; z-index:4; padding:24px 14px 12px;
-  padding-bottom:max(12px, env(safe-area-inset-bottom)); background:linear-gradient(transparent, rgba(0,0,0,.7));
-  color:#fff; transition:opacity .25s; }
-html.fs .fsbar.hide { opacity:0; pointer-events:none; }
-.fsseek { position:relative; height:16px; cursor:pointer; }
-.fsseek::before { content:''; position:absolute; left:0; right:0; top:6px; height:4px; border-radius:2px; background:rgba(255,255,255,.3); }
-.fsplayed { position:absolute; left:0; top:6px; height:4px; border-radius:2px; background:#fff; }
-.fsrow { display:flex; align-items:center; gap:10px; }
-.fsrow button { border:0; background:none; color:#fff; font-size:1.1rem; min-width:40px; min-height:40px; cursor:pointer; border-radius:8px;
-  display:grid; place-items:center; }
-.fsrow #fsplay { width:48px; height:48px; border-radius:50%; background:#fff; color:#111; }
-.fsrow svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
-#fstime { font-variant-numeric:tabular-nums; font-size:.9rem; }
 #drivepop { position:fixed; top:52px; right:14px; width:min(300px, calc(100vw - 24px)); background:var(--card); border:1px solid var(--line);
   border-radius:12px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:21; display:grid; gap:10px; font-size:.9rem; }
 #drivepop p { margin:0; }
@@ -245,6 +235,34 @@ html.wide .right .games { overflow:auto; }
   html.wide .total { font-size:1.15rem; }
 }
 
+/* ---- 重ねる配置（全画面・横向きのスマホ）：動画を下まで広げ、シークバーとボタンを上に重ねる ---- */
+html.ov .left { grid-template-rows:auto minmax(0,1fr) auto auto; grid-template-columns:minmax(0,1fr); gap:0 !important; }
+html.ov .stage { grid-row:2 / 5; grid-column:1; }
+html.ov header { margin-bottom:4px; }
+html.ov .seek, html.ov .controls { grid-column:1; position:relative; z-index:6; transition:opacity .25s;
+  --fg:#fff; --bg:#111; --muted:#ddd; --card:#000; --line:rgba(255,255,255,.3); --track:rgba(255,255,255,.25); --played:rgba(255,255,255,.55);
+  --a:#f07484; --b:#5db6d9; color:var(--fg); }
+html.ov .seek { grid-row:3; margin:0 12px; }
+html.ov .seek::before { content:''; position:absolute; left:-12px; right:-12px; top:0; bottom:0; background:linear-gradient(transparent, rgba(0,0,0,.55)); z-index:-1; }
+html.ov .controls { grid-row:4; flex-wrap:wrap; row-gap:0; gap:4px; padding:0 8px 6px; padding-bottom:max(6px, env(safe-area-inset-bottom)); background:rgba(0,0,0,.55); }
+html.ov .controls .lbl { display:none; }
+html.ov .controls .grp { gap:2px; }
+html.ov:not(.fs) .app { grid-template-columns:minmax(0,1fr) clamp(180px, 27vw, 360px); }
+html.ov .controls button { padding:4px 5px; min-width:34px; }
+html.ov .controls .sepgrp { border-left:0; padding-left:0; }
+html.ov .controls button.menu { border-color:transparent; }
+html.ov .controls #play { width:40px; height:40px; }
+html.ov .controls .time { font-size:.85rem; white-space:nowrap; }
+html.ov.idle .seek, html.ov.idle .controls { opacity:0; pointer-events:none; }
+/* 全画面：見出しとゲーム一覧を消して、動画を画面いっぱいに */
+html.fs .app { grid-template-columns:minmax(0,1fr); padding:0; gap:0; height:100%; }
+html.fs header, html.fs .right { display:none; }
+html.fs .stage { border-radius:0; }
+html.fs, html.fs body { overflow:hidden; background:#000; }
+html.fs #facepop, html.fs #clippop { z-index:30; }
+/* 縦向きのまま横向きにできないスマホ（iPhone など）：画面ごと90度回す */
+html.fs.rot body { position:fixed; left:0; top:0; width:100vh; width:100dvh; height:100vw; transform-origin:0 0; transform:translateX(100vw) rotate(90deg); }
+
 /* ---- 縦長（スマホ）：縦に並べてスクロール ---- */
 html:not(.wide) .app { display:flex; flex-direction:column; gap:12px; padding:0 12px 40px; overflow-x:clip; }
 html:not(.wide) .left { display:flex; flex-direction:column; gap:6px; position:sticky; top:0; z-index:5; background:var(--bg); padding-top:10px; padding-bottom:4px; }
@@ -278,17 +296,6 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
       <canvas class="mask" id="mask"></canvas>
       <div class="empty" id="empty" hidden>動画なし</div>
       <div class="boot" id="boot" hidden></div>
-      <div class="fsbar" id="fsbar">
-        <div class="fsseek" id="fsseek"><div class="fsplayed" id="fsplayed"></div></div>
-        <div class="fsrow">
-          <button id="fsplay" aria-label="再生">▶</button>
-          <button id="fsprev" aria-label="前の点">⏮</button>
-          <button id="fsnext" aria-label="次の点">⏭</button>
-          <span id="fstime"></span>
-          <span style="flex:1"></span>
-          <button id="fsexit" aria-label="全画面をやめる"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/></svg></button>
-        </div>
-      </div>
       <button class="bigplay" id="bigplay" aria-label="動画を読み込んで再生" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
       <div class="now" id="now"></div>
       <div class="cap" id="cap" hidden></div>
@@ -433,7 +440,9 @@ function driveFileUrl(path) {
   }
 }
 function showLoading(text) {
-  boot.innerHTML = `<div class="spin"></div><p>${text}</p>`;
+  // 進み具合のたびに作り直すと、くるくるが最初に戻って回らない
+  if (!boot.querySelector('.spin')) boot.innerHTML = '<div class="spin"></div><p></p>';
+  boot.querySelector('p').textContent = text;
   boot.hidden = false;
 }
 // link：ドライブで直接見るためのページ（なければフォルダ）
@@ -698,10 +707,14 @@ function showTip(x, text) {
 }
 function hideTip() { document.getElementById('tip').style.display = 'none'; }
 
+// 画面ごと90度回しているときは、画面の縦が中身の横
+const rotated = () => document.documentElement.classList.contains('rot');
+const pt = e => rotated() ? { x: e.clientY, y: -e.clientX } : { x: e.clientX, y: e.clientY };
 function seekFromEvent(e) {
   if (!v.duration) return;
   const r = seek.getBoundingClientRect();
-  v.currentTime = Math.min(Math.max(0, (e.clientX - r.left) / r.width), 1) * v.duration;
+  const f = rotated() ? (e.clientY - r.top) / r.height : (e.clientX - r.left) / r.width;
+  v.currentTime = Math.min(Math.max(0, f), 1) * v.duration;
 }
 let seeking = false;
 seek.addEventListener('pointerdown', e => { if (e.target.closest('.mk')) return; seeking = true; seek.setPointerCapture(e.pointerId); seekFromEvent(e); });
@@ -1090,18 +1103,18 @@ let drag = null, pinch = null;
 const touches = new Map();
 const spread = () => { const [a, b] = [...touches.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
 stage.addEventListener('pointerdown', e => {
-  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  touches.set(e.pointerId, pt(e));
   stage.setPointerCapture(e.pointerId);
   if (touches.size === 2) { pinch = { d: spread(), zoom: view.zoom }; drag = null; return; }
-  drag = { x: e.clientX, y: e.clientY, cx: view.cx, cy: view.cy, moved: false };
+  drag = { ...pt(e), cx: view.cx, cy: view.cy, moved: false };
 });
 const release = e => { touches.delete(e.pointerId); if (touches.size < 2) pinch = null; };
 stage.addEventListener('pointercancel', e => { release(e); drag = null; });
 stage.addEventListener('pointermove', e => {
-  if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touches.has(e.pointerId)) touches.set(e.pointerId, pt(e));
   if (pinch && touches.size === 2) { setZoom(pinch.zoom * spread() / pinch.d); return; }
   if (!drag) return;
-  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  const p = pt(e), dx = p.x - drag.x, dy = p.y - drag.y;
   if (Math.abs(dx) + Math.abs(dy) > 6) drag.moved = true;
   if (!drag.moved || view.zoom === 1) return;
   const w = parseFloat(v.style.width), h = parseFloat(v.style.height);
@@ -1114,51 +1127,52 @@ stage.addEventListener('pointerup', e => {
   if (drag && !drag.moved && !wasPinch && v.src) { v.paused ? v.play() : v.pause(); }
   drag = null;
 });
-// 全画面：動画の場所を画面いっぱいに。使えるブラウザでは、ブラウザ自体も全画面にしてアドレスバーを消す
-const fsbar = document.getElementById('fsbar');
-function setFull(on) {
-  document.documentElement.classList.toggle('fs', on);
-  if (on) document.documentElement.requestFullscreen?.().catch(() => {});
-  else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-  showFsBar();
-  setTimeout(applyView, 60);
+// 全画面：動画を画面いっぱいにし、いつものシークバーとボタンを重ねる。
+// スマホは横向きにする（向きを固定できないブラウザでは、画面ごと90度回す）
+const root = document.documentElement, fsBtn = document.getElementById('fullscreen');
+const PORTRAIT = matchMedia('(orientation: portrait)'), COARSE = matchMedia('(pointer: coarse)');
+const isFull = () => root.classList.contains('fs');
+let locked = false;
+function relayout() {
+  root.classList.toggle('rot', isFull() && !locked && COARSE.matches && PORTRAIT.matches);
+  setWide();
+  requestAnimationFrame(() => { renderMarkers(); applyView(); });
 }
-const isFull = () => document.documentElement.classList.contains('fs');
-document.getElementById('fullscreen').onclick = () => setFull(true);
-document.getElementById('fsexit').onclick = e => { e.stopPropagation(); setFull(false); };
+async function setFull(on) {
+  root.classList.toggle('fs', on);
+  fsBtn.classList.toggle('on', on);
+  fsBtn.setAttribute('aria-label', on ? '全画面をやめる' : '全画面');
+  locked = false;
+  relayout();
+  showBar();
+  if (on) {
+    try { await root.requestFullscreen?.(); } catch {}
+    if (COARSE.matches) try { await screen.orientation.lock('landscape'); locked = true; } catch {}
+  } else {
+    try { screen.orientation?.unlock?.(); } catch {}
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
+  relayout();
+}
+fsBtn.onclick = () => setFull(!isFull());
 stage.addEventListener('dblclick', () => setFull(!isFull()));
 // Esc や戻る操作でブラウザの全画面が解けたら、こちらも戻す
-document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && isFull()) setFull(false); setTimeout(applyView, 60); });
-addEventListener('resize', () => { if (isFull()) applyView(); });
-// 操作パネル：触ると出て、再生中は少しすると消える
-let fsTimer = null;
-function showFsBar() {
-  updateFsBar();
-  fsbar.classList.remove('hide');
-  clearTimeout(fsTimer);
-  if (!v.paused) fsTimer = setTimeout(() => fsbar.classList.add('hide'), 3000);
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && isFull()) setFull(false); else relayout(); });
+PORTRAIT.addEventListener('change', () => { if (isFull()) relayout(); });
+// 重ねたシークバーとボタン：触ると出て、再生中は少しすると消える
+let barTimer = null;
+function showBar() {
+  root.classList.remove('idle');
+  clearTimeout(barTimer);
+  if (!v.paused) barTimer = setTimeout(() => { if (root.classList.contains('ov')) root.classList.add('idle'); }, 3000);
 }
-stage.addEventListener('pointermove', () => { if (isFull()) showFsBar(); });
-stage.addEventListener('pointerdown', () => { if (isFull()) showFsBar(); });
-v.addEventListener('play', showFsBar);
-v.addEventListener('pause', showFsBar);
-['pointerdown', 'pointerup', 'click', 'dblclick'].forEach(ev => fsbar.addEventListener(ev, e => e.stopPropagation()));
-document.getElementById('fsplay').onclick = () => { v.paused ? v.play() : v.pause(); };
-document.getElementById('fsprev').onclick = () => step(-1);
-document.getElementById('fsnext').onclick = () => step(1);
-const fsseek = document.getElementById('fsseek');
-fsseek.onclick = e => {
-  const r = fsseek.getBoundingClientRect();
-  if (v.duration) v.currentTime = Math.min(Math.max(0, (e.clientX - r.left) / r.width), 1) * v.duration;
-};
-function updateFsBar() {
-  const d = v.duration || 0, t = v.currentTime || 0;
-  document.getElementById('fsplayed').style.width = d ? `${t / d * 100}%` : '0';
-  document.getElementById('fstime').textContent = `${fmt(t)} / ${fmt(d)}`;
-  document.getElementById('fsplay').textContent = v.paused ? '▶' : '❚❚';
-}
-['timeupdate', 'play', 'pause', 'seeked', 'loadedmetadata'].forEach(ev => v.addEventListener(ev, updateFsBar));
-updateFsBar();
+['pointermove', 'pointerdown'].forEach(ev => {
+  stage.addEventListener(ev, showBar);
+  seek.addEventListener(ev, showBar);
+  document.querySelector('.controls').addEventListener(ev, showBar);
+});
+v.addEventListener('play', showBar);
+v.addEventListener('pause', showBar);
 
 // ---------- 顔を隠す ----------
 // 頭の位置は data/faces-gameNN.js（0.1秒ごと、続いている頭ごとに番号）。間は同じ番号どうしをなめらかにつなぐ
