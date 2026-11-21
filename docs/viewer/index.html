@@ -194,6 +194,14 @@ header h1 .session:hover { border-color:var(--line); }
 #clippop button.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
 #clippop .go { background:var(--fg); color:var(--bg); font-weight:700; }
 #clippop .msg { font-size:.9rem; }
+#clippop .msg:empty { display:none; }
+#clippop .pick { display:grid; gap:10px; }
+#clippop .pickrow { display:flex; align-items:center; justify-content:space-between; gap:10px; padding-right:34px; }
+#clippop #clipsize { color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+#clippop .seg button { position:relative; z-index:1; border:0; background:none; color:var(--muted); min-height:36px;
+  padding:4px 16px; font-size:.95rem; white-space:nowrap; }
+#clippop .seg button.on { color:var(--fg); font-weight:700; background:none; }
+#clippop #clipgo { min-height:40px; }
 #facepop { position:fixed; right:14px; bottom:14px; width:min(340px, calc(100vw - 24px)); max-height:calc(100vh - 80px);
   overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px;
   box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:20; display:grid; gap:10px; font-size:.9rem; }
@@ -361,6 +369,10 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
 </div>
 <div id="clippop" hidden>
   <button class="popx" id="clipx" aria-label="閉じる">✕</button>
+  <div class="pick" id="clippick" hidden>
+    <div class="pickrow"><span id="clipseg"></span><span id="clipsize"></span></div>
+    <button class="go" id="clipgo">保存</button>
+  </div>
   <div class="msg" id="clipmsg"></div>
   <div class="row"><button id="clipstop">止めて保存</button></div>
   <input type="file" id="clipfile" accept="video/*" hidden>
@@ -817,6 +829,8 @@ const bigplay = document.getElementById('bigplay');
 // 丸ごと読んだものは同じページのデータになるので、保存（書き出し）もそのままできる
 const KEEP_VIDEOS = 10;             // ブラウザに残す動画の数（古いものから消す）
 const blobUrls = {};                // 場所 → ページの中の URL
+const blobOf = {};                  // ページの中の URL → 中身（保存のときにコピーせず読む）
+const keepBlob = b => { const u = URL.createObjectURL(b); blobOf[u] = b; return u; };
 const have = new Set();             // ブラウザに残っている動画
 const progress = {};                // 読み込み中の場所 → 0〜1
 const failed = {};                  // 読み込めなかった場所 → エラー
@@ -833,7 +847,7 @@ async function fromCache(path) {
   const cache = await openCache();
   const hit = await cache?.match(cacheKey(path)).catch(() => null);
   if (!hit) return null;
-  return (blobUrls[path] = URL.createObjectURL(await hit.blob()));
+  return (blobUrls[path] = keepBlob(await hit.blob()));
 }
 const loadOrder = () => { try { return JSON.parse(localStorage.getItem('tt-media-order')) || []; } catch { return []; } };
 const saveOrder = o => { try { localStorage.setItem('tt-media-order', JSON.stringify(o)); } catch {} };
@@ -896,14 +910,14 @@ async function fetchMedia(path) {
       } catch (e) { console.warn('ブラウザに残せませんでした', e); }
     }
     // 残せないときは、ページを開いている間だけ持つ（メモリを使うので、動画は今見ているもの以外 IN_MEMORY 本まで）
-    blobUrls[path] = URL.createObjectURL(blob);
+    blobUrls[path] = keepBlob(blob);
     if (video) {
       memOrder.push(path);
       for (let k = 0; memOrder.length > IN_MEMORY && k < memOrder.length;) {
         const old = memOrder[k];
         if (old === DATA.games[current].video || old === path) { k++; continue; }
         memOrder.splice(k, 1);
-        URL.revokeObjectURL(blobUrls[old]); delete blobUrls[old]; paintGame(old);
+        URL.revokeObjectURL(blobUrls[old]); delete blobOf[blobUrls[old]]; delete blobUrls[old]; paintGame(old);
       }
     }
   } catch (e) {
@@ -1681,6 +1695,7 @@ function canExport(url) {
       t.removeAttribute('src'); t.load();
     }, { once: true });
     t.addEventListener('error', () => res(false), { once: true });
+    setTimeout(() => res(false), 8000);  // 返事がなければ、ファイルを選んでもらう
   });
 }
 function pickVideo(n) {
@@ -1694,7 +1709,7 @@ function pickVideo(n) {
     input.onchange = () => {
       const f = input.files[0]; input.value = '';
       if (!f) return;
-      picked[n] = URL.createObjectURL(f);
+      picked[n] = keepBlob(f);
       clipmsg.textContent = '';
       res(picked[n]);
     };
@@ -1702,48 +1717,84 @@ function pickVideo(n) {
 }
 // ---- 速い保存：動画を1コマずつ「展開 → 顔を隠す → 切り取り → 圧縮」して mp4 に。音は元のまま ----
 // 再生を待たないので速く、元の 60 コマ/秒のまま。分解と組み立てには mediabunny を使う
-// 元の動画（約10Mbps）を作り直しても粗くならない強さ
-const SAVE_BITRATE = 16e6;
+// 画質。share：元の動画に対する大きさ、h：高さ（なしは元のまま）、fps：コマ数（なしは元のまま）
+const SAVE_TIERS = {
+  high: { label: '高', share: 1 },
+  mid: { label: '中', share: 0.5, h: 720 },
+  low: { label: '小', share: 0.25, h: 720, fps: 30 },
+};
+let saveTier = SAVE_TIERS[store.get('saveTier')] ? store.get('saveTier') : 'high';
+const FALLBACK_BITRATE = 12e6;      // 元の大きさが分からないとき
+const even = n => Math.max(2, Math.round(n / 2) * 2);
+// 切り取った大きさ（cw×ch）から、書き出す大きさと、元の動画に対する大きさの割合を決める（引き伸ばさない）
+function outputOf(tier, W, H, cw, ch) {
+  const scale = tier.h ? Math.min(1, tier.h / ch) : 1;
+  const ow = even(cw * scale), oh = even(ch * scale);
+  const full = tier.h ? Math.min(H, tier.h) ** 2 * (W / H) : W * H;
+  return { ow, oh, share: tier.share * Math.min(1, ow * oh / full) };
+}
+const saveRange = g => {
+  const ranged = g.points.filter(p => p.r);
+  return ranged.length ? [ranged[0].r[0], ranged[ranged.length - 1].r[1]] : [0, g.dur || 0];
+};
 const MEDIABUNNY = 'https://cdn.jsdelivr.net/npm/mediabunny@1.63.0/dist/bundles/mediabunny.min.mjs';
 let mediabunny = null;
-async function fastSave(g, url) {
+async function fastSave(g, url, tier) {
+  // 読み終わったら通信を閉じる（開いたままだと、次の動画の読み込みが詰まる）
+  let opened = null;
+  try { return await runFastSave(g, url, tier, i => { opened = i; }); }
+  finally { opened?.dispose(); }
+}
+async function runFastSave(g, url, tier, onInput) {
   if (!window.VideoEncoder || !window.VideoDecoder || !window.OffscreenCanvas) return false;
-  let M, blob;
+  let M;
   try {
     clipmsg.textContent = '準備中…';
     M = await (mediabunny ||= import(MEDIABUNNY));
-    blob = await (await fetch(url)).blob();
   } catch (e) { console.warn('速い保存を使えません', e); mediabunny = null; return false; }
-  const input = new M.Input({ source: new M.BlobSource(blob), formats: M.ALL_FORMATS });
+  // 動画をもう1本コピーすると、空きの少ない端末で失敗する。手元の中身か URL から必要な分だけ読む
+  const known = blobOf[url];
+  const bytes = known ? known.size : await sourceBytes(g);
+  const input = new M.Input({ source: known ? new M.BlobSource(known) : new M.UrlSource(url), formats: M.ALL_FORMATS });
+  onInput(input);
   const track = await input.getPrimaryVideoTrack().catch(() => null);
   if (!track) return false;
   const W = track.displayWidth, H = track.displayHeight;
   // 拡大している部分を切り取る（引き伸ばさず、そのままの細かさで）
-  const z = view.zoom, even = n => Math.max(2, Math.round(n / 2) * 2);
+  const z = view.zoom;
   const cw = even(W / z), ch = even(H / z);
   const cx = Math.min(Math.max(view.cx, 0.5 / z), 1 - 0.5 / z), cy = Math.min(Math.max(view.cy, 0.5 / z), 1 - 0.5 / z);
   const sx = Math.min(Math.max(0, Math.round(cx * W - cw / 2)), W - cw), sy = Math.min(Math.max(0, Math.round(cy * H - ch / 2)), H - ch);
-  if (!(await M.canEncodeVideo('avc', { width: cw, height: ch }).catch(() => false))) return false;
+  const { ow, oh, share } = outputOf(tier, W, H, cw, ch);
+  if (!(await M.canEncodeVideo('avc', { width: ow, height: oh }).catch(() => false))) return false;
   const full = new OffscreenCanvas(W, H), fctx = full.getContext('2d');
-  const out = new OffscreenCanvas(cw, ch), octx = out.getContext('2d');
+  const out = new OffscreenCanvas(ow, oh), octx = out.getContext('2d');
+  const asIs = ow === W && oh === H;  // 切り取りも縮小もなければ、1回ぶん描かずに済む
   // 最初の点のサーブ前から、最後の点を入れたところまで
   const ranged = g.points.filter(p => p.r);
   const a = ranged.length ? ranged[0].r[0] : 0;
-  const b = ranged.length ? ranged[ranged.length - 1].r[1] : await input.computeDuration();
+  const duration = await input.computeDuration();
+  const b = ranged.length ? ranged[ranged.length - 1].r[1] : duration;
+  // コマ数を伝えないと圧縮器が 30 コマと見なして大きくなる。一定のビットレートで、端末によらず狙った大きさに
+  const srcFps = Math.round((await track.computePacketStats(120)).averagePacketRate) || 60;
+  const frameRate = Math.min(tier.fps || srcFps, srcFps);
+  const bitrate = Math.round((bytes ? bytes * 8 / duration : FALLBACK_BITRATE) * share);
   const output = new M.Output({ format: new M.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new M.BufferTarget() });
   let conv;
   try {
     conv = await M.Conversion.init({
       input, output, trim: { start: a, end: b }, showWarnings: false,
       video: {
-        codec: 'avc', bitrate: SAVE_BITRATE, forceTranscode: true, processedWidth: cw, processedHeight: ch,
+        codec: 'avc', quality: new M.Quality({ bitrate, bitrateMode: 'constant' }), frameRate,
+        forceTranscode: true, processedWidth: ow, processedHeight: oh,
         process: sample => {
           // 出てくる時刻は切り出しの始めが 0。顔の位置は元の動画の時刻で引く
           const at = sample.timestamp + a;
           const frame = sample.toCanvasImageSource();
           fctx.drawImage(frame, 0, 0, W, H);
           drawMasks(fctx, frame, W, H, W, H, g, headsAt(g.n, at), at, false, false);
-          octx.drawImage(full, sx, sy, cw, ch, 0, 0, cw, ch);
+          if (asIs) return full;
+          octx.drawImage(full, sx, sy, cw, ch, 0, 0, ow, oh);
           return out;
         },
       },
@@ -1779,28 +1830,54 @@ function pickMime() {
   const types = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
   return types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
 }
+const clippick = document.getElementById('clippick');
+// 保存される大きさの目安（元のファイルの大きさから）
+async function sourceBytes(g) {
+  if (DRIVE) return sizeOf(g.video);
+  try { return +(await fetch(media(g.video), { method: 'HEAD' })).headers.get('content-length') || 0; } catch { return 0; }
+}
 document.getElementById('save').onclick = async () => {
   if (recording) { clippop.hidden = false; fitSheet(clippop); return; }
   const g = DATA.games[current];
   if (!g.video) return;
   facepop.hidden = true;
-  clippop.hidden = false; fitSheet(clippop);
-  document.getElementById('clipstop').hidden = true;
   clipmsg.textContent = '';
+  document.getElementById('clipstop').hidden = true;
+  const size = document.getElementById('clipsize');
+  const bytes = await sourceBytes(g);
+  const showSize = () => {
+    const tier = SAVE_TIERS[saveTier], W = v.videoWidth || 1920, H = v.videoHeight || 1080;
+    const { share } = outputOf(tier, W, H, even(W / view.zoom), even(H / view.zoom));
+    const [a, b] = saveRange(g);
+    size.textContent = bytes && g.dur ? `約${mb(bytes * share * (b - a) / g.dur)}` : '';
+  };
+  const host = document.getElementById('clipseg');
+  host.replaceChildren(segmented(Object.entries(SAVE_TIERS).map(([k, x]) => [k, x.label]), () => saveTier,
+    k => { saveTier = k; store.set('saveTier', k); showSize(); }));
+  showSize();
+  document.getElementById('clipgo').onclick = () => { clippick.hidden = true; startSave(g, SAVE_TIERS[saveTier]); };
+  clippick.hidden = false;
+  clippop.hidden = false; fitSheet(clippop);
+};
+async function startSave(g, tier) {
   const mime = pickMime();
   if (!mime) { clipmsg.textContent = 'このブラウザでは保存できません'; return; }
   let url = picked[g.n] || (DRIVE ? await mediaBlob(g.video, { urgent: true, onProgress: f =>
     { if (f !== null) clipmsg.textContent = `動画を読み込み中… ${Math.floor(f * 100)}%`; } }) : media(g.video));
-  if (!DRIVE && !picked[g.n] && !(await canExport(url))) url = await pickVideo(g.n);
   v.pause();
   // 速い保存（再生せずに1コマずつ作り直す）。使えないブラウザでは、再生しながら録る
-  if (await fastSave(g, url)) return;
+  if (await fastSave(g, url, tier)) return;
+  if (!DRIVE && !picked[g.n] && !(await canExport(url))) {
+    url = await pickVideo(g.n);
+    if (await fastSave(g, url, tier)) return;
+  }
 
   const src = document.createElement('video');
   src.playsInline = true; src.preload = 'auto'; src.src = url;
   await new Promise(r => src.addEventListener('loadedmetadata', r, { once: true }));
   const W = src.videoWidth, H = src.videoHeight;
-  const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
+  const { ow: OW, oh: OH, share } = outputOf(tier, W, H, even(W / view.zoom), even(H / view.zoom));
+  const canvas = document.createElement('canvas'); canvas.width = OW; canvas.height = OH;
   const ctx = canvas.getContext('2d');
   // 顔を隠した1コマを描いてから、そのときの拡大のぶんを切り取る
   const full = document.createElement('canvas'); full.width = W; full.height = H;
@@ -1819,7 +1896,7 @@ document.getElementById('save').onclick = async () => {
   dest.stream.getAudioTracks().forEach(tr => stream.addTrack(tr));
 
   const chunks = [];
-  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12e6 });
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: Math.round(FALLBACK_BITRATE * share) });
   rec.ondataavailable = e => e.data.size && chunks.push(e.data);
   // 最初の点のサーブ前から、最後の点を入れたところまで
   const ranged = g.points.filter(p => p.r);
@@ -1832,7 +1909,7 @@ document.getElementById('save').onclick = async () => {
     if (done) return;
     fctx.drawImage(src, 0, 0, W, H);
     drawMasks(fctx, src, W, H, W, H, g, headsAt(g.n, src.currentTime), src.currentTime, false, false);
-    ctx.drawImage(full, ...cropOf(), 0, 0, W, H);
+    ctx.drawImage(full, ...cropOf(), 0, 0, OW, OH);
     clipmsg.textContent = `第${g.n}ゲームを保存中 ${fmt(src.currentTime - a)} / ${fmt(b - a)}`;
     if (src.currentTime >= b || src.ended) { rec.stop(); return; }
     if (src.requestVideoFrameCallback) src.requestVideoFrameCallback(draw); else requestAnimationFrame(draw);
@@ -1855,14 +1932,14 @@ document.getElementById('save').onclick = async () => {
   recording = rec;
   document.getElementById('save').classList.add('on');
   document.getElementById('clipstop').hidden = false;
-  ctx.drawImage(src, 0, 0, W, H);
+  ctx.drawImage(src, 0, 0, OW, OH);
   rec.start(500);
   draw();
   try { await ac.resume(); await src.play(); }
   catch { done = true; recording = null; rec.onstop = null; rec.stop(); ac.close();
     document.getElementById('save').classList.remove('on'); document.getElementById('clipstop').hidden = true;
     clipmsg.textContent = '再生できませんでした'; }
-};
+}
 
 try { const saved = JSON.parse(store.get('view')); if (saved && saved.zoom) view = saved; } catch {}
 select(0, false);
