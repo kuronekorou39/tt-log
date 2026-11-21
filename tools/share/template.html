@@ -175,6 +175,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
         <button id="caps" aria-label="字幕" hidden>字幕</button>
         <button id="voice" aria-label="胸元マイクの音" hidden>音声</button>
         <button id="playmarks" aria-label="★だけ再生" hidden>★▶</button>
+        <button id="face" aria-label="顔を隠す" hidden>顔</button>
         <button id="clip" aria-label="切り出し">切り出し</button>
       </div>
     </div>
@@ -665,13 +666,22 @@ function drawPreview() {
   requestAnimationFrame(drawPreview);
 }
 requestAnimationFrame(drawPreview);
+const FACE_MODES = ['none', 'mosaic', 'emoji'];
 function showFaceMode() {
   document.querySelectorAll('[data-face]').forEach(b => b.classList.toggle('on', b.dataset.face === faceMode));
+  const fb = document.getElementById('face');
+  fb.textContent = { none: '顔', mosaic: 'モザイク', emoji: EMOJI }[faceMode];
+  fb.classList.toggle('on', faceMode !== 'none');
 }
+document.getElementById('face').onclick = () => {
+  faceMode = FACE_MODES[(FACE_MODES.indexOf(faceMode) + 1) % FACE_MODES.length];
+  store.set('faceMode', faceMode); showFaceMode();
+};
 document.querySelectorAll('[data-face]').forEach(b => b.onclick = () => {
   faceMode = b.dataset.face; store.set('faceMode', faceMode); showFaceMode();
 });
 document.getElementById('facerow').hidden = !Object.keys(FACES).length;
+document.getElementById('face').hidden = !Object.keys(FACES).length;
 if (!Object.keys(FACES).length) faceMode = 'none';
 showFaceMode();
 
