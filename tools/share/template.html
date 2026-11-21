@@ -142,6 +142,7 @@ header h1 .session:hover { border-color:var(--line); }
 /* 情報のポップオーバー */
 .drivelink { display:inline-grid; place-items:center; text-decoration:none; }
 .drivelink svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.boot a.drive, .boot button { white-space:nowrap; }
 .boot a.drive { margin-top:4px; color:#fff; border:1px solid #666; border-radius:8px; padding:6px 16px; text-decoration:none; }
 .info { border:0; background:none; cursor:pointer; color:var(--muted); font-size:1.1rem; width:32px; height:32px; border-radius:50%; }
 .info:hover { background:var(--track); }
@@ -446,7 +447,7 @@ function showError(e, link) {
   if (url) {
     const a = document.createElement('a');
     a.className = 'drive'; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.href = url;
-    a.textContent = link ? 'ドライブでこの動画を見る' : 'ドライブで開く';
+    a.textContent = link ? 'ドライブで見る' : 'ドライブで開く';
     boot.append(a);
   }
   // やり直すときは、覚えていたフォルダの中身も読み直す（アップロードし直した直後など）
@@ -898,7 +899,7 @@ v.addEventListener('loadeddata', () => { boot.hidden = true; });
 v.addEventListener('error', () => {
   if (!v.getAttribute('src')) return;
   showError(new ViewError('動画を読み込めませんでした', DRIVE
-    ? 'ドライブの読み込みの上限に達したか、共有設定が変わったのかもしれません。しばらくおいて開き直すか、ドライブで直接見てください。'
+    ? '時間をおいて開き直してください。'
     : 'videos フォルダに動画があるか確かめてください。'), driveFileUrl(DATA.games[current].video));
 });
 v.addEventListener('timeupdate', updateHead);
