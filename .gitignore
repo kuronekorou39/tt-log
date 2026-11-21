@@ -13,3 +13,4 @@ DerivedData/
 
 # 友人に渡すまとめ（動画・実名を含む）
 /share/
+__pycache__/
