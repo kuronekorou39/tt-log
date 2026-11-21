@@ -145,6 +145,23 @@ header h1 .session:hover { border-color:var(--line); }
 .game .sc { font-weight:800; font-variant-numeric:tabular-nums; text-align:right; }
 .game .sc small { font-weight:400; margin-left:6px; }
 .game svg { grid-column:1 / -1; width:100%; height:36px; display:block; margin-top:2px; }
+/* ドライブ：まだ読んでいないゲームは暗く。読み込み中は左から明るく */
+.game { position:relative; --dim:rgba(20,24,32,.22); }
+.game.need::after { content:''; position:absolute; inset:0; pointer-events:none;
+  background:linear-gradient(to right, transparent var(--p, 0%), var(--dim) var(--p, 0%)); }
+.game.err .no::after { content:' ⚠'; }
+@media (prefers-color-scheme: dark) { .game { --dim:rgba(0,0,0,.5); } }
+#dlpop { position:fixed; width:220px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px;
+  box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:21; display:grid; gap:6px; font-size:.9rem; }
+#dlpop .sub { margin:0; color:var(--muted); font-variant-numeric:tabular-nums; }
+#dlpop .row { display:flex; gap:8px; justify-content:flex-end; margin-top:4px; }
+#dlpop button { border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:8px; padding:6px 14px; cursor:pointer; font-size:.9rem; white-space:nowrap; }
+#dlpop .go { background:var(--fg); color:var(--bg); border-color:var(--fg); }
+/* 通信量の注意 */
+#datanote { position:fixed; top:8px; left:50%; transform:translateX(-50%); z-index:22; display:flex; align-items:center; gap:6px;
+  background:var(--fg); color:var(--bg); border-radius:20px; padding:4px 6px 4px 14px; font-size:.8rem; white-space:nowrap;
+  box-shadow:0 4px 14px rgba(0,0,0,.2); }
+#datanote button { border:0; background:none; color:inherit; cursor:pointer; width:28px; height:28px; }
 
 /* 情報のポップオーバー */
 .drivelink { display:inline-grid; place-items:center; text-decoration:none; }
@@ -336,6 +353,8 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
   </section>
 </div>
 <div id="infopop" hidden></div>
+<div id="dlpop" hidden></div>
+<div id="datanote" hidden><span></span><button aria-label="閉じる">✕</button></div>
 <div id="drivepop" hidden>
   <p>Google ドライブのフォルダを、新しいタブで開きます。</p>
   <div class="row"><a id="drivego" class="go" target="_blank" rel="noopener noreferrer">開く</a><button id="drivecancel">やめる</button></div>
@@ -367,7 +386,7 @@ const DRIVE = (() => {
   // 読み込み先を変える api= は、手元での確認用。公開したページでは使わせない（よそのデータを読ませられないように）
   const local = ['localhost', '127.0.0.1'].includes(location.hostname);
   const api = local && h.get('api') ? h.get('api') : 'https://www.googleapis.com/drive/v3';
-  return h.get('d') ? { folder: h.get('d'), key: h.get('k') || '', api, ids: {}, base: '' } : null;
+  return h.get('d') ? { folder: h.get('d'), key: h.get('k') || '', api, ids: {}, size: {}, base: '' } : null;
 })();
 // ページの中の場所（videos/game01.mp4 など）を、読み込む URL に
 function media(path) {
@@ -479,10 +498,13 @@ function showChooser(bases) {
 }
 async function driveList(id, prefix) {
   const q = encodeURIComponent(`'${id}' in parents and trashed=false`);
-  const r = await driveFetch(`${DRIVE.api}/files?q=${q}&fields=files(id,name,mimeType,modifiedTime)&pageSize=1000&key=${encodeURIComponent(DRIVE.key)}`, 'フォルダ');
+  const r = await driveFetch(`${DRIVE.api}/files?q=${q}&fields=files(id,name,mimeType,modifiedTime,size)&pageSize=1000&key=${encodeURIComponent(DRIVE.key)}`, 'フォルダ');
   for (const f of (await r.json()).files || []) {
     if (f.mimeType === 'application/vnd.google-apps.folder') await driveList(f.id, `${prefix}${f.name}/`);
-    else { DRIVE.ids[`${prefix}${f.name}`] = f.id; DRIVE.mod[`${prefix}${f.name}`] = f.modifiedTime || ''; }
+    else {
+      DRIVE.ids[`${prefix}${f.name}`] = f.id; DRIVE.mod[`${prefix}${f.name}`] = f.modifiedTime || '';
+      DRIVE.size[`${prefix}${f.name}`] = +f.size || 0;
+    }
   }
 }
 // ドライブは短い間に何度も読むと弾くので、フォルダの中身とデータはブラウザに覚えておく。
@@ -492,10 +514,10 @@ async function driveListCached() {
   const key = `drive-list-${DRIVE.folder}`;
   try {
     const c = JSON.parse(localStorage.getItem(key));
-    if (c && Date.now() - c.at < LIST_TTL) { DRIVE.ids = c.ids; DRIVE.mod = c.mod; return; }
+    if (c && c.size && Date.now() - c.at < LIST_TTL) { DRIVE.ids = c.ids; DRIVE.mod = c.mod; DRIVE.size = c.size; return; }
   } catch {}
   await driveList(DRIVE.folder, '');
-  try { localStorage.setItem(key, JSON.stringify({ at: Date.now(), ids: DRIVE.ids, mod: DRIVE.mod })); } catch {}
+  try { localStorage.setItem(key, JSON.stringify({ at: Date.now(), ids: DRIVE.ids, mod: DRIVE.mod, size: DRIVE.size })); } catch {}
 }
 // ファイルの中身。同じファイル（ID と更新日時が同じ）なら、前に読んだものを使う
 async function driveText(path, url) {
@@ -652,7 +674,27 @@ function renderGames(mark) {
       ${flowSVG(g, i, i === current ? mark : null)}
     </button>`;
   }).join('');
-  box.querySelectorAll('.game').forEach(b => b.onclick = () => select(+b.dataset.i, !DRIVE));
+  box.querySelectorAll('.game').forEach(b => b.onclick = e => {
+    const i = +b.dataset.i, g = DATA.games[i];
+    // ドライブで、まだ読んでいない動画は、すぐ切り替えずに読み込むか聞く
+    if (DRIVE && g.video && i !== current && !have.has(g.video) && !blobUrls[g.video]) { e.stopPropagation(); openDl(i, b); return; }
+    select(i, !DRIVE || have.has(g.video));
+  });
+  DATA.games.forEach(g => g.video && paintGame(g.video));
+}
+// 読み込み済みは明るく、まだは暗く。読み込み中は左から明るく
+function paintGame(path) {
+  if (!DRIVE) return;
+  DATA.games.forEach((g, i) => {
+    if (g.video !== path) return;
+    const b = document.querySelector(`.game[data-i="${i}"]`);
+    if (!b) return;
+    const done = have.has(path) || !!blobUrls[path];
+    b.classList.toggle('need', !done);
+    b.classList.toggle('err', !done && !!failed[path]);
+    b.style.setProperty('--p', `${(progress[path] || 0) * 100}%`);
+  });
+  if (dlFor != null && DATA.games[dlFor].video === path) fillDl();
 }
 
 // ---------- シークバー ----------
@@ -767,65 +809,181 @@ function step(dir) {
 // ---------- 再生 ----------
 // ドライブから見るときは、押されるまで動画を読まない（ドライブは何度も読むと弾くため）。
 // 読む前の位置と長さは覚えておき、play() されたら読み込んで、その位置から再生する
-let pending = null, pendingTime = 0;
+let pending = null, pendingTime = 0, activate = null;
 const bigplay = document.getElementById('bigplay');
 
 // ドライブの動画を、少しずつ何度も読むと Google に機械的なアクセスとみなされて止められる。
 // そこで1ファイルを1回で丸ごと読み、ブラウザの中に残す（2回目からは読まない）。
 // 丸ごと読んだものは同じページのデータになるので、保存（書き出し）もそのままできる
-const KEEP_VIDEOS = 3;              // ブラウザに残す動画の数（古いものから消す）
+const KEEP_VIDEOS = 10;             // ブラウザに残す動画の数（古いものから消す）
 const blobUrls = {};                // 場所 → ページの中の URL
-let download = null;                // 読み込み中の { path, abort }
+const have = new Set();             // ブラウザに残っている動画
+const progress = {};                // 読み込み中の場所 → 0〜1
+const failed = {};                  // 読み込めなかった場所 → エラー
+const aborts = {};                  // 読み込み中の場所 → 止める
+const watchers = {};                // 場所 → 進み具合を受け取る関数
 function cacheKey(path) {
   return `https://cache.invalid/media/${DRIVE.ids[DRIVE.base + path]}/${encodeURIComponent(DRIVE.mod[DRIVE.base + path] || '')}`;
 }
-// 同じファイルを同時に2回読まない
-const inflight = {};
-function mediaBlob(path, onProgress) {
-  if (blobUrls[path]) return Promise.resolve(blobUrls[path]);
-  if (!inflight[path]) inflight[path] = readMedia(path, onProgress).finally(() => { delete inflight[path]; });
-  return inflight[path];
+const sizeOf = path => DRIVE.size?.[DRIVE.base + path] || 0;
+const openCache = () => caches.open('tt-media').catch(() => null);
+async function fromCache(path) {
+  const cache = await openCache();
+  const hit = await cache?.match(cacheKey(path)).catch(() => null);
+  if (!hit) return null;
+  return (blobUrls[path] = URL.createObjectURL(await hit.blob()));
 }
-async function readMedia(path, onProgress) {
-  let cache = null;
-  try {
-    cache = await caches.open('tt-media');
-    const hit = await cache.match(cacheKey(path));
-    if (hit) return (blobUrls[path] = URL.createObjectURL(await hit.blob()));
-  } catch {}
+const loadOrder = () => { try { return JSON.parse(localStorage.getItem('tt-media-order')) || []; } catch { return []; } };
+const saveOrder = o => { try { localStorage.setItem('tt-media-order', JSON.stringify(o)); } catch {} };
+// 入れる前に、古いものを消して場所を空ける（今見ているゲームは消さない）
+async function makeRoom(cache, need) {
+  const keep = cacheKey(DATA.games[current].video || '');
+  const order = loadOrder();
+  const est = await navigator.storage?.estimate?.().catch(() => null);
+  let free = est ? est.quota - est.usage : Infinity;
+  for (let k = 0; k < order.length && (order.length >= KEEP_VIDEOS || free < need * 1.1);) {
+    if (order[k] === keep) { k++; continue; }
+    const key = order.splice(k, 1)[0];
+    const res = await cache.match(key).catch(() => null);
+    free += +res?.headers.get('x-size') || 0;
+    await cache.delete(key).catch(() => {});
+    for (const g of DATA.games) if (g.video && cacheKey(g.video) === key) { have.delete(g.video); paintGame(g.video); }
+  }
+  saveOrder(order);
+  return free >= need * 1.1;
+}
+function setProgress(path, f) {
+  if (f !== null && Math.floor(f * 100) === Math.floor((progress[path] ?? -1) * 100)) return;  // 1% ごとに
+  if (f === null) delete progress[path]; else progress[path] = f;
+  paintGame(path);
+  watchers[path]?.forEach(fn => fn(f));
+}
+async function fetchMedia(path) {
   const ctrl = new AbortController();
-  if (onProgress) download = { path, abort: () => ctrl.abort() };
-  let r;
-  try { r = await fetch(media(path), { signal: ctrl.signal }); }
-  catch (e) {
-    if (e.name === 'AbortError') throw e;
-    throw new ViewError('Google に一時的に止められています', '時間をおいて開き直してください。');
-  }
-  if (!r.ok) throw await driveError(r, path);
-  const total = +r.headers.get('content-length') || 0;
-  const reader = r.body.getReader(), parts = [];
-  let got = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    parts.push(value); got += value.length;
-    onProgress?.(got, total);
-  }
-  const blob = new Blob(parts, { type: r.headers.get('content-type') || 'video/mp4' });
-  if (download?.path === path) download = null;
+  aborts[path] = () => ctrl.abort();
+  delete failed[path];
+  setProgress(path, 0);
   try {
-    await cache?.put(cacheKey(path), new Response(blob));
-    // 動画は大きいので、新しい KEEP_VIDEOS 本だけ残す
-    if (/\.mp4$/.test(path)) {
-      const order = JSON.parse(localStorage.getItem('tt-media-order') || '[]').filter(k => k !== cacheKey(path));
-      order.push(cacheKey(path));
-      while (order.length > KEEP_VIDEOS) await cache.delete(order.shift());
-      localStorage.setItem('tt-media-order', JSON.stringify(order));
+    let r;
+    try { r = await fetch(media(path), { signal: ctrl.signal }); }
+    catch (e) {
+      if (e.name === 'AbortError') throw e;
+      throw new ViewError('Google に一時的に止められています', '時間をおいて開き直してください。');
     }
-  } catch {}
-  return (blobUrls[path] = URL.createObjectURL(blob));
+    if (!r.ok) throw await driveError(r, path);
+    const total = +r.headers.get('content-length') || sizeOf(path);
+    const type = r.headers.get('content-type') || 'video/mp4';
+    let got = 0;
+    const body = r.body.pipeThrough(new TransformStream({
+      transform(c, out) { got += c.length; if (total) setProgress(path, Math.min(got / total, 0.999)); out.enqueue(c); },
+    }));
+    const cache = await openCache();
+    const video = /\.mp4$/.test(path);
+    if (cache && (!video || await makeRoom(cache, total))) {
+      // メモリにためず、そのままブラウザの保存場所へ
+      try { await cache.put(cacheKey(path), new Response(body, { headers: { 'content-type': type, 'x-size': String(total) } })); }
+      catch (e) {
+        if (ctrl.signal.aborted) throw new DOMException('止めた', 'AbortError');
+        throw new ViewError('ブラウザの空きが足りません', '');
+      }
+      if (video) { const o = loadOrder().filter(k => k !== cacheKey(path)); o.push(cacheKey(path)); saveOrder(o); have.add(path); }
+      return;
+    }
+    // 残せないときは、ページの中だけに持つ
+    blobUrls[path] = URL.createObjectURL(await new Response(body).blob());
+  } catch (e) {
+    if (e.name !== 'AbortError') failed[path] = e;
+    throw e;
+  } finally {
+    delete aborts[path];
+    setProgress(path, null);
+  }
+}
+// 読み込みは順番に1本ずつ。今見るもの（urgent）は待たずに始める
+const jobs = {}, queue = [];
+let busy = 0;
+function run(job) {
+  busy++;
+  fetchMedia(job.path).then(job.res, job.rej).finally(() => { busy--; next(); });
+}
+function next() { if (!busy && queue.length) run(queue.shift()); }
+function mediaBlob(path, { urgent = false, onProgress } = {}) {
+  if (blobUrls[path]) return Promise.resolve(blobUrls[path]);
+  if (onProgress) {
+    (watchers[path] ||= new Set()).add(onProgress);
+    if (progress[path] != null) onProgress(progress[path]);
+  }
+  if (jobs[path]) {
+    // 順番待ちのものを、今見るなら先に
+    const k = queue.findIndex(j => j.path === path);
+    if (urgent && k >= 0) run(queue.splice(k, 1)[0]);
+  } else {
+    jobs[path] = (async () => {
+      const hit = await fromCache(path);
+      if (hit) return hit;
+      await new Promise((res, rej) => { const job = { path, res, rej }; if (urgent) run(job); else { queue.push(job); next(); } });
+      return blobUrls[path] || await fromCache(path);
+    })().finally(() => { delete jobs[path]; delete watchers[path]; });
+  }
+  return jobs[path];
+}
+function cancelMedia(path) {
+  const k = queue.findIndex(j => j.path === path);
+  if (k >= 0) queue.splice(k, 1)[0].rej(new DOMException('止めた', 'AbortError'));
+  aborts[path]?.();
 }
 const mb = n => `${Math.round(n / 1e6)}MB`;
+// 読み込みの確認
+const dlpop = document.getElementById('dlpop');
+let dlFor = null;
+function openDl(i, card) {
+  dlFor = i;
+  fillDl();
+  dlpop.hidden = false;
+  const r = card.getBoundingClientRect(), h = dlpop.offsetHeight, w = dlpop.offsetWidth;
+  dlpop.style.left = `${Math.max(8, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 8))}px`;
+  dlpop.style.top = `${r.bottom + 6 + h < innerHeight ? r.bottom + 6 : Math.max(8, r.top - h - 6)}px`;
+}
+function closeDl() { dlpop.hidden = true; dlFor = null; }
+function fillDl() {
+  const g = DATA.games[dlFor], path = g.video;
+  if (have.has(path) || blobUrls[path]) { closeDl(); return; }
+  const loading = progress[path] != null || queue.some(j => j.path === path);
+  const size = sizeOf(path);
+  dlpop.innerHTML = `<b></b><p class="sub"></p><div class="row"></div>`;
+  dlpop.querySelector('b').textContent = `第${g.n}ゲーム`;
+  dlpop.querySelector('.sub').textContent = loading
+    ? (progress[path] != null ? `読み込み中 ${Math.floor(progress[path] * 100)}%` : '順番待ち')
+    : failed[path] ? failed[path].message : size ? mb(size) : '';
+  const row = dlpop.querySelector('.row');
+  const btn = (text, cls, fn) => { const b = document.createElement('button'); b.textContent = text; if (cls) b.className = cls; b.onclick = fn; row.append(b); };
+  if (loading) {
+    btn('止める', '', () => { cancelMedia(path); closeDl(); });
+    btn('閉じる', '', closeDl);
+  } else {
+    btn('読み込む', 'go', () => { mediaBlob(path).catch(() => {}); closeDl(); });
+    btn('やめる', '', closeDl);
+  }
+}
+document.addEventListener('click', e => { if (!dlpop.hidden && !dlpop.contains(e.target)) closeDl(); });
+// 通信量の注意（閉じたら、このブラウザでは出さない）
+if (DRIVE && store.get('dataNote') !== '0') {
+  const sizes = DATA.games.map(g => g.video && sizeOf(g.video)).filter(Boolean);
+  const note = document.getElementById('datanote');
+  note.querySelector('span').textContent = sizes.length
+    ? `通信量に注意　動画は1本 ${mb(Math.min(...sizes))}〜${mb(Math.max(...sizes))}` : '通信量に注意';
+  note.querySelector('button').onclick = () => { note.hidden = true; store.set('dataNote', '0'); };
+  note.hidden = false;
+}
+// 最初に、どの動画がブラウザに残っているか調べる
+if (DRIVE) {
+  openCache().then(async cache => {
+    if (!cache) return;
+    for (const g of DATA.games) if (g.video && await cache.match(cacheKey(g.video)).catch(() => null)) have.add(g.video);
+    DATA.games.forEach(g => g.video && paintGame(g.video));
+    if (pending && have.has(pending) && v.paused) activate(false).catch(() => {});
+  });
+}
 if (DRIVE) {
   const proto = HTMLMediaElement.prototype;
   const time = Object.getOwnPropertyDescriptor(proto, 'currentTime');
@@ -835,17 +993,17 @@ if (DRIVE) {
     set(x) { if (pending) { pendingTime = x; updateHead(); } else time.set.call(v, x); },
   });
   Object.defineProperty(v, 'duration', { get() { return pending ? DATA.games[current].dur || NaN : dur.get.call(v); } });
-  v.play = async function () {
-    if (!pending) return proto.play.call(v);
+  // 動画を読み込んで（残っていればそこから）その位置に。play なら再生も
+  activate = async function (play) {
     const path = pending, at = pendingTime, game = current;
     bigplay.hidden = true;
-    // 別のゲームの読み込み中なら止める
-    if (download && download.path !== path) download.abort();
-    showLoading('動画を読み込み中…');
+    if (!have.has(path)) showLoading('動画を読み込み中…');
+    const total = sizeOf(path);
     let url;
     try {
-      url = await mediaBlob(path, (got, total) =>
-        showLoading(total ? `動画を読み込み中… ${Math.floor(got / total * 100)}%（${mb(got)} / ${mb(total)}）` : `動画を読み込み中… ${mb(got)}`));
+      url = await mediaBlob(path, { urgent: true, onProgress: f => {
+        if (current === game && f !== null) showLoading(`動画を読み込み中… ${Math.floor(f * 100)}%${total ? `（${mb(f * total)} / ${mb(total)}）` : ''}`);
+      } });
     } catch (e) {
       if (e.name === 'AbortError') return;
       if (current === game) showError(e, driveFileUrl(path));
@@ -856,8 +1014,9 @@ if (DRIVE) {
     v.src = url;
     await new Promise(res => v.addEventListener('loadedmetadata', res, { once: true }));
     time.set.call(v, at);
-    return proto.play.call(v);
+    if (play) return proto.play.call(v);
   };
+  v.play = function () { return pending ? activate(true) : proto.play.call(v); };
   bigplay.onclick = e => { e.stopPropagation(); v.play().catch(() => {}); };
   bigplay.addEventListener('pointerdown', e => e.stopPropagation());
   bigplay.addEventListener('pointerup', e => e.stopPropagation());
@@ -878,6 +1037,7 @@ function select(i, autoplay) {
     const first = g.points.find(p => p.vt !== null);
     pending = g.video; pendingTime = first ? startOf(first) : 0;
     boot.hidden = true; bigplay.hidden = false;
+    if (have.has(g.video) && !autoplay) activate(false).catch(() => {});
     setTimeout(() => { renderMarkers(); applyView(); updateHead(); });
   } else if (g.video) {
     v.src = media(g.video);
@@ -1049,7 +1209,7 @@ function syncMic(force) {
   if (!voiceOn || !g.voice) { mic.pause(); return; }
   if (mic.dataset.path !== g.voice) {
     if (DRIVE) {
-      if (!blobUrls[g.voice]) { mediaBlob(g.voice).then(() => syncMic(true)).catch(() => {}); mic.pause(); return; }
+      if (!blobUrls[g.voice]) { mediaBlob(g.voice, { urgent: true }).then(() => syncMic(true)).catch(() => {}); mic.pause(); return; }
       mic.src = blobUrls[g.voice];
     } else mic.src = media(g.voice);
     mic.dataset.path = g.voice;
@@ -1539,8 +1699,8 @@ document.getElementById('save').onclick = async () => {
   clipmsg.textContent = '';
   const mime = pickMime();
   if (!mime) { clipmsg.textContent = 'このブラウザでは保存できません'; return; }
-  let url = picked[g.n] || (DRIVE ? await mediaBlob(g.video, (got, total) =>
-    { clipmsg.textContent = `動画を読み込み中… ${total ? Math.floor(got / total * 100) + '%' : mb(got)}`; }) : media(g.video));
+  let url = picked[g.n] || (DRIVE ? await mediaBlob(g.video, { urgent: true, onProgress: f =>
+    { if (f !== null) clipmsg.textContent = `動画を読み込み中… ${Math.floor(f * 100)}%`; } }) : media(g.video));
   if (!DRIVE && !picked[g.n] && !(await canExport(url))) url = await pickVideo(g.n);
   v.pause();
 
