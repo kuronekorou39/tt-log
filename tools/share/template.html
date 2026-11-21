@@ -113,8 +113,14 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 #facepop button { border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:8px; padding:4px 10px;
   cursor:pointer; min-height:32px; }
 #facepop button.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
-#facepop input { width:4em; font-size:1.2rem; text-align:center; border:1px solid var(--line); border-radius:8px;
-  background:var(--card); color:var(--fg); padding:2px; }
+#facepop .who { display:grid; gap:6px; padding:10px; border:1px solid var(--line); border-radius:10px; }
+#facepop .who .name { font-weight:800; font-size:1.05rem; }
+#facepop .who .opts { display:flex; gap:6px; align-items:center; }
+#facepop .who .opts button { font-size:1rem; min-height:40px; padding:4px 12px; }
+#facepop .who input { width:3.2em; font-size:1.6rem; text-align:center; border:1px solid var(--line); border-radius:8px;
+  background:var(--card); color:var(--fg); padding:0 2px; min-height:40px; }
+#facepop .who input:disabled { opacity:.35; }
+#facepop .more { justify-self:start; }
 #facepop .heads { display:grid; grid-template-columns:repeat(auto-fill, minmax(92px, 1fr)); gap:8px; }
 #facepop .hd { display:grid; gap:3px; justify-items:center; font-size:.75rem; color:var(--muted); padding:4px;
   border-radius:8px; border:2px solid transparent; }
@@ -206,18 +212,17 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 <div id="clippop" hidden>
   <div class="row"><span>始め</span><span class="t" id="clipa"></span><button id="clipseta">今</button></div>
   <div class="row"><span>終わり</span><span class="t" id="clipb"></span><button id="clipsetb">今</button></div>
-  <div class="row" id="facerow"><span>顔</span>
-    <button data-face="none">なし</button><button data-face="mosaic">モザイク</button><button data-face="emoji">😀</button></div>
   <div class="row"><button class="go" id="clipgo">書き出す</button><button id="clipclose">閉じる</button></div>
   <div class="msg" id="clipmsg"></div>
   <input type="file" id="clipfile" accept="video/*" hidden>
 </div>
 <div id="facepop" hidden>
-  <div class="row"><span>隠し方</span>
-    <button data-face="none">なし</button><button data-face="mosaic">モザイク</button><button data-face="emoji">絵文字</button></div>
-  <div id="facelabels"></div>
-  <div class="row"><span>見つけた頭</span><span id="facecount"></span></div>
-  <div class="heads" id="faceheads"></div>
+  <div id="facelabels" style="display:grid; gap:8px"></div>
+  <button class="more" id="facemore">くわしく</button>
+  <div id="facedetail" hidden style="display:grid; gap:8px">
+    <div class="row"><span>見つけた頭</span><span id="facecount"></span></div>
+    <div class="heads" id="faceheads"></div>
+  </div>
   <div class="row"><button id="faceclose">閉じる</button></div>
 </div>
 {{FACES}}
@@ -642,13 +647,14 @@ document.addEventListener('fullscreenchange', () => setTimeout(applyView, 50));
 
 // ---------- 顔を隠す ----------
 // 頭の位置は data/faces-gameNN.js（0.1秒ごと、続いている頭ごとに番号）。間は同じ番号どうしをなめらかにつなぐ
-// ラベル：p0・p1（選手）、x（その他）、off（隠さない）。絵文字と付け替えはこのブラウザに覚える
+// ラベル：p0・p1（選手）、x（その他）、off（隠さない）。ラベルごとに隠し方（なし・モザイク・文字）と文字を選ぶ
+// 設定と付け替えはこのブラウザに覚える
 const FACES = window.FACES || {};
 const HAS_FACES = Object.keys(FACES).length > 0;
-let faceMode = HAS_FACES ? (store.get('faceMode') || 'none') : 'none';
-const EMOJI_KEY = `faceEmoji-${DATA.id}`, LABEL_KEY = `faceLabels-${DATA.id}`;
-let emojis = { p0: '😀', p1: '😎', x: '🙂' };
-try { Object.assign(emojis, JSON.parse(store.get(EMOJI_KEY)) || {}); } catch {}
+const SET_KEY = `faceSet-${DATA.id}`, LABEL_KEY = `faceLabels-${DATA.id}`;
+const faceSet = { p0: { mode: 'none', text: '😀' }, p1: { mode: 'none', text: '😎' }, x: { mode: 'none', text: '🙂' } };
+try { const saved = JSON.parse(store.get(SET_KEY)) || {}; for (const l in faceSet) Object.assign(faceSet[l], saved[l] || {}); } catch {}
+const anyFace = () => HAS_FACES && Object.values(faceSet).some(f => f.mode !== 'none');
 let faceLabels = {};
 try { faceLabels = JSON.parse(store.get(LABEL_KEY)) || {}; } catch {}
 const labelName = l => l === 'x' ? 'その他' : l === 'off' ? '隠さない' : DATA.names[+l[1]];
@@ -672,17 +678,18 @@ function headsAt(n, t) {
   });
 }
 const tile = document.createElement('canvas');
-// 映像 src（幅 sw・高さ sh）の上の頭を、ctx（幅 w・高さ h）に隠して描く。tags なら上にラベルも
-function drawMasks(ctx, src, sw, sh, w, h, g, heads, mode, tags) {
+// 映像 src（幅 sw・高さ sh）の上の頭を、ctx（幅 w・高さ h）に隠して描く。tags なら上にラベルも（ids なら番号も）
+function drawMasks(ctx, src, sw, sh, w, h, g, heads, tags, ids) {
   for (const [x, y, r, tid] of heads) {
     const label = labelOf(g, tid);
-    const emoji = label === 'off' ? '' : emojis[label];
-    const R = r * sw * w / sw;  // 描く先のピクセルでの半径
-    if (emoji && mode === 'emoji') {
+    const set = faceSet[label] || { mode: 'none', text: '' };
+    const mode = set.mode, emoji = set.text;
+    const R = r * w;  // 描く先のピクセルでの半径
+    if (emoji && mode === 'text') {
       const size = 1.9 * R;
       ctx.font = `${size}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(emoji, x * w, y * h + size * 0.05);
-    } else if (emoji && mode === 'mosaic') {
+    } else if (mode === 'mosaic') {
       // 頭のまわりを 8 マスに縮めてから、ぼかさずに広げる
       const n = 8, Rs = r * sw;
       tile.width = n; tile.height = n;
@@ -694,7 +701,7 @@ function drawMasks(ctx, src, sw, sh, w, h, g, heads, mode, tags) {
       ctx.restore();
     }
     if (tags) {
-      const text = `${labelName(label)} #${tid}`;
+      const text = ids ? `${labelName(label)} #${tid}` : labelName(label);
       const fs = Math.max(12, 13 * devicePixelRatio);
       ctx.font = `bold ${fs}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
       const tw = ctx.measureText(text).width + 8;
@@ -707,6 +714,7 @@ function drawMasks(ctx, src, sw, sh, w, h, g, heads, mode, tags) {
 }
 const mask = document.getElementById('mask');
 const facepop = document.getElementById('facepop');
+const facedetail = document.getElementById('facedetail');
 let lastIds = '';
 function drawPreview() {
   const ctx = mask.getContext('2d');
@@ -716,8 +724,7 @@ function drawPreview() {
   const g = DATA.games[current];
   if (HAS_FACES && v.videoWidth && !v.hidden) {
     const heads = headsAt(g.n, v.currentTime);
-    if (faceMode !== 'none' || !facepop.hidden)
-      drawMasks(ctx, v, v.videoWidth, v.videoHeight, w, h, g, heads, faceMode, !facepop.hidden);
+    drawMasks(ctx, v, v.videoWidth, v.videoHeight, w, h, g, heads, !facepop.hidden, !facedetail.hidden);
     // 一覧で、今映っている頭に枠
     const ids = heads.map(h => h[3]).join(',');
     if (ids !== lastIds && !facepop.hidden) {
@@ -730,30 +737,40 @@ function drawPreview() {
 }
 requestAnimationFrame(drawPreview);
 
-function showFaceMode() {
-  document.querySelectorAll('[data-face]').forEach(b => b.classList.toggle('on', b.dataset.face === faceMode));
-  document.getElementById('face').classList.toggle('on', faceMode !== 'none');
-}
-document.querySelectorAll('[data-face]').forEach(b => b.onclick = () => {
-  faceMode = b.dataset.face; store.set('faceMode', faceMode); showFaceMode();
-});
+function showFaceMode() { document.getElementById('face').classList.toggle('on', anyFace()); }
+const MODES = [['none', 'なし'], ['mosaic', 'モザイク'], ['text', '文字']];
 
 const LABELS = ['p0', 'p1', 'x', 'off'];
 function renderFaceList() {
-  // ラベルごとの絵文字（空にすると隠さない）
+  // ラベルごとの隠し方と文字
   const box = document.getElementById('facelabels');
   box.innerHTML = '';
   ['p0', 'p1', 'x'].forEach(l => {
-    const row = document.createElement('div');
-    row.className = 'row';
-    const name = document.createElement('span');
+    const card = document.createElement('div');
+    card.className = 'who';
+    const name = document.createElement('div');
+    name.className = `name ${l === 'x' ? '' : 'ab'[+l[1]]}`;
     name.textContent = labelName(l);
-    if (l !== 'x') name.className = 'ab'[+l[1]];
+    const opts = document.createElement('div');
+    opts.className = 'opts';
     const input = document.createElement('input');
-    input.value = emojis[l]; input.maxLength = 8; input.setAttribute('aria-label', `${labelName(l)}の絵文字`);
-    input.oninput = () => { emojis[l] = input.value.trim(); store.set(EMOJI_KEY, JSON.stringify(emojis)); };
-    row.append(name, input);
-    box.append(row);
+    input.value = faceSet[l].text; input.maxLength = 8; input.setAttribute('aria-label', `${labelName(l)}の文字`);
+    const save = () => { store.set(SET_KEY, JSON.stringify(faceSet)); showFaceMode(); };
+    const buttons = MODES.map(([m, text]) => {
+      const b = document.createElement('button');
+      b.textContent = text;
+      b.onclick = () => { faceSet[l].mode = m; paint(); save(); };
+      return [m, b];
+    });
+    const paint = () => {
+      buttons.forEach(([m, b]) => b.classList.toggle('on', faceSet[l].mode === m));
+      input.disabled = faceSet[l].mode !== 'text';
+    };
+    input.oninput = () => { faceSet[l].text = input.value.trim(); save(); };
+    opts.append(...buttons.map(([, b]) => b), input);
+    paint();
+    card.append(name, opts);
+    box.append(card);
   });
   // このゲームで見つけた頭（長く映っていた順）
   const g = DATA.games[current];
@@ -790,8 +807,11 @@ document.getElementById('face').onclick = () => {
   facepop.hidden = false;
 };
 document.getElementById('faceclose').onclick = () => { facepop.hidden = true; };
+document.getElementById('facemore').onclick = () => {
+  facedetail.hidden = !facedetail.hidden;
+  document.getElementById('facemore').classList.toggle('on', !facedetail.hidden);
+};
 v.addEventListener('loadedmetadata', () => { if (!facepop.hidden) renderFaceList(); });
-document.getElementById('facerow').hidden = !HAS_FACES;
 document.getElementById('face').hidden = !HAS_FACES;
 showFaceMode();
 
@@ -883,14 +903,14 @@ document.getElementById('clipgo').onclick = async () => {
   const chunks = [];
   const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12e6 });
   rec.ondataavailable = e => e.data.size && chunks.push(e.data);
-  const { a, b } = clip, mode = faceMode;
+  const { a, b } = clip;
   src.currentTime = a;
   await new Promise(r => src.addEventListener('seeked', r, { once: true }));
   let done = false;
   const draw = () => {
     if (done) return;
     ctx.drawImage(src, 0, 0, W, H);
-    if (mode !== 'none') drawMasks(ctx, src, W, H, W, H, g, headsAt(g.n, src.currentTime), mode, false);
+    drawMasks(ctx, src, W, H, W, H, g, headsAt(g.n, src.currentTime), false, false);
     clipmsg.textContent = `書き出し中 ${Math.max(0, src.currentTime - a).toFixed(0)} / ${(b - a).toFixed(0)}秒`;
     if (src.currentTime >= b || src.ended) { rec.stop(); return; }
     if (src.requestVideoFrameCallback) src.requestVideoFrameCallback(draw); else requestAnimationFrame(draw);
