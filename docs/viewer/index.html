@@ -678,7 +678,7 @@ function renderGames(mark) {
     const i = +b.dataset.i, g = DATA.games[i];
     // ドライブで、まだ読んでいない動画は、すぐ切り替えずに読み込むか聞く
     if (DRIVE && g.video && i !== current && !have.has(g.video) && !blobUrls[g.video]) { e.stopPropagation(); openDl(i, b); return; }
-    select(i, !DRIVE || have.has(g.video));
+    select(i, !DRIVE || have.has(g.video) || !!blobUrls[g.video]);
   });
   DATA.games.forEach(g => g.video && paintGame(g.video));
 }
@@ -821,7 +821,9 @@ const have = new Set();             // ブラウザに残っている動画
 const progress = {};                // 読み込み中の場所 → 0〜1
 const failed = {};                  // 読み込めなかった場所 → エラー
 const aborts = {};                  // 読み込み中の場所 → 止める
-const watchers = {};                // 場所 → 進み具合を受け取る関数
+const watchers = {};
+const IN_MEMORY = 2;                // ブラウザに残せないとき、ページの中に持つ動画の数
+const memOrder = [];                // 場所 → 進み具合を受け取る関数
 function cacheKey(path) {
   return `https://cache.invalid/media/${DRIVE.ids[DRIVE.base + path]}/${encodeURIComponent(DRIVE.mod[DRIVE.base + path] || '')}`;
 }
@@ -873,24 +875,37 @@ async function fetchMedia(path) {
     if (!r.ok) throw await driveError(r, path);
     const total = +r.headers.get('content-length') || sizeOf(path);
     const type = r.headers.get('content-type') || 'video/mp4';
+    // まず全部読む（読みながら保存場所へ書くと、空きの少ないブラウザでは途中で失敗して全部むだになる）
+    const reader = r.body.getReader(), parts = [];
     let got = 0;
-    const body = r.body.pipeThrough(new TransformStream({
-      transform(c, out) { got += c.length; if (total) setProgress(path, Math.min(got / total, 0.999)); out.enqueue(c); },
-    }));
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parts.push(value); got += value.length;
+      if (total) setProgress(path, Math.min(got / total, 0.999));
+    }
+    const blob = new Blob(parts, { type });
+    parts.length = 0;
     const cache = await openCache();
     const video = /\.mp4$/.test(path);
-    if (cache && (!video || await makeRoom(cache, total))) {
-      // メモリにためず、そのままブラウザの保存場所へ
-      try { await cache.put(cacheKey(path), new Response(body, { headers: { 'content-type': type, 'x-size': String(total) } })); }
-      catch (e) {
-        if (ctrl.signal.aborted) throw new DOMException('止めた', 'AbortError');
-        throw new ViewError('ブラウザの空きが足りません', '');
-      }
-      if (video) { const o = loadOrder().filter(k => k !== cacheKey(path)); o.push(cacheKey(path)); saveOrder(o); have.add(path); }
-      return;
+    if (cache && (!video || await makeRoom(cache, blob.size))) {
+      try {
+        await cache.put(cacheKey(path), new Response(blob, { headers: { 'content-type': type, 'x-size': String(blob.size) } }));
+        if (video) { const o = loadOrder().filter(k => k !== cacheKey(path)); o.push(cacheKey(path)); saveOrder(o); have.add(path); }
+        return;
+      } catch (e) { console.warn('ブラウザに残せませんでした', e); }
     }
-    // 残せないときは、ページの中だけに持つ
-    blobUrls[path] = URL.createObjectURL(await new Response(body).blob());
+    // 残せないときは、ページを開いている間だけ持つ（メモリを使うので、動画は今見ているもの以外 IN_MEMORY 本まで）
+    blobUrls[path] = URL.createObjectURL(blob);
+    if (video) {
+      memOrder.push(path);
+      for (let k = 0; memOrder.length > IN_MEMORY && k < memOrder.length;) {
+        const old = memOrder[k];
+        if (old === DATA.games[current].video || old === path) { k++; continue; }
+        memOrder.splice(k, 1);
+        URL.revokeObjectURL(blobUrls[old]); delete blobUrls[old]; paintGame(old);
+      }
+    }
   } catch (e) {
     if (e.name !== 'AbortError') failed[path] = e;
     throw e;
@@ -997,7 +1012,7 @@ if (DRIVE) {
   activate = async function (play) {
     const path = pending, at = pendingTime, game = current;
     bigplay.hidden = true;
-    if (!have.has(path)) showLoading('動画を読み込み中…');
+    if (!have.has(path) && !blobUrls[path]) showLoading('動画を読み込み中…');
     const total = sizeOf(path);
     let url;
     try {
@@ -1037,7 +1052,7 @@ function select(i, autoplay) {
     const first = g.points.find(p => p.vt !== null);
     pending = g.video; pendingTime = first ? startOf(first) : 0;
     boot.hidden = true; bigplay.hidden = false;
-    if (have.has(g.video) && !autoplay) activate(false).catch(() => {});
+    if ((have.has(g.video) || blobUrls[g.video]) && !autoplay) activate(false).catch(() => {});
     setTimeout(() => { renderMarkers(); applyView(); updateHead(); });
   } else if (g.video) {
     v.src = media(g.video);
