@@ -334,10 +334,14 @@ def write_html(path: Path, session_id: str, names: list[str], log: dict, games: 
         "stats": rows,
         "data": {"id": session_id, "names": names, "games": data, "candidates": highlights.candidates(games)},
     }
-    # Web に置いたページ（write_viewer）がドライブから読む
-    (path.parent / "data" / "page.json").write_text(json.dumps(content, ensure_ascii=False), encoding="utf-8")
     # 顔を隠すための頭の位置（faces.py で作る）。file:// でも読めるようスクリプトで読む
     faces = sorted(path.parent.glob("data/faces-game*.js"))
+    # Web に置いたページ（write_viewer）がドライブから読む。ドライブは一度に多く読むと弾くので、顔の位置も1つにまとめる
+    web = dict(content, faces={})
+    for f in faces:
+        text = f.read_text(encoding="utf-8")
+        web["faces"][int(f.stem[len("faces-game"):])] = json.loads(text[text.index("] = ") + 4 : text.rindex(";")])
+    (path.parent / "data" / "page.json").write_text(json.dumps(web, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     page = TEMPLATE.read_text(encoding="utf-8")
     page = page.replace("{{FACES}}", "\n".join(f'<script src="data/{f.name}"></script>' for f in faces))
     page = page.replace("{{PAGE}}", json.dumps(content, ensure_ascii=False).replace("</", "<\\/"))

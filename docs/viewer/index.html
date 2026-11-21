@@ -317,12 +317,24 @@ async function driveError(r, what) {
     return new ViewError(`${what}を読む許可がありません`, 'フォルダが「リンクを知っている全員」で共有されているかを確かめてください。');
   return new ViewError(`${what}を読めませんでした（${r.status}）`, msg);
 }
+// 一度にたくさん読むと、ドライブが一部を弾くことがある（弾いた返事は CORS がなく、通信エラーに見える）。
+// 少し待ってやり直す
+const RETRY_WAIT = [1000, 3000];
 async function driveFetch(url, what) {
-  let r;
-  try { r = await fetch(url); }
-  catch { throw new ViewError('通信できませんでした', 'インターネットにつながっているかを確かめて、もう一度開いてください。'); }
-  if (!r.ok) throw await driveError(r, what);
-  return r;
+  for (let k = 0; ; k++) {
+    let r = null;
+    try { r = await fetch(url); } catch {}
+    if (r && r.ok) return r;
+    const retry = !r || r.status === 429 || r.status >= 500 || (r.status === 403 && /rate|quota/i.test(await r.clone().text()));
+    if (retry && k < RETRY_WAIT.length) { await new Promise(res => setTimeout(res, RETRY_WAIT[k])); continue; }
+    if (!r) throw new ViewError('通信できませんでした', `${what} を読み込めませんでした。少しおいて、もう一度開いてください。`);
+    throw await driveError(r, what);
+  }
+}
+// 同時に読むのは n 個まで
+async function inTurn(items, n, f) {
+  const queue = [...items];
+  await Promise.all(Array.from({ length: n }, async () => { while (queue.length) await f(queue.shift()); }));
 }
 const boot = document.getElementById('boot');
 function showLoading(text) {
@@ -398,11 +410,13 @@ async function loadPage() {
   showLoading('顔の位置を読み込み中…');
   // 顔の位置（faces-gameNN.js）は、中の JSON だけを取り出す
   window.FACES = {};
-  await Promise.all(Object.keys(DRIVE.ids).filter(p => p.startsWith(DRIVE.base))
-    .map(p => p.slice(DRIVE.base.length)).filter(p => /^data\/faces-game\d+\.js$/.test(p)).map(async p => {
+  if (page.faces) { window.FACES = page.faces; return page; }
+  const faceFiles = Object.keys(DRIVE.ids).filter(p => p.startsWith(DRIVE.base))
+    .map(p => p.slice(DRIVE.base.length)).filter(p => /^data\/faces-game\d+\.js$/.test(p));
+  await inTurn(faceFiles, 3, async p => {
     const text = await get(p);
     window.FACES[+p.match(/(\d+)\.js$/)[1]] = JSON.parse(text.slice(text.indexOf('] = ') + 4, text.lastIndexOf(';')));
-  }));
+  });
   return page;
 }
 
