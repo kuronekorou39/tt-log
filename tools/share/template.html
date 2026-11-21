@@ -267,18 +267,18 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 const EMBEDDED = {{PAGE}};
 const DRIVE = (() => {
   const h = new URLSearchParams(location.hash.slice(1));
-  return h.get('d') ? { folder: h.get('d'), key: h.get('k') || '', api: h.get('api') || 'https://www.googleapis.com/drive/v3', ids: {} } : null;
+  return h.get('d') ? { folder: h.get('d'), key: h.get('k') || '', api: h.get('api') || 'https://www.googleapis.com/drive/v3', ids: {}, base: '' } : null;
 })();
 // ページの中の場所（videos/game01.mp4 など）を、読み込む URL に
 function media(path) {
   if (!DRIVE) return path;
-  const id = DRIVE.ids[path];
+  const id = DRIVE.ids[DRIVE.base + path];
   return id ? `${DRIVE.api}/files/${id}?alt=media&key=${encodeURIComponent(DRIVE.key)}` : '';
 }
 async function driveList(id, prefix) {
   const q = encodeURIComponent(`'${id}' in parents and trashed=false`);
   const r = await fetch(`${DRIVE.api}/files?q=${q}&fields=files(id,name,mimeType)&pageSize=1000&key=${encodeURIComponent(DRIVE.key)}`);
-  if (!r.ok) throw new Error(`ドライブを読めませんでした（${r.status}）`);
+  if (!r.ok) throw new Error(`ドライブを読めませんでした（${r.status}${await r.text().then(t => { try { return ' ' + JSON.parse(t).error.message; } catch { return ''; } })}）`);
   for (const f of (await r.json()).files || []) {
     if (f.mimeType === 'application/vnd.google-apps.folder') await driveList(f.id, `${prefix}${f.name}/`);
     else DRIVE.ids[`${prefix}${f.name}`] = f.id;
@@ -288,15 +288,25 @@ async function loadPage() {
   if (EMBEDDED) return EMBEDDED;
   if (!DRIVE) throw new Error('読み込むフォルダがありません');
   await driveList(DRIVE.folder, '');
+  // 共有したフォルダの中に、さらにまとめのフォルダがあってもよい
+  const hit = Object.keys(DRIVE.ids).find(p => p.endsWith('data/page.json'));
+  if (!hit) {
+    const found = Object.keys(DRIVE.ids);
+    throw new Error(`フォルダの中に data/page.json が見つかりません（見つかったファイル ${found.length} 件${found.length ? '：' + found.slice(0, 5).join('、') : ''}）`);
+  }
+  DRIVE.base = hit.slice(0, -'data/page.json'.length);
   const get = async path => {
-    const r = await fetch(media(path));
+    const url = media(path);
+    if (!url) throw new Error(`${path} が見つかりません`);
+    const r = await fetch(url);
     if (!r.ok) throw new Error(`${path} を読めませんでした（${r.status}）`);
     return r.text();
   };
   const page = JSON.parse(await get('data/page.json'));
   // 顔の位置（faces-gameNN.js）は、中の JSON だけを取り出す
   window.FACES = {};
-  await Promise.all(Object.keys(DRIVE.ids).filter(p => /^data\/faces-game\d+\.js$/.test(p)).map(async p => {
+  await Promise.all(Object.keys(DRIVE.ids).filter(p => p.startsWith(DRIVE.base))
+    .map(p => p.slice(DRIVE.base.length)).filter(p => /^data\/faces-game\d+\.js$/.test(p)).map(async p => {
     const text = await get(p);
     window.FACES[+p.match(/(\d+)\.js$/)[1]] = JSON.parse(text.slice(text.indexOf('] = ') + 4, text.lastIndexOf(';')));
   }));
