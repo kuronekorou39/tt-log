@@ -659,13 +659,86 @@ let faceLabels = {};
 try { faceLabels = JSON.parse(store.get(LABEL_KEY)) || {}; } catch {}
 const labelName = l => l === 'x' ? 'その他' : l === 'off' ? '隠さない' : DATA.names[+l[1]];
 
+// 頭のつながりごとの左右の見立て（試合の外で使う。試合中はコマごとに labelAt で決める）。
+// 試合の外での位置から決め、試合の外に映っていなければ試合中の位置から。カメラのすぐ前は数えない
+const NEAR_CAMERA = 0.05;     // 頭の半径（画面の幅に対する割合）がこれより大きければカメラのすぐ前
+const MIN_IN_PLAY = 5;        // 試合中にこれだけ映っていれば、その位置で決める（コマ数）
+const MIN_OUT_OF_PLAY = 15;   // 試合の外だけなら、これだけ映っていれば位置で決める
+const sideCache = {};
+function sidesOf(g) {
+  if (sideCache[g.n]) return sideCache[g.n];
+  const F = FACES[g.n], inPlayX = {}, outPlay = {};
+  const ranges = g.points.filter(p => p.r).map(p => p.r);
+  F.frames.forEach((heads, k) => {
+    const t = k / F.fps;
+    const playing = ranges.some(([a, b]) => a <= t && t <= b);
+    for (const [x, , r, tid] of heads) {
+      if (r > NEAR_CAMERA) continue;
+      ((playing ? inPlayX : outPlay)[tid] ||= []).push(x);
+    }
+  });
+  const median = xs => xs.sort((a, b) => a - b)[xs.length >> 1];
+  const out = {};
+  for (const tid of Object.keys(F.tracks)) {
+    const xs = F.tracks[tid].n < MIN_DETECTIONS ? null
+      : outPlay[tid]?.length >= MIN_OUT_OF_PLAY ? outPlay[tid] : inPlayX[tid]?.length >= MIN_IN_PLAY ? inPlayX[tid] : null;
+    out[tid] = xs ? (median(xs) < 0.5 ? 'L' : 'R') : 'X';
+  }
+  return (sideCache[g.n] = out);
+}
 function autoLabel(g, tid) {
-  const side = FACES[g.n]?.tracks?.[tid]?.side;
+  const side = FACES[g.n] ? sidesOf(g)[tid] : null;
   if (side === 'L') return `p${g.vl}`;
   if (side === 'R') return `p${1 - g.vl}`;
   return 'x';
 }
 function labelOf(g, tid) { return faceLabels[`${g.n}-${tid}`] || autoLabel(g, tid); }
+// 映像の中の1つの頭のラベル。試合中は、その瞬間に台の左右どちらにいるかで決める
+// （頭のつながりは、人が交差したときに別の人へ乗り移ることがあるため。2026-11-20 第1ゲーム #69）
+const MIN_DETECTIONS = 3;  // これより少ししか見つからなかった頭は誤検知とみなし、位置では決めない
+// 位置で決められないコマ（カメラのすぐ前・試合の外）は、同じつながりで前後これだけのコマ以内に決められたものを引き継ぐ
+const CARRY_FRAMES = 50;
+const frameCache = {};
+function frameSides(g) {
+  if (frameCache[g.n]) return frameCache[g.n];
+  const F = FACES[g.n], ranges = g.points.filter(p => p.r).map(p => p.r);
+  const byTrack = {};
+  F.frames.forEach((heads, k) => {
+    const t = k / F.fps, playing = ranges.some(([a, b]) => a <= t && t <= b);
+    for (const [x, , r, tid] of heads) {
+      const ok = playing && r <= NEAR_CAMERA && F.tracks[tid].n >= MIN_DETECTIONS;
+      (byTrack[tid] ||= []).push([k, ok ? (x < 0.5 ? 'L' : 'R') : null]);
+    }
+  });
+  const out = {};
+  for (const [tid, list] of Object.entries(byTrack)) {
+    // 前から・後ろから、一番近い決まったコマを探す
+    const prev = [], next = [];
+    let last = null;
+    list.forEach(([k, s], i) => { if (s) last = [k, s]; prev[i] = last; });
+    last = null;
+    for (let i = list.length - 1; i >= 0; i--) { if (list[i][1]) last = list[i]; next[i] = last; }
+    list.forEach(([k, s], i) => {
+      let side = s;
+      if (!side) {
+        const a = prev[i], b = next[i];
+        const da = a ? k - a[0] : Infinity, db = b ? b[0] - k : Infinity;
+        if (Math.min(da, db) <= CARRY_FRAMES) side = da <= db ? a[1] : b[1];
+      }
+      if (side) out[`${k}-${tid}`] = side;
+    });
+  }
+  return (frameCache[g.n] = out);
+}
+function labelAt(g, head, t) {
+  const tid = head[3];
+  const fixed = faceLabels[`${g.n}-${tid}`];
+  if (fixed) return fixed;
+  const side = frameSides(g)[`${Math.floor(t * FACES[g.n].fps)}-${tid}`];
+  if (side) return `p${side === 'L' ? g.vl : 1 - g.vl}`;
+  return autoLabel(g, tid);
+}
+
 
 function headsAt(n, t) {
   const F = FACES[n];
@@ -679,9 +752,10 @@ function headsAt(n, t) {
 }
 const tile = document.createElement('canvas');
 // 映像 src（幅 sw・高さ sh）の上の頭を、ctx（幅 w・高さ h）に隠して描く。tags なら上にラベルも（ids なら番号も）
-function drawMasks(ctx, src, sw, sh, w, h, g, heads, tags, ids) {
-  for (const [x, y, r, tid] of heads) {
-    const label = labelOf(g, tid);
+function drawMasks(ctx, src, sw, sh, w, h, g, heads, t, tags, ids) {
+  for (const head of heads) {
+    const [x, y, r, tid] = head;
+    const label = labelAt(g, head, t);
     const set = faceSet[label] || { mode: 'none', text: '' };
     const mode = set.mode, emoji = set.text;
     const R = r * w;  // 描く先のピクセルでの半径
@@ -724,7 +798,7 @@ function drawPreview() {
   const g = DATA.games[current];
   if (HAS_FACES && v.videoWidth && !v.hidden) {
     const heads = headsAt(g.n, v.currentTime);
-    drawMasks(ctx, v, v.videoWidth, v.videoHeight, w, h, g, heads, !facepop.hidden, !facedetail.hidden);
+    drawMasks(ctx, v, v.videoWidth, v.videoHeight, w, h, g, heads, v.currentTime, !facepop.hidden, !facedetail.hidden);
     // 一覧で、今映っている頭に枠
     const ids = heads.map(h => h[3]).join(',');
     if (ids !== lastIds && !facepop.hidden) {
@@ -910,7 +984,7 @@ document.getElementById('clipgo').onclick = async () => {
   const draw = () => {
     if (done) return;
     ctx.drawImage(src, 0, 0, W, H);
-    drawMasks(ctx, src, W, H, W, H, g, headsAt(g.n, src.currentTime), false, false);
+    drawMasks(ctx, src, W, H, W, H, g, headsAt(g.n, src.currentTime), src.currentTime, false, false);
     clipmsg.textContent = `書き出し中 ${Math.max(0, src.currentTime - a).toFixed(0)} / ${(b - a).toFixed(0)}秒`;
     if (src.currentTime >= b || src.ended) { rec.stop(); return; }
     if (src.requestVideoFrameCallback) src.requestVideoFrameCallback(draw); else requestAnimationFrame(draw);
