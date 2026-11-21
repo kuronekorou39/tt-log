@@ -115,12 +115,15 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 #facepop button.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
 #facepop .who { display:grid; gap:6px; padding:10px; border:1px solid var(--line); border-radius:10px; }
 #facepop .who .name { font-weight:800; font-size:1.05rem; }
-#facepop .who .opts { display:flex; gap:6px; align-items:center; }
+#facepop .who .opts { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+#facepop .who .sep { width:8px; }
 #facepop .who .opts button { font-size:1rem; min-height:40px; padding:4px 12px; }
 #facepop .who input { width:3.2em; font-size:1.6rem; text-align:center; border:1px solid var(--line); border-radius:8px;
   background:var(--card); color:var(--fg); padding:0 2px; min-height:40px; }
 #facepop .who input:disabled { opacity:.35; }
 #facepop .more { justify-self:start; }
+.popx { position:sticky; top:-12px; justify-self:end; margin:-6px -6px -10px 0; border:0 !important; background:var(--card) !important;
+  font-size:1.2rem; width:40px; height:40px; z-index:1; }
 #facepop .heads { display:grid; grid-template-columns:repeat(auto-fill, minmax(92px, 1fr)); gap:8px; }
 #facepop .hd { display:grid; gap:3px; justify-items:center; font-size:.75rem; color:var(--muted); padding:4px;
   border-radius:8px; border:2px solid transparent; }
@@ -156,6 +159,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
   .right { display:flex; flex-direction:column; gap:12px; }
   .controls button { padding:4px 7px; }
   .seek { height:70px; }
+  #facepop, #clippop { left:0; right:0; bottom:0; width:auto; max-height:52vh; border-radius:14px 14px 0 0; }
 }
 </style>
 </head>
@@ -210,6 +214,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 </div>
 <div id="infopop" hidden>{{STATS}}</div>
 <div id="clippop" hidden>
+  <button class="popx" id="clipx" aria-label="閉じる">✕</button>
   <div class="row"><span>始め</span><span class="t" id="clipa"></span><button id="clipseta">今</button></div>
   <div class="row"><span>終わり</span><span class="t" id="clipb"></span><button id="clipsetb">今</button></div>
   <div class="row"><button class="go" id="clipgo">書き出す</button><button id="clipclose">閉じる</button></div>
@@ -217,6 +222,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
   <input type="file" id="clipfile" accept="video/*" hidden>
 </div>
 <div id="facepop" hidden>
+  <button class="popx" id="facex" aria-label="閉じる">✕</button>
   <div id="facelabels" style="display:grid; gap:8px"></div>
   <button class="more" id="facemore">くわしく</button>
   <div id="facedetail" hidden style="display:grid; gap:8px">
@@ -651,10 +657,16 @@ document.addEventListener('fullscreenchange', () => setTimeout(applyView, 50));
 // 設定と付け替えはこのブラウザに覚える
 const FACES = window.FACES || {};
 const HAS_FACES = Object.keys(FACES).length > 0;
-const SET_KEY = `faceSet-${DATA.id}`, LABEL_KEY = `faceLabels-${DATA.id}`;
-const faceSet = { p0: { mode: 'none', text: '😀' }, p1: { mode: 'none', text: '😎' }, x: { mode: 'none', text: '🙂' } };
+const SET_KEY = `faceSet2-${DATA.id}`, LABEL_KEY = `faceLabels-${DATA.id}`;
+// mode：none・mosaic・text、tag：名前を出すか、size：s・m・l
+const faceSet = {
+  p0: { mode: 'mosaic', text: '😀', tag: true, size: 'm' },
+  p1: { mode: 'text', text: '😎', tag: false, size: 'l' },
+  x: { mode: 'mosaic', text: '🙂', tag: false, size: 'l' },
+};
+const SIZES = [['s', '小', 0.75], ['m', '中', 1], ['l', '大', 1.35]];
 try { const saved = JSON.parse(store.get(SET_KEY)) || {}; for (const l in faceSet) Object.assign(faceSet[l], saved[l] || {}); } catch {}
-const anyFace = () => HAS_FACES && Object.values(faceSet).some(f => f.mode !== 'none');
+const anyFace = () => HAS_FACES && Object.values(faceSet).some(f => f.mode !== 'none' || f.tag);
 let faceLabels = {};
 try { faceLabels = JSON.parse(store.get(LABEL_KEY)) || {}; } catch {}
 const labelName = l => l === 'x' ? 'その他' : l === 'off' ? '隠さない' : DATA.names[+l[1]];
@@ -751,13 +763,15 @@ function headsAt(n, t) {
   });
 }
 const tile = document.createElement('canvas');
-// 映像 src（幅 sw・高さ sh）の上の頭を、ctx（幅 w・高さ h）に隠して描く。tags なら上にラベルも（ids なら番号も）
-function drawMasks(ctx, src, sw, sh, w, h, g, heads, t, tags, ids) {
+// 映像 src（幅 sw・高さ sh）の上の頭を、ctx（幅 w・高さ h）に隠して描く。
+// 名前はラベルごとの設定で出す。allTags ならすべてに（ids なら番号も）
+function drawMasks(ctx, src, sw, sh, w, h, g, heads, t, allTags, ids) {
   for (const head of heads) {
-    const [x, y, r, tid] = head;
+    const [x, y, , tid] = head;
     const label = labelAt(g, head, t);
-    const set = faceSet[label] || { mode: 'none', text: '' };
+    const set = faceSet[label] || { mode: 'none', text: '', tag: false, size: 'm' };
     const mode = set.mode, emoji = set.text;
+    const r = head[2] * (SIZES.find(z => z[0] === set.size) || SIZES[1])[2];
     const R = r * w;  // 描く先のピクセルでの半径
     if (emoji && mode === 'text') {
       const size = 1.9 * R;
@@ -774,15 +788,17 @@ function drawMasks(ctx, src, sw, sh, w, h, g, heads, t, tags, ids) {
       ctx.drawImage(tile, 0, 0, n, n, x * w - R, y * h - R, 2 * R, 2 * R);
       ctx.restore();
     }
-    if (tags) {
+    if (allTags || set.tag) {
       const text = ids ? `${labelName(label)} #${tid}` : labelName(label);
-      const fs = Math.max(12, 13 * devicePixelRatio);
+      // 画面でも書き出しでも、映像の大きさに合わせる
+      const fs = Math.max(12, w * 0.014);
       ctx.font = `bold ${fs}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
       const tw = ctx.measureText(text).width + 8;
       ctx.fillStyle = 'rgba(0,0,0,.65)';
-      ctx.fillRect(x * w - tw / 2, y * h - R - fs - 6, tw, fs + 4);
+      const top = mode === 'none' ? r * w / 1.35 : R;
+      ctx.fillRect(x * w - tw / 2, y * h - top - fs - 6, tw, fs + 4);
       ctx.fillStyle = '#fff';
-      ctx.fillText(text, x * w, y * h - R - 3);
+      ctx.fillText(text, x * w, y * h - top - 3);
     }
   }
 }
@@ -836,14 +852,34 @@ function renderFaceList() {
       b.onclick = () => { faceSet[l].mode = m; paint(); save(); };
       return [m, b];
     });
-    const paint = () => {
+    let paint = () => {
       buttons.forEach(([m, b]) => b.classList.toggle('on', faceSet[l].mode === m));
       input.disabled = faceSet[l].mode !== 'text';
     };
     input.oninput = () => { faceSet[l].text = input.value.trim(); save(); };
     opts.append(...buttons.map(([, b]) => b), input);
+    const opts2 = document.createElement('div');
+    opts2.className = 'opts';
+    const tagBtn = document.createElement('button');
+    tagBtn.textContent = '名前';
+    tagBtn.onclick = () => { faceSet[l].tag = !faceSet[l].tag; paint(); save(); };
+    const sizeBtns = SIZES.map(([z, text]) => {
+      const b = document.createElement('button');
+      b.textContent = text;
+      b.onclick = () => { faceSet[l].size = z; paint(); save(); };
+      return [z, b];
+    });
+    const sep = document.createElement('span');
+    sep.className = 'sep';
+    opts2.append(tagBtn, sep, ...sizeBtns.map(([, b]) => b));
+    const paint0 = paint;
+    paint = () => {
+      paint0();
+      tagBtn.classList.toggle('on', faceSet[l].tag);
+      sizeBtns.forEach(([z, b]) => b.classList.toggle('on', faceSet[l].size === z));
+    };
     paint();
-    card.append(name, opts);
+    card.append(name, opts, opts2);
     box.append(card);
   });
   // このゲームで見つけた頭（長く映っていた順）
@@ -879,8 +915,18 @@ document.getElementById('face').onclick = () => {
   clippop.hidden = true;
   renderFaceList();
   facepop.hidden = false;
+  fitSheet(facepop);
 };
 document.getElementById('faceclose').onclick = () => { facepop.hidden = true; };
+// スマホでは下からの板。上の動画とボタンにかぶらない高さにする
+function fitSheet(pop) {
+  if (matchMedia('(min-width: 960px) and (min-height: 560px)').matches) { pop.style.maxHeight = ''; return; }
+  const bottom = document.querySelector('.controls').getBoundingClientRect().bottom;
+  pop.style.maxHeight = `${Math.max(200, innerHeight - bottom - 6)}px`;
+}
+addEventListener('resize', () => [facepop, clippop].forEach(p => !p.hidden && fitSheet(p)));
+document.getElementById('facex').onclick = () => { facepop.hidden = true; };
+document.getElementById('clipx').onclick = () => { clippop.hidden = true; };
 document.getElementById('facemore').onclick = () => {
   facedetail.hidden = !facedetail.hidden;
   document.getElementById('facemore').classList.toggle('on', !facedetail.hidden);
@@ -909,6 +955,7 @@ document.getElementById('clip').onclick = () => {
   clipmsg.textContent = '';
   showClip();
   clippop.hidden = false;
+  fitSheet(clippop);
 };
 document.getElementById('clipclose').onclick = () => { clippop.hidden = true; };
 document.getElementById('clipseta').onclick = () => { clip.a = v.currentTime; if (clip.b <= clip.a) clip.b = clip.a + 5; showClip(); };
