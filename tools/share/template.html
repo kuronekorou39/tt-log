@@ -48,6 +48,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 .controls button { border:1px solid transparent; background:none; border-radius:8px; padding:4px 9px; cursor:pointer; min-height:36px; min-width:36px; font-size:.95rem; }
 .controls button:hover { background:var(--track); }
 .controls .grp { display:flex; gap:2px; align-items:center; }
+.controls .sepgrp { border-left:1px solid var(--line); padding-left:6px; margin-left:4px; }
 .controls button.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
 .controls .time { font-variant-numeric:tabular-nums; color:var(--muted); margin-right:auto; padding-left:4px; }
 .controls .sep { width:1px; height:20px; background:var(--line); margin:0 4px; }
@@ -211,6 +212,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
         <button id="play" aria-label="再生">▶</button>
         <button id="prev" aria-label="前の点">⏮</button>
         <button id="next" aria-label="次の点">⏭</button>
+        <button id="rallyonly" aria-label="試合をしているところだけ再生">試合だけ</button>
         <button id="mark" aria-label="★を付ける" style="font-size:1.25rem">☆</button>
       </div>
       <span class="time" id="time">0:00 / 0:00</span>
@@ -219,8 +221,9 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
         <button id="score" aria-label="動画の上の点数">点数</button>
         <button id="caps" aria-label="字幕" hidden>字幕</button>
         <button id="voice" aria-label="胸元マイクの音" hidden>音声</button>
-        <button id="rallyonly" aria-label="試合をしているところだけ再生">試合だけ</button>
         <button id="face" aria-label="顔を隠す" hidden>顔</button>
+      </div>
+      <div class="grp sepgrp">
         <button id="save" aria-label="このゲームを動画で保存">保存</button>
       </div>
     </div>
@@ -305,7 +308,7 @@ function renderGames(mark) {
       ${flowSVG(g, i, i === current ? mark : null)}
     </button>`;
   }).join('');
-  box.querySelectorAll('.game').forEach(b => b.onclick = () => { stopPlaylist(); select(+b.dataset.i, true); });
+  box.querySelectorAll('.game').forEach(b => b.onclick = () => select(+b.dataset.i, true));
 }
 
 // ---------- シークバー ----------
@@ -401,7 +404,6 @@ function updateHead() {
 }
 
 function jump(p) {
-  stopPlaylist();
   v.currentTime = startOf(p);
   v.play();
 }
