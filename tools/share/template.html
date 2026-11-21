@@ -174,10 +174,8 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 
 <script>
 const DATA = {{DATA}};
-// ラリーが見つからなかった点は、点が入った時刻のこれだけ前から見せる
+// 範囲のない点は、点が入った時刻のこれだけ前から見せる
 const LEAD = 8;
-// ラリーの見せ始め（サーブの構え。make_share 側で決める）より、さらにこれだけ前から
-const PRE = 0.5;
 // 印を続けて再生するとき、ラリーの終わりからこれだけ見てから次へ
 const POST = 2;
 // 「寄る」の倍率と、映す中心（映像の縦の位置。天井を切って台と2人に寄せる）
@@ -355,8 +353,8 @@ function select(i, autoplay) {
   }
 }
 
-// その点のラリーの見始め
-function startOf(p) { return Math.max(0, p.r ? p.r[0] - PRE : p.vt - LEAD); }
+// その点の見始め（サーブの少し前）
+function startOf(p) { return Math.max(0, p.r ? p.r[0] : p.vt - LEAD); }
 
 // ---------- 印 ----------
 // 点ごとの印。1 = ★、0 = 外した（候補の ☆ も出さない）。ないものは、候補なら ☆

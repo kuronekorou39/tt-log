@@ -135,53 +135,49 @@ def attach_rallies(video: Path, points: list[dict]) -> None:
         i = j + 1
 
 
-# 「間を飛ばす」で残す長さ。1点あたり、点を入れた時刻からこれだけ前まで（サーブの構え＋短いラリー＋押すまでの間）
-KEEP_PER_POINT = 10.0
-# 見つけたラリーの最初の打球（サーブ）から、これだけ前から残す（サーブの構え）
-SERVE_LEAD = 4.0
-# これより短い間は飛ばさない（細かく飛ぶと見づらい）
-MIN_SKIP = 4.0
-# ゲームの最後の点を入れた後に残す長さ（秒）
+# 点の範囲：前の点を入れてから、これだけ後から（入れ終わり＝次のサーブの構えに入るところ）
+AFTER_PREVIOUS_CALL = 1.0
+# 点を入れた後、これだけ後まで
 KEEP_AFTER = 1.5
-# 点を入れた後に残す長さ（次のサーブの構え＋サーブ＋短いラリー）。サーブミスのようにすぐ終わる点は、
-# ボールを拾ってから点を入れるので、プレーは前の点を入れた直後にある（2026-11-20 第3ゲーム 1-3 ほか）
-KEEP_AFTER_CALL = 15.0
+# 前の点から長く空いたとき（休憩など）は、点を入れるこれだけ前から
+MAX_POINT = 30.0
+# 見つけたラリーの最初の打球（サーブ）から、これだけ前から（サーブの構え）
+SERVE_LEAD = 4.0
+# これより短い間は「詰める」で飛ばさない（細かく飛ぶと見づらい）
+MIN_SKIP = 4.0
 
 
-def play_spans(points: list[dict]) -> list[list[float]]:
-    """試合をしている区間（動画の秒）。点を入れた時刻だけから決める（打球音は話し声や足音と区別しきれず、
-    ラリーを切ってしまうため。2026-11-20 第1ゲーム 7-5、第4ゲーム 3-2）。
+def point_ranges(points: list[dict]) -> list[list[float] | None]:
+    """点ごとの範囲 [始め, 終わり]（動画の秒）。その点のサーブの少し前から、点を入れたところまで。
 
-    前の点からこの点までを、1点あたり KEEP_PER_POINT 秒まで残す。続けて押した n 点は n 倍まで。
-    打球音から見つけたラリーの最初の打球がそれより前なら、そのサーブの構えから残す（長いラリーや、ボールを拾ってから
-    点を入れて押すのが遅れたときに、ラリーの頭が切れないように。2026-11-20 第1ゲーム 2-0）。
-    点を入れた後も KEEP_AFTER_CALL 秒は残す。
-    飛ぶのは、ボール拾いや待ち・休憩など、点と点の間の何もしていないところ。"""
-    spans: list[list[float]] = []
+    打球音は球拾いや話し声と区別しきれないので、境目は点を入れた時刻で決める。
+    前の点を入れてからこの点を入れるまでが、この点（サーブの構え・ラリー・球拾い）。
+    長く空いたときだけ、点を入れる MAX_POINT 秒前か、見つけたサーブの少し前の早いほうから。"""
+    out: list[list[float] | None] = []
     prev = None
-    i = 0
-    vts = [p["vt"] for p in points]
-    while i < len(vts):
-        if vts[i] is None:
-            i += 1
+    for p in points:
+        if p["vt"] is None:
+            out.append(None)
             continue
-        j = i
-        while j + 1 < len(vts) and vts[j + 1] is not None and vts[j + 1] - vts[j] < BATCH_GAP:
-            j += 1
-        end = vts[j]
-        start = end - KEEP_PER_POINT * (j - i + 1)
-        starts = [points[k]["rally"]["first"] - SERVE_LEAD for k in range(i, j + 1) if points[k].get("rally")]
-        if starts:
-            start = min(start, min(starts))
+        end = p["vt"]
+        start = end - MAX_POINT
+        if p.get("rally"):
+            start = min(start, p["rally"]["first"] - SERVE_LEAD, p["rally"]["start"])
         if prev is not None:
-            start = max(start, prev)
-        span = [max(0.0, start), end + KEEP_AFTER_CALL]
-        if spans and span[0] - spans[-1][1] < MIN_SKIP:
-            spans[-1][1] = span[1]
-        else:
-            spans.append(span)
+            start = max(start, prev + AFTER_PREVIOUS_CALL)
+        out.append([max(0.0, min(start, end)), end + KEEP_AFTER])
         prev = end
-        i = j + 1
-    if spans:
-        spans[-1][1] = prev + KEEP_AFTER
+    return out
+
+
+def play_spans(ranges: list[list[float] | None]) -> list[list[float]]:
+    """「詰める」で残す区間。点の範囲をつなぎ、MIN_SKIP 秒より短い間は飛ばさない。"""
+    spans: list[list[float]] = []
+    for r in ranges:
+        if r is None:
+            continue
+        if spans and r[0] - spans[-1][1] < MIN_SKIP:
+            spans[-1][1] = max(spans[-1][1], r[1])
+        else:
+            spans.append(list(r))
     return spans

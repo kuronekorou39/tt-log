@@ -229,9 +229,6 @@ def main():
         if g["video"] and not args.no_rally:
             from rallies import attach_rallies
             attach_rallies(out / g["video"], g["points"])
-        from rallies import play_spans
-        # 押した時刻のままで決める（続けて押した点の時刻を直す前）
-        g["spans"] = play_spans(g["points"])
         if g["video"] and not args.no_rally:
             for p in g["points"]:
                 if "fixed_vt" in p:
@@ -239,6 +236,10 @@ def main():
                     p["tapped_at"] = p["at"]
                     p["at"] = p["at"] + dt.timedelta(seconds=p["fixed_vt"] - p["vt"])
                     p["vt"] = p["fixed_vt"]
+        from rallies import play_spans, point_ranges
+        for p, r in zip(g["points"], point_ranges(g["points"])):
+            p["range"] = r
+        g["spans"] = play_spans([p["range"] for p in g["points"]])
 
     with open(out / "data" / "points.csv", "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
@@ -278,7 +279,7 @@ def write_html(path: Path, session_id: str, names: list[str], log: dict, games: 
         "final": g["points"][-1]["scores"],
         "minutes": round(((g["end"] or g["points"][-1]["at"]) - g["points"][0]["at"]).total_seconds() / 60),
         "points": [{"w": p["winner"], "s": p["scores"], "sv": p["server"], "vt": p["vt"],
-                    "r": [round(p["rally"]["start"], 2), round(p["rally"]["end"], 2)] if p.get("rally") else None,
+                    "r": [round(p["range"][0], 2), round(p["range"][1], 2)] if p["range"] else None,
                     "fx": "tapped_at" in p,
                     "t": p["at"].astimezone(JST).strftime("%H:%M:%S")} for p in g["points"]],
     } for g in games]
