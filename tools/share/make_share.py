@@ -329,7 +329,7 @@ def write_html(path: Path, session_id: str, names: list[str], log: dict, games: 
     )
     content = {
         "title": f"{started:%Y-%m-%d} 卓球",
-        "date": f"{started:%Y年%m月%d日 %H:%M}",
+        "date": f"{started.year}年{started.month}月{started.day}日",
         "won": won,
         "stats": rows,
         "data": {"id": session_id, "names": names, "games": data, "candidates": highlights.candidates(games)},

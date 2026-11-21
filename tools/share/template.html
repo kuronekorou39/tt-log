@@ -28,6 +28,10 @@ small, .muted { color:var(--muted); }
 /* ---- 共通の部品 ---- */
 header { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
+/* 回の切り替え：見出しの見た目のまま、▾ を付ける */
+header h1 .session { font:inherit; color:inherit; background:none; border:1px solid transparent; border-radius:8px;
+  padding:2px 4px; cursor:pointer; }
+header h1 .session:hover { border-color:var(--line); }
 .total { font-size:1.6rem; font-weight:800; white-space:nowrap; }
 .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; }
 
@@ -381,7 +385,10 @@ async function loadPage() {
   // 共有したフォルダの中に、日付ごとのまとめのフォルダが並んでいてもよい。
   // 1つならそれを、いくつもあれば #s= の回か、一覧から選んでもらう
   const bases = Object.keys(DRIVE.ids).filter(p => p.endsWith('data/page.json'))
-    .map(p => p.slice(0, -'data/page.json'.length)).sort().reverse();
+    .map(p => p.slice(0, -'data/page.json'.length));
+  // 新しい回（フォルダ名の大きい順）から
+  const nameOf = b => b.replace(/\/$/, '').split('/').pop();
+  bases.sort((a, b) => nameOf(b).localeCompare(nameOf(a)));
   const want = new URLSearchParams(location.hash.slice(1)).get('s');
   let hit = null;
   if (want) {
@@ -392,6 +399,8 @@ async function loadPage() {
     showChooser(bases);
     throw CHOOSING;
   } else if (bases.length) hit = `${bases[0]}data/page.json`;
+  DRIVE.sessions = bases.map(b => b.replace(/\/$/, '').split('/').pop());
+  if (hit) DRIVE.session = hit.slice(0, -'/data/page.json'.length).split('/').pop();
   if (!hit) {
     const found = Object.keys(DRIVE.ids);
     throw new ViewError('フォルダにまとめのデータがありません',
@@ -440,6 +449,18 @@ boot.hidden = true;
 const DATA = PAGE.data;
 document.title = PAGE.title;
 document.getElementById('date').textContent = PAGE.date;
+// ドライブに回がいくつもあれば、日付から切り替えられるように
+if (DRIVE && DRIVE.sessions?.length > 1) {
+  const sel = document.createElement('select');
+  sel.className = 'session';
+  sel.setAttribute('aria-label', '回を選ぶ');
+  const label = name => { const m = name.match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? `${+m[1]}年${+m[2]}月${+m[3]}日` : name; };
+  for (const name of DRIVE.sessions) sel.add(new Option(label(name), name, false, name === DRIVE.session));
+  sel.onchange = () => { const h = new URLSearchParams(location.hash.slice(1)); h.set('s', sel.value); location.hash = h.toString(); location.reload(); };
+  const h1 = document.getElementById('date');
+  h1.textContent = '';
+  h1.append(sel);
+}
 {
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   document.getElementById('total').innerHTML =
