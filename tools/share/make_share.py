@@ -320,6 +320,9 @@ def write_html(path: Path, session_id: str, names: list[str], log: dict, games: 
     page = page.replace("{{A}}", html.escape(names[0])).replace("{{B}}", html.escape(names[1]))
     page = page.replace("{{WA}}", str(won[0])).replace("{{WB}}", str(won[1]))
     page = page.replace("{{STATS}}", rows)
+    # 顔を隠すための頭の位置（faces.py で作る）。file:// でも読めるようスクリプトで読む
+    faces = sorted(path.parent.glob("data/faces-game*.js"))
+    page = page.replace("{{FACES}}", "\n".join(f'<script src="data/{f.name}"></script>' for f in faces))
     page = page.replace("{{DATA}}", json.dumps({"id": session_id, "names": names, "games": data, "candidates": highlights.candidates(games)}, ensure_ascii=False))
     path.write_text(page, encoding="utf-8")
 

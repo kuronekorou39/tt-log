@@ -92,6 +92,19 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 #infopop { position:fixed; top:56px; right:14px; width:min(380px, calc(100vw - 24px)); max-height:calc(100vh - 80px); overflow:auto;
   background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:20; }
 #infopop p { margin:4px 0 10px; font-size:.85rem; }
+/* 切り出し */
+.stage canvas.mask { position:absolute; left:0; top:0; transform-origin:0 0; pointer-events:none; }
+#clippop { position:fixed; right:14px; bottom:14px; width:min(320px, calc(100vw - 24px)); background:var(--card);
+  border:1px solid var(--line); border-radius:12px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:20;
+  display:grid; gap:10px; font-size:.9rem; }
+#clippop .row { display:flex; align-items:center; gap:8px; }
+#clippop .row > span:first-child { width:3.5em; color:var(--muted); }
+#clippop .t { font-variant-numeric:tabular-nums; min-width:4.5em; }
+#clippop button { border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:8px; padding:4px 10px;
+  cursor:pointer; min-height:32px; }
+#clippop button.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
+#clippop .go { background:var(--fg); color:var(--bg); font-weight:700; }
+#clippop .msg { color:var(--muted); font-size:.8rem; }
 #infopop .stats { margin-bottom:12px; }
 .stats { width:100%; border-collapse:collapse; font-size:.85rem; }
 .stats th, .stats td { padding:5px 4px; text-align:center; font-variant-numeric:tabular-nums; border-top:1px solid var(--line); }
@@ -136,6 +149,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
     </header>
     <div class="stage" id="stage">
       <video id="v" playsinline preload="metadata"></video>
+      <canvas class="mask" id="mask"></canvas>
       <div class="empty" id="empty" hidden>動画なし</div>
       <div class="now" id="now"></div>
       <div class="cap" id="cap" hidden></div>
@@ -161,6 +175,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
         <button id="caps" aria-label="字幕" hidden>字幕</button>
         <button id="voice" aria-label="胸元マイクの音" hidden>音声</button>
         <button id="playmarks" aria-label="★だけ再生" hidden>★▶</button>
+        <button id="clip" aria-label="切り出し">切り出し</button>
       </div>
     </div>
     <audio id="mic" preload="auto"></audio>
@@ -171,6 +186,16 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
   </section>
 </div>
 <div id="infopop" hidden>{{STATS}}</div>
+<div id="clippop" hidden>
+  <div class="row"><span>始め</span><span class="t" id="clipa"></span><button id="clipseta">今</button></div>
+  <div class="row"><span>終わり</span><span class="t" id="clipb"></span><button id="clipsetb">今</button></div>
+  <div class="row" id="facerow"><span>顔</span>
+    <button data-face="none">なし</button><button data-face="mosaic">モザイク</button><button data-face="emoji">😀</button></div>
+  <div class="row"><button class="go" id="clipgo">書き出す</button><button id="clipclose">閉じる</button></div>
+  <div class="msg" id="clipmsg"></div>
+  <input type="file" id="clipfile" accept="video/*" hidden>
+</div>
+{{FACES}}
 
 <script>
 const DATA = {{DATA}};
@@ -556,6 +581,8 @@ function applyView() {
   v.style.width = `${dw}px`; v.style.height = `${dh}px`;
   v.style.left = '0'; v.style.top = '0'; v.style.right = 'auto'; v.style.bottom = 'auto';
   v.style.transform = `translate(${tx}px, ${ty}px)`;
+  const m = document.getElementById('mask');
+  m.style.width = `${dw}px`; m.style.height = `${dh}px`; m.style.transform = v.style.transform;
   document.getElementById('zoom').classList.toggle('on', view.zoom !== 1);
   store.set('view', JSON.stringify(view));
 }
@@ -587,6 +614,190 @@ stage.addEventListener('pointermove', e => {
 stage.addEventListener('pointerup', () => { if (drag && !drag.moved && v.src) { v.paused ? v.play() : v.pause(); } drag = null; });
 stage.addEventListener('dblclick', () => { document.fullscreenElement ? document.exitFullscreen() : stage.requestFullscreen?.(); });
 document.addEventListener('fullscreenchange', () => setTimeout(applyView, 50));
+
+// ---------- 顔を隠す ----------
+// 頭の位置は data/faces-gameNN.js（0.1秒ごと）。間は、近い頭どうしをなめらかにつなぐ
+const FACES = window.FACES || {};
+const EMOJI = '😀';
+let faceMode = store.get('faceMode') || 'none';
+function headsAt(n, t) {
+  const F = FACES[n];
+  if (!F) return [];
+  const k = t * F.fps, i = Math.floor(k), f = k - i;
+  const a = F.frames[i] || [], b = F.frames[i + 1] || [];
+  return a.map(h => {
+    let best = null, d = 0.08;
+    for (const o of b) { const e = Math.hypot(o[0] - h[0], o[1] - h[1]); if (e < d) { best = o; d = e; } }
+    return best ? h.map((x, j) => x + (best[j] - x) * f) : h;
+  });
+}
+const tile = document.createElement('canvas');
+// 映像 src（幅 sw・高さ sh）の上の頭を、ctx（幅 w・高さ h）に隠して描く
+function drawMasks(ctx, src, sw, sh, w, h, heads, mode) {
+  for (const [x, y, r] of heads) {
+    const R = r * sw;  // 映像のピクセルでの半径
+    if (mode === 'emoji') {
+      const size = 1.9 * R * w / sw;
+      ctx.font = `${size}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(EMOJI, x * w, y * h + size * 0.05);
+    } else if (mode === 'mosaic') {
+      // 頭のまわりを 8 マスに縮めてから、ぼかさずに広げる
+      const n = 8;
+      tile.width = n; tile.height = n;
+      const tc = tile.getContext('2d');
+      tc.drawImage(src, x * sw - R, y * sh - R, 2 * R, 2 * R, 0, 0, n, n);
+      ctx.save();
+      ctx.imageSmoothingEnabled = false;
+      ctx.beginPath(); ctx.arc(x * w, y * h, R * w / sw, 0, Math.PI * 2); ctx.clip();
+      ctx.drawImage(tile, 0, 0, n, n, x * w - R * w / sw, y * h - R * w / sw, 2 * R * w / sw, 2 * R * w / sw);
+      ctx.restore();
+    }
+  }
+}
+const mask = document.getElementById('mask');
+function drawPreview() {
+  const ctx = mask.getContext('2d');
+  const w = Math.round(mask.clientWidth * devicePixelRatio), h = Math.round(mask.clientHeight * devicePixelRatio);
+  if (mask.width !== w || mask.height !== h) { mask.width = w; mask.height = h; }
+  ctx.clearRect(0, 0, w, h);
+  if (faceMode !== 'none' && v.videoWidth && !v.hidden)
+    drawMasks(ctx, v, v.videoWidth, v.videoHeight, w, h, headsAt(DATA.games[current].n, v.currentTime), faceMode);
+  requestAnimationFrame(drawPreview);
+}
+requestAnimationFrame(drawPreview);
+function showFaceMode() {
+  document.querySelectorAll('[data-face]').forEach(b => b.classList.toggle('on', b.dataset.face === faceMode));
+}
+document.querySelectorAll('[data-face]').forEach(b => b.onclick = () => {
+  faceMode = b.dataset.face; store.set('faceMode', faceMode); showFaceMode();
+});
+document.getElementById('facerow').hidden = !Object.keys(FACES).length;
+if (!Object.keys(FACES).length) faceMode = 'none';
+showFaceMode();
+
+// ---------- 切り出し（範囲を、顔を隠して動画に書き出す） ----------
+const clippop = document.getElementById('clippop');
+const clipmsg = document.getElementById('clipmsg');
+let clip = { a: 0, b: 0 };
+let recording = null;
+function showClip() {
+  document.getElementById('clipa').textContent = fmt1(clip.a);
+  document.getElementById('clipb').textContent = fmt1(clip.b);
+}
+function fmt1(t) { return `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`; }
+document.getElementById('clip').onclick = () => {
+  if (!clippop.hidden) { clippop.hidden = true; return; }
+  // 今いる点の範囲から始める
+  const t = v.currentTime;
+  const p = DATA.games[current].points.find(p => p.r && p.r[0] <= t && t <= p.r[1]);
+  clip = p ? { a: p.r[0], b: p.r[1] } : { a: t, b: Math.min(t + 15, v.duration || t + 15) };
+  clipmsg.textContent = '';
+  showClip();
+  clippop.hidden = false;
+};
+document.getElementById('clipclose').onclick = () => { clippop.hidden = true; };
+document.getElementById('clipseta').onclick = () => { clip.a = v.currentTime; if (clip.b <= clip.a) clip.b = clip.a + 5; showClip(); };
+document.getElementById('clipsetb').onclick = () => { clip.b = v.currentTime; if (clip.b <= clip.a) clip.a = Math.max(0, clip.b - 5); showClip(); };
+
+// ファイルとして開いたページでは、ブラウザが動画の絵を書き出させてくれない。動画ファイルを選んでもらう
+const picked = {};
+function canExport(url) {
+  return new Promise(res => {
+    const t = document.createElement('video');
+    t.muted = true; t.preload = 'auto'; t.src = url;
+    t.addEventListener('loadeddata', () => {
+      const c = document.createElement('canvas'); c.width = c.height = 2;
+      try { c.getContext('2d').drawImage(t, 0, 0, 2, 2); c.getContext('2d').getImageData(0, 0, 1, 1); res(true); }
+      catch { res(false); }
+      t.removeAttribute('src'); t.load();
+    }, { once: true });
+    t.addEventListener('error', () => res(false), { once: true });
+  });
+}
+function pickVideo(n) {
+  return new Promise(res => {
+    const input = document.getElementById('clipfile');
+    clipmsg.innerHTML = '';
+    const b = document.createElement('button');
+    b.textContent = `game${String(n).padStart(2, '0')}.mp4 を選ぶ`;
+    b.onclick = () => input.click();
+    clipmsg.append('videos フォルダの ', b);
+    input.onchange = () => {
+      const f = input.files[0]; input.value = '';
+      if (!f) return;
+      picked[n] = URL.createObjectURL(f);
+      clipmsg.textContent = '';
+      res(picked[n]);
+    };
+  });
+}
+function pickMime() {
+  const types = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+  return types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
+}
+document.getElementById('clipgo').onclick = async () => {
+  if (recording) { recording.stop(); return; }
+  const g = DATA.games[current];
+  if (!g.video) return;
+  const mime = pickMime();
+  if (!mime) { clipmsg.textContent = 'このブラウザでは書き出せません'; return; }
+  let url = picked[g.n] || g.video;
+  if (!picked[g.n] && !(await canExport(url))) url = await pickVideo(g.n);
+  v.pause();
+
+  const src = document.createElement('video');
+  src.playsInline = true; src.preload = 'auto'; src.src = url;
+  await new Promise(r => src.addEventListener('loadedmetadata', r, { once: true }));
+  const W = src.videoWidth, H = src.videoHeight;
+  const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const stream = canvas.captureStream(30);
+  // 音：映像の音を録音にも、スピーカーにも流す
+  const ac = new AudioContext();
+  const node = ac.createMediaElementSource(src);
+  const dest = ac.createMediaStreamDestination();
+  node.connect(dest); node.connect(ac.destination);
+  dest.stream.getAudioTracks().forEach(tr => stream.addTrack(tr));
+
+  const chunks = [];
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12e6 });
+  rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+  const { a, b } = clip, mode = faceMode;
+  src.currentTime = a;
+  await new Promise(r => src.addEventListener('seeked', r, { once: true }));
+  let done = false;
+  const draw = () => {
+    if (done) return;
+    ctx.drawImage(src, 0, 0, W, H);
+    if (mode !== 'none') drawMasks(ctx, src, W, H, W, H, headsAt(g.n, src.currentTime), mode);
+    clipmsg.textContent = `書き出し中 ${Math.max(0, src.currentTime - a).toFixed(0)} / ${(b - a).toFixed(0)}秒`;
+    if (src.currentTime >= b || src.ended) { rec.stop(); return; }
+    if (src.requestVideoFrameCallback) src.requestVideoFrameCallback(draw); else requestAnimationFrame(draw);
+  };
+  rec.onstop = () => {
+    done = true; recording = null;
+    src.pause(); ac.close();
+    document.getElementById('clipgo').textContent = '書き出す';
+    const blob = new Blob(chunks, { type: mime.split(';')[0] });
+    const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
+    const p = g.points.find(p => p.r && Math.abs(p.r[0] - a) < 0.01);
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${document.title.split(" ")[0]}-第${g.n}ゲーム${p ? `-${p.s[0]}-${p.s[1]}` : `-${fmt1(a).replace(/[:.]/g, '')}`}.${ext}`;
+    link.textContent = '保存';
+    clipmsg.innerHTML = '';
+    clipmsg.append(link);
+    link.click();
+  };
+  recording = rec;
+  document.getElementById('clipgo').textContent = '止める';
+  ctx.drawImage(src, 0, 0, W, H);
+  rec.start(500);
+  draw();
+  try { await ac.resume(); await src.play(); }
+  catch { done = true; recording = null; rec.onstop = null; rec.stop(); ac.close();
+    document.getElementById('clipgo').textContent = '書き出す'; clipmsg.textContent = '再生できませんでした'; }
+};
 
 try { const saved = JSON.parse(store.get('view')); if (saved && saved.zoom) view = saved; } catch {}
 select(0, false);
