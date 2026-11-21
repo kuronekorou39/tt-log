@@ -34,6 +34,22 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 .stage { position:relative; overflow:hidden; background:#000; border-radius:10px; touch-action:none; }
 .stage video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; transform-origin:0 0; }
 .stage .empty { position:absolute; inset:0; display:grid; place-items:center; color:#aaa; }
+/* 読み込み中・エラー（動画の場所に重ねる） */
+.boot { position:absolute; inset:0; display:grid; place-content:center; justify-items:center; gap:10px; padding:20px;
+  background:#000; color:#ddd; text-align:center; z-index:3; }
+.boot .spin { width:34px; height:34px; border-radius:50%; border:3px solid rgba(255,255,255,.2); border-top-color:#fff;
+  animation:spin .9s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.boot h2 { margin:0; font-size:1.05rem; color:#fff; }
+.boot p { margin:0; font-size:.85rem; color:#aaa; max-width:32em; line-height:1.6; }
+.boot button { margin-top:4px; border:1px solid #666; background:none; color:#fff; border-radius:8px; padding:6px 16px; cursor:pointer; }
+.boot .err { font-size:1.8rem; }
+/* スケルトン（データが来るまでの仮の枠） */
+.skel { background:linear-gradient(90deg, var(--track) 25%, var(--line) 50%, var(--track) 75%); background-size:200% 100%;
+  animation:shimmer 1.4s ease-in-out infinite; border-radius:8px; }
+@keyframes shimmer { from { background-position:200% 0; } to { background-position:-200% 0; } }
+.skel-game { height:64px; margin:6px 8px; }
+.skel-line { display:inline-block; height:1em; vertical-align:middle; }
 .stage .zoomtag { position:absolute; right:8px; top:8px; background:rgba(0,0,0,.55); color:#fff; font-size:.75rem;
   padding:2px 8px; border-radius:99px; pointer-events:none; opacity:0; transition:opacity .2s; }
 .stage .zoomtag.show { opacity:1; }
@@ -206,6 +222,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
       <video id="v" playsinline preload="metadata"></video>
       <canvas class="mask" id="mask"></canvas>
       <div class="empty" id="empty" hidden>動画なし</div>
+      <div class="boot" id="boot" hidden></div>
       <div class="now" id="now"></div>
       <div class="cap" id="cap" hidden></div>
       <div class="zoomtag" id="zoomtag"></div>
@@ -275,10 +292,53 @@ function media(path) {
   const id = DRIVE.ids[DRIVE.base + path];
   return id ? `${DRIVE.api}/files/${id}?alt=media&key=${encodeURIComponent(DRIVE.key)}` : '';
 }
+// 見る人に出すエラー（title：何が起きたか、detail：どうすればよいか）
+class ViewError extends Error {
+  constructor(title, detail) { super(title); this.detail = detail; }
+}
+// ドライブの API のエラーを、分かる言葉に
+async function driveError(r, what) {
+  let msg = '';
+  try { msg = (await r.json()).error?.message || ''; } catch {}
+  const m = msg.toLowerCase();
+  if (m.includes('referer') || m.includes('referrer'))
+    return new ViewError('キーがこのページで使えない設定です', 'API キーの「ウェブサイトの制限」に、このページのアドレスを入れてください。');
+  if (m.includes('api key not valid') || m.includes('api_key_invalid'))
+    return new ViewError('リンクのキーが正しくありません', 'リンクの k= の部分（API キー）を確かめてください。');
+  if (m.includes('has not been used') || m.includes('is disabled'))
+    return new ViewError('ドライブの読み取りが有効になっていません', 'Google Cloud で Google Drive API を有効にしてください。');
+  if (m.includes('quota') || m.includes('rate limit') || r.status === 429)
+    return new ViewError('ドライブの読み込みの上限に達しました', 'しばらく（数時間〜1日）おいてから開き直してください。');
+  if (r.status === 404)
+    return new ViewError(`${what}が見つかりません`, 'リンクの d= の部分（フォルダ）が正しいか、フォルダが「リンクを知っている全員」で共有されているかを確かめてください。');
+  if (r.status === 403)
+    return new ViewError(`${what}を読む許可がありません`, 'フォルダが「リンクを知っている全員」で共有されているかを確かめてください。');
+  return new ViewError(`${what}を読めませんでした（${r.status}）`, msg);
+}
+async function driveFetch(url, what) {
+  let r;
+  try { r = await fetch(url); }
+  catch { throw new ViewError('通信できませんでした', 'インターネットにつながっているかを確かめて、もう一度開いてください。'); }
+  if (!r.ok) throw await driveError(r, what);
+  return r;
+}
+const boot = document.getElementById('boot');
+function showLoading(text) {
+  boot.innerHTML = `<div class="spin"></div><p>${text}</p>`;
+  boot.hidden = false;
+}
+function showError(e) {
+  const title = e instanceof ViewError ? e.message : '読み込めませんでした';
+  const detail = e instanceof ViewError ? e.detail : e.message;
+  boot.innerHTML = '<div class="err">⚠</div><h2></h2><p></p><button>もう一度</button>';
+  boot.querySelector('h2').textContent = title;
+  boot.querySelector('p').textContent = detail || '';
+  boot.querySelector('button').onclick = () => location.reload();
+  boot.hidden = false;
+}
 async function driveList(id, prefix) {
   const q = encodeURIComponent(`'${id}' in parents and trashed=false`);
-  const r = await fetch(`${DRIVE.api}/files?q=${q}&fields=files(id,name,mimeType)&pageSize=1000&key=${encodeURIComponent(DRIVE.key)}`);
-  if (!r.ok) throw new Error(`ドライブを読めませんでした（${r.status}${await r.text().then(t => { try { return ' ' + JSON.parse(t).error.message; } catch { return ''; } })}）`);
+  const r = await driveFetch(`${DRIVE.api}/files?q=${q}&fields=files(id,name,mimeType)&pageSize=1000&key=${encodeURIComponent(DRIVE.key)}`, 'フォルダ');
   for (const f of (await r.json()).files || []) {
     if (f.mimeType === 'application/vnd.google-apps.folder') await driveList(f.id, `${prefix}${f.name}/`);
     else DRIVE.ids[`${prefix}${f.name}`] = f.id;
@@ -286,23 +346,28 @@ async function driveList(id, prefix) {
 }
 async function loadPage() {
   if (EMBEDDED) return EMBEDDED;
-  if (!DRIVE) throw new Error('読み込むフォルダがありません');
+  if (!DRIVE) throw new ViewError('見るまとめが指定されていません', '共有されたリンクをそのまま開いてください（# から後ろも必要です）。');
+  if (!DRIVE.key) throw new ViewError('リンクにキーがありません', '共有されたリンクをそのまま開いてください（k= の部分も必要です）。');
+  showLoading('フォルダを確認中…');
   await driveList(DRIVE.folder, '');
   // 共有したフォルダの中に、さらにまとめのフォルダがあってもよい
   const hit = Object.keys(DRIVE.ids).find(p => p.endsWith('data/page.json'));
   if (!hit) {
     const found = Object.keys(DRIVE.ids);
-    throw new Error(`フォルダの中に data/page.json が見つかりません（見つかったファイル ${found.length} 件${found.length ? '：' + found.slice(0, 5).join('、') : ''}）`);
+    throw new ViewError('フォルダにまとめのデータがありません',
+      `data/page.json が見つかりません。アップロードが終わっているか確かめてください。（見つかったファイル ${found.length} 件${found.length ? '：' + found.slice(0, 3).join('、') : ''}）`);
   }
   DRIVE.base = hit.slice(0, -'data/page.json'.length);
   const get = async path => {
     const url = media(path);
-    if (!url) throw new Error(`${path} が見つかりません`);
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`${path} を読めませんでした（${r.status}）`);
-    return r.text();
+    if (!url) throw new ViewError(`${path} が見つかりません`, 'アップロードが終わっているか確かめてください。');
+    return (await driveFetch(url, path)).text();
   };
-  const page = JSON.parse(await get('data/page.json'));
+  showLoading('データを読み込み中…');
+  let page;
+  try { page = JSON.parse(await get('data/page.json')); }
+  catch (e) { if (e instanceof ViewError) throw e; throw new ViewError('まとめのデータが壊れています', 'data/page.json を上げ直してください。'); }
+  showLoading('顔の位置を読み込み中…');
   // 顔の位置（faces-gameNN.js）は、中の JSON だけを取り出す
   window.FACES = {};
   await Promise.all(Object.keys(DRIVE.ids).filter(p => p.startsWith(DRIVE.base))
@@ -315,12 +380,21 @@ async function loadPage() {
 
 (async () => {
 let PAGE;
+if (!EMBEDDED) {
+  // データが来るまでの仮の枠
+  document.getElementById('date').innerHTML = '<span class="skel skel-line" style="width:9em"></span>';
+  document.getElementById('total').innerHTML = '<span class="skel skel-line" style="width:6em"></span>';
+  document.getElementById('games').innerHTML = '<div class="skel skel-game"></div>'.repeat(6);
+}
 try { PAGE = await loadPage(); }
 catch (e) {
-  document.getElementById('empty').textContent = e.message;
-  document.getElementById('empty').hidden = false;
+  showError(e);
+  document.getElementById('date').textContent = '';
+  document.getElementById('total').textContent = '';
+  document.getElementById('games').innerHTML = '';
   return;
 }
+boot.hidden = true;
 const DATA = PAGE.data;
 document.title = PAGE.title;
 document.getElementById('date').textContent = PAGE.date;
@@ -498,7 +572,10 @@ function select(i, autoplay) {
   const g = DATA.games[i];
   document.getElementById('empty').hidden = !!g.video;
   v.hidden = !g.video;
-  if (g.video) { if (DRIVE) v.crossOrigin = 'anonymous'; v.src = media(g.video); } else { v.removeAttribute('src'); v.load(); }
+  if (g.video) {
+    if (DRIVE) { v.crossOrigin = 'anonymous'; showLoading('動画を読み込み中…'); }
+    v.src = media(g.video);
+  } else { v.removeAttribute('src'); v.load(); boot.hidden = true; }
   v.playbackRate = rate;
   renderGames(null);
   seek.querySelectorAll('.mk, .band').forEach(m => m.remove());
@@ -587,6 +664,13 @@ document.getElementById('rallyonly').onclick = () => {
 showRallyOnly();
 
 v.addEventListener('loadedmetadata', () => { renderMarkers(); applyView(); });
+v.addEventListener('loadeddata', () => { boot.hidden = true; });
+v.addEventListener('error', () => {
+  if (!v.getAttribute('src')) return;
+  showError(new ViewError('動画を読み込めませんでした', DRIVE
+    ? 'ドライブの読み込みの上限に達したか、共有設定が変わったのかもしれません。しばらくおいて開き直してください。'
+    : 'videos フォルダに動画があるか確かめてください。'));
+});
 v.addEventListener('timeupdate', updateHead);
 v.addEventListener('seeked', updateHead);
 v.addEventListener('play', () => document.getElementById('play').textContent = '❚❚');
