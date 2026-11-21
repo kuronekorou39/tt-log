@@ -44,6 +44,8 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 .boot p { margin:0; font-size:.85rem; color:#aaa; max-width:32em; line-height:1.6; }
 .boot button { margin-top:4px; border:1px solid #666; background:none; color:#fff; border-radius:8px; padding:6px 16px; cursor:pointer; }
 .boot .err { font-size:1.8rem; }
+.boot .choose { display:flex; flex-direction:column; gap:8px; min-width:200px; max-height:60vh; overflow:auto; }
+.boot .choose button { font-size:1rem; padding:10px 16px; }
 /* スケルトン（データが来るまでの仮の枠） */
 .skel { background:linear-gradient(90deg, var(--track) 25%, var(--line) 50%, var(--track) 75%); background-size:200% 100%;
   animation:shimmer 1.4s ease-in-out infinite; border-radius:8px; }
@@ -336,6 +338,20 @@ function showError(e) {
   boot.querySelector('button').onclick = () => location.reload();
   boot.hidden = false;
 }
+// 回の一覧（フォルダ名）から選ぶ。選ぶとリンクに #s= を足して開き直す
+const CHOOSING = new Error('choosing');
+function showChooser(bases) {
+  boot.innerHTML = '<h2>どの回を見ますか</h2><div class="choose"></div>';
+  const box = boot.querySelector('.choose');
+  for (const b of bases) {
+    const name = b.replace(/\/$/, '').split('/').pop();
+    const btn = document.createElement('button');
+    btn.textContent = name;
+    btn.onclick = () => { const h = new URLSearchParams(location.hash.slice(1)); h.set('s', name); location.hash = h.toString(); location.reload(); };
+    box.append(btn);
+  }
+  boot.hidden = false;
+}
 async function driveList(id, prefix) {
   const q = encodeURIComponent(`'${id}' in parents and trashed=false`);
   const r = await driveFetch(`${DRIVE.api}/files?q=${q}&fields=files(id,name,mimeType)&pageSize=1000&key=${encodeURIComponent(DRIVE.key)}`, 'フォルダ');
@@ -350,8 +366,20 @@ async function loadPage() {
   if (!DRIVE.key) throw new ViewError('リンクにキーがありません', '共有されたリンクをそのまま開いてください（k= の部分も必要です）。');
   showLoading('フォルダを確認中…');
   await driveList(DRIVE.folder, '');
-  // 共有したフォルダの中に、さらにまとめのフォルダがあってもよい
-  const hit = Object.keys(DRIVE.ids).find(p => p.endsWith('data/page.json'));
+  // 共有したフォルダの中に、日付ごとのまとめのフォルダが並んでいてもよい。
+  // 1つならそれを、いくつもあれば #s= の回か、一覧から選んでもらう
+  const bases = Object.keys(DRIVE.ids).filter(p => p.endsWith('data/page.json'))
+    .map(p => p.slice(0, -'data/page.json'.length)).sort().reverse();
+  const want = new URLSearchParams(location.hash.slice(1)).get('s');
+  let hit = null;
+  if (want) {
+    const b = bases.find(b => b.replace(/\/$/, '').split('/').pop() === want);
+    if (!b) throw new ViewError(`${want} の回が見つかりません`, 'リンクの s= の部分を確かめてください。');
+    hit = `${b}data/page.json`;
+  } else if (bases.length > 1) {
+    showChooser(bases);
+    throw CHOOSING;
+  } else if (bases.length) hit = `${bases[0]}data/page.json`;
   if (!hit) {
     const found = Object.keys(DRIVE.ids);
     throw new ViewError('フォルダにまとめのデータがありません',
@@ -388,7 +416,7 @@ if (!EMBEDDED) {
 }
 try { PAGE = await loadPage(); }
 catch (e) {
-  showError(e);
+  if (e !== CHOOSING) showError(e);
   document.getElementById('date').textContent = '';
   document.getElementById('total').textContent = '';
   document.getElementById('games').innerHTML = '';
@@ -574,7 +602,8 @@ function select(i, autoplay) {
   v.hidden = !g.video;
   if (g.video) {
     if (DRIVE) { v.crossOrigin = 'anonymous'; showLoading('動画を読み込み中…'); }
-    v.src = media(g.video);
+    if (!media(g.video)) showError(new ViewError(`${g.video} が見つかりません`, 'videos フォルダのアップロードが終わっているか確かめてください。'));
+    else v.src = media(g.video);
   } else { v.removeAttribute('src'); v.load(); boot.hidden = true; }
   v.playbackRate = rate;
   renderGames(null);
