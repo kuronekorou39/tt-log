@@ -78,8 +78,11 @@ header h1 .session:hover { border-color:var(--line); }
 @media (max-width: 720px) { .controls .lbl { display:none; } }
 .controls button:hover { background:var(--track); }
 .controls .grp { display:flex; gap:6px; align-items:center; }
+.controls .brk { display:none; }
 .controls .sepgrp { border-left:1px solid var(--line); padding-left:10px; }
 .controls button.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
+.controls #play { width:44px; height:44px; border-radius:50%; background:var(--fg); color:var(--bg); font-size:1.1rem; }
+.controls #play:hover { background:var(--fg); opacity:.85; }
 .controls .time { font-variant-numeric:tabular-nums; color:var(--muted); margin-right:auto; padding-left:4px; }
 .controls .sep { width:1px; height:20px; background:var(--line); margin:0 4px; }
 
@@ -126,6 +129,7 @@ header h1 .session:hover { border-color:var(--line); }
 /* 情報のポップオーバー */
 .info { border:0; background:none; cursor:pointer; color:var(--muted); font-size:1.1rem; width:32px; height:32px; border-radius:50%; }
 .info:hover { background:var(--track); }
+#infopop, #facepop, #clippop { overscroll-behavior:contain; }
 #infopop { position:fixed; top:56px; right:14px; width:min(380px, calc(100vw - 24px)); max-height:calc(100vh - 80px); overflow:auto;
   background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:20; }
 #infopop p { margin:4px 0 10px; font-size:.85rem; }
@@ -154,9 +158,10 @@ header h1 .session:hover { border-color:var(--line); }
 #facepop .who .name { font-weight:800; font-size:1.05rem; }
 #facepop .who .opts { display:flex; gap:8px; align-items:center; }
 #facepop .who .head { display:flex; align-items:center; gap:6px; }
-#facepop .eye { border:0; background:none; padding:4px; min-height:0; width:34px; height:34px; color:var(--fg); border-radius:8px; }
+#facepop .eye { border:1px solid var(--line); background:none; padding:2px 10px 2px 6px; min-height:32px; color:var(--fg); border-radius:16px;
+  display:inline-flex; align-items:center; gap:4px; font-size:.85rem; margin-left:6px; }
 #facepop .eye.off { color:var(--muted); }
-#facepop .eye svg { width:22px; height:22px; display:block; margin:auto; }
+#facepop .eye svg { width:20px; height:20px; display:block; }
 /* スライドする切り替え */
 .seg { display:inline-grid; grid-auto-flow:column; grid-auto-columns:1fr; position:relative; background:var(--track);
   border-radius:10px; padding:3px; }
@@ -205,6 +210,9 @@ header h1 .session:hover { border-color:var(--line); }
   .total { font-size:1.3rem; }
   .right { display:flex; flex-direction:column; gap:12px; }
   .controls button { padding:4px 7px; }
+  .controls .time { margin-right:0; margin-left:auto; }
+  .controls .brk { display:block; flex-basis:100%; height:0; }
+  .controls .sepgrp { margin-left:auto; }
   .app { overflow-x:clip; }
   #facepop, #clippop { left:0; right:0; bottom:0; width:auto; max-height:52vh; border-radius:14px 14px 0 0; }
 }
@@ -248,7 +256,8 @@ header h1 .session:hover { border-color:var(--line); }
         <button id="mark" aria-label="★を付ける" style="font-size:1.25rem">☆</button>
       </div>
       <span class="time" id="time">0:00 / 0:00</span>
-      <div class="grp">
+      <div class="brk"></div>
+      <div class="grp toggles">
         <button id="score" aria-label="動画の上の点数"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg><span class="lbl">点数</span></button>
         <button id="caps" aria-label="字幕" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M15 15h2M7 11h2M13 11h4"/></svg><span class="lbl">字幕</span></button>
         <button id="voice" aria-label="胸元マイクの音" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg><span class="lbl">音声</span></button>
@@ -690,7 +699,7 @@ function toggleMark() {
 document.getElementById('mark').onclick = toggleMark;
 // ---------- 間を飛ばす ----------
 // 点の範囲（サーブの少し前から点を入れたところ）の間を飛ばす。ゲームの最後まで来たら次のゲームへ
-let rallyOnly = store.get('rallyOnly') === '1';
+let rallyOnly = store.get('rallyOnly') !== '0';
 // 確認用（URL に ?cuts）：逆に、飛ばすところだけを流す。ゲーム前は最初の点の直前だけ
 const CUTS_ONLY = new URLSearchParams(location.search).has('cuts');
 const CUT_BEFORE_FIRST = 20;
@@ -797,7 +806,7 @@ document.getElementById('caps').onclick = () => {
 
 // ---------- 胸元マイクの音（スコアボードが残した声の録音を、動画に合わせて流す） ----------
 const mic = document.getElementById('mic');
-let voiceOn = store.get('voiceOn') === '1';
+let voiceOn = store.get('voiceOn') !== '0';
 function syncMic(force) {
   const g = DATA.games[current];
   if (!voiceOn || !g.voice) { mic.pause(); return; }
@@ -1042,7 +1051,8 @@ function drawPreview() {
   const g = DATA.games[current];
   if (HAS_FACES && v.videoWidth && !v.hidden) {
     const heads = headsAt(g.n, v.currentTime);
-    drawMasks(ctx, v, v.videoWidth, v.videoHeight, w, h, g, heads, v.currentTime, !facepop.hidden, !facedetail.hidden);
+    const detail = !facepop.hidden && !facedetail.hidden;
+    drawMasks(ctx, v, v.videoWidth, v.videoHeight, w, h, g, heads, v.currentTime, detail, detail);
     // 一覧で、今映っている頭に枠
     const ids = heads.map(h => h[3]).join(',');
     if (ids !== lastIds && !facepop.hidden) {
@@ -1056,6 +1066,13 @@ function drawPreview() {
 requestAnimationFrame(drawPreview);
 
 function showFaceMode() {}
+// ポップオーバーを開いている間は、後ろの画面をスクロールさせない
+const lockScroll = () => {
+  const open = ['infopop', 'facepop', 'clippop'].some(id => !document.getElementById(id).hidden);
+  document.documentElement.style.overflow = open ? 'hidden' : '';
+};
+['infopop', 'facepop', 'clippop'].forEach(id =>
+  new MutationObserver(lockScroll).observe(document.getElementById(id), { attributes: true, attributeFilter: ['hidden'] }));
 // 設定が開いている間だけ「顔」ボタンに色
 new MutationObserver(() => document.getElementById('face').classList.toggle('open', !facepop.hidden))
   .observe(facepop, { attributes: true, attributeFilter: ['hidden'] });
@@ -1106,7 +1123,7 @@ function renderFaceList() {
     eye.className = 'eye';
     const paintEye = () => {
       eye.classList.toggle('off', !set.tag);
-      eye.innerHTML = set.tag ? EYE : EYE_OFF;
+      eye.innerHTML = `${set.tag ? EYE : EYE_OFF}<span>名前</span>`;
       eye.setAttribute('aria-label', set.tag ? '名前を出している' : '名前を出していない');
     };
     eye.onclick = () => { set.tag = !set.tag; paintEye(); save(); };
