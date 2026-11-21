@@ -136,7 +136,8 @@ header h1 .session:hover { border-color:var(--line); }
 .controls #mark.on { background:var(--star); border-color:var(--star); color:#fff; }
 
 /* ゲームの一覧と流れ */
-.games { display:flex; flex-direction:column; }
+.games { display:flex; flex-direction:column; padding-bottom:var(--clip-h, 0px); }
+.games .game { flex:none; }
 .game { display:grid; grid-template-columns:auto 1fr; grid-template-rows:auto auto; column-gap:10px; padding:5px 10px;
   border:0; border-bottom:1px solid var(--line); background:none; text-align:left; cursor:pointer; }
 .game:last-child { border-bottom:0; }
@@ -196,7 +197,7 @@ header h1 .session:hover { border-color:var(--line); }
 #clippop .msg { font-size:.9rem; }
 #clippop .msg:empty { display:none; }
 #clippop .pick { display:grid; gap:10px; }
-#clippop .pickrow { display:flex; align-items:center; justify-content:space-between; gap:10px; padding-right:34px; }
+#clippop .pickrow { display:grid; justify-items:start; gap:6px; padding-right:34px; }
 #clippop #clipsize { color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
 #clippop .seg button { position:relative; z-index:1; border:0; background:none; color:var(--muted); min-height:36px;
   padding:4px 16px; font-size:.95rem; white-space:nowrap; }
@@ -1542,13 +1543,20 @@ function drawPreview() {
 requestAnimationFrame(drawPreview);
 
 function showFaceMode() {}
-// ポップオーバーを開いている間は、後ろの画面をスクロールさせない
+// ポップオーバーを開いている間は、後ろの画面をスクロールさせない（保存は時間がかかるので、その間も操作できるように除く）
 const lockScroll = () => {
-  const open = ['infopop', 'facepop', 'clippop'].some(id => !document.getElementById(id).hidden);
+  const open = ['infopop', 'facepop'].some(id => !document.getElementById(id).hidden);
   document.documentElement.style.overflow = open ? 'hidden' : '';
 };
-['infopop', 'facepop', 'clippop'].forEach(id =>
+['infopop', 'facepop'].forEach(id =>
   new MutationObserver(lockScroll).observe(document.getElementById(id), { attributes: true, attributeFilter: ['hidden'] }));
+// 保存の窓に隠れないよう、ゲーム一覧の下に同じ高さの余白を足す
+{
+  const pop = document.getElementById('clippop');
+  const fit = () => document.documentElement.style.setProperty('--clip-h', pop.offsetHeight ? `${pop.offsetHeight + 14}px` : '0px');
+  new MutationObserver(fit).observe(pop, { attributes: true, childList: true, characterData: true, subtree: true });
+  addEventListener('resize', fit);
+}
 // 設定が開いている間だけ「顔」ボタンに色
 new MutationObserver(() => document.getElementById('face').classList.toggle('open', !facepop.hidden))
   .observe(facepop, { attributes: true, attributeFilter: ['hidden'] });
@@ -1719,11 +1727,23 @@ function pickVideo(n) {
 // 再生を待たないので速く、元の 60 コマ/秒のまま。分解と組み立てには mediabunny を使う
 // 画質。share：元の動画に対する大きさ、h：高さ（なしは元のまま）、fps：コマ数（なしは元のまま）
 const SAVE_TIERS = {
-  high: { label: '高', share: 1 },
-  mid: { label: '中', share: 0.5, h: 720 },
-  low: { label: '小', share: 0.25, h: 720, fps: 30 },
+  high: { key: 'high', label: '高', share: 1 },
+  mid: { key: 'mid', label: '中', share: 0.5, h: 720 },
+  low: { key: 'low', label: '小', share: 0.25, h: 720, fps: 30 },
 };
 let saveTier = SAVE_TIERS[store.get('saveTier')] ? store.get('saveTier') : 'high';
+// 作成にかかる時間（動画1秒あたりの秒数）の最初の目安。保存するたびに、その端末の実測に置き換える
+const SAVE_PACE = {
+  pc: { high: 0.42, mid: 0.42, low: 0.15 },
+  phone: { high: 1.6, mid: 1, low: 0.5 },
+};
+const canFastSave = () => !!(window.VideoEncoder && window.VideoDecoder && window.OffscreenCanvas);
+function learnedPace() { try { return JSON.parse(store.get('savePace')) || {}; } catch { return {}; } }
+function paceOf(key) {
+  if (!canFastSave()) return 1;  // 再生しながら録るので、動画の長さと同じ
+  return learnedPace()[key] ?? SAVE_PACE[/Android|iPhone|iPad/.test(navigator.userAgent) ? 'phone' : 'pc'][key];
+}
+const fmtWait = sec => sec < 60 ? '1分未満' : `約${Math.ceil(sec / 60)}分`;
 const FALLBACK_BITRATE = 12e6;      // 元の大きさが分からないとき
 const even = n => Math.max(2, Math.round(n / 2) * 2);
 // 切り取った大きさ（cw×ch）から、書き出す大きさと、元の動画に対する大きさの割合を決める（引き伸ばさない）
@@ -1746,7 +1766,7 @@ async function fastSave(g, url, tier) {
   finally { opened?.dispose(); }
 }
 async function runFastSave(g, url, tier, onInput) {
-  if (!window.VideoEncoder || !window.VideoDecoder || !window.OffscreenCanvas) return false;
+  if (!canFastSave()) return false;
   let M;
   try {
     clipmsg.textContent = '準備中…';
@@ -1802,7 +1822,13 @@ async function runFastSave(g, url, tier, onInput) {
   } catch (e) { console.warn('速い保存を使えません', e); return false; }
   if (!conv.isValid) return false;
   const stopBtn = document.getElementById('clipstop');
-  conv.onProgress = p => { clipmsg.textContent = `第${g.n}ゲームを保存中 ${Math.floor(p * 100)}%`; };
+  const started = performance.now();
+  const elapsed = () => (performance.now() - started) / 1000;
+  conv.onProgress = p => {
+    // 出だしは速さが安定しないので、少し進んでから残り時間を出す
+    const left = p > 0.03 && elapsed() > 3 ? `　残り${fmtWait(elapsed() / p * (1 - p))}` : '';
+    clipmsg.textContent = `第${g.n}ゲーム（画質：${tier.label}）を保存中 ${Math.floor(p * 100)}%${left}`;
+  };
   recording = { stop: () => conv.cancel() };
   stopBtn.textContent = 'やめる'; stopBtn.hidden = false;
   document.getElementById('save').classList.add('on');
@@ -1817,6 +1843,7 @@ async function runFastSave(g, url, tier, onInput) {
     stopBtn.hidden = true; stopBtn.textContent = '止めて保存';
     document.getElementById('save').classList.remove('on');
   }
+  try { store.set('savePace', JSON.stringify({ ...learnedPace(), [tier.key]: +(elapsed() / (b - a)).toFixed(3) })); } catch {}
   const link = document.createElement('a');
   link.href = URL.createObjectURL(new Blob([output.target.buffer], { type: 'video/mp4' }));
   link.download = `${document.title.split(' ')[0]}-第${g.n}ゲーム.mp4`;
@@ -1849,7 +1876,8 @@ document.getElementById('save').onclick = async () => {
     const tier = SAVE_TIERS[saveTier], W = v.videoWidth || 1920, H = v.videoHeight || 1080;
     const { share } = outputOf(tier, W, H, even(W / view.zoom), even(H / view.zoom));
     const [a, b] = saveRange(g);
-    size.textContent = bytes && g.dur ? `約${mb(bytes * share * (b - a) / g.dur)}` : '';
+    const wait = `作成に${fmtWait(paceOf(tier.key) * (b - a))}`;
+    size.textContent = bytes && g.dur ? `約${mb(bytes * share * (b - a) / g.dur)}・${wait}` : wait;
   };
   const host = document.getElementById('clipseg');
   host.replaceChildren(segmented(Object.entries(SAVE_TIERS).map(([k, x]) => [k, x.label]), () => saveTier,
@@ -1910,7 +1938,7 @@ async function startSave(g, tier) {
     fctx.drawImage(src, 0, 0, W, H);
     drawMasks(fctx, src, W, H, W, H, g, headsAt(g.n, src.currentTime), src.currentTime, false, false);
     ctx.drawImage(full, ...cropOf(), 0, 0, OW, OH);
-    clipmsg.textContent = `第${g.n}ゲームを保存中 ${fmt(src.currentTime - a)} / ${fmt(b - a)}`;
+    clipmsg.textContent = `第${g.n}ゲーム（画質：${tier.label}）を保存中 ${fmt(src.currentTime - a)} / ${fmt(b - a)}`;
     if (src.currentTime >= b || src.ended) { rec.stop(); return; }
     if (src.requestVideoFrameCallback) src.requestVideoFrameCallback(draw); else requestAnimationFrame(draw);
   };
