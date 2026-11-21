@@ -1700,6 +1700,81 @@ function pickVideo(n) {
     };
   });
 }
+// ---- 速い保存：動画を1コマずつ「展開 → 顔を隠す → 切り取り → 圧縮」して mp4 に。音は元のまま ----
+// 再生を待たないので速く、元の 60 コマ/秒のまま。分解と組み立てには mediabunny を使う
+// 元の動画（約10Mbps）を作り直しても粗くならない強さ
+const SAVE_BITRATE = 16e6;
+const MEDIABUNNY = 'https://cdn.jsdelivr.net/npm/mediabunny@1.63.0/dist/bundles/mediabunny.min.mjs';
+let mediabunny = null;
+async function fastSave(g, url) {
+  if (!window.VideoEncoder || !window.VideoDecoder || !window.OffscreenCanvas) return false;
+  let M, blob;
+  try {
+    clipmsg.textContent = '準備中…';
+    M = await (mediabunny ||= import(MEDIABUNNY));
+    blob = await (await fetch(url)).blob();
+  } catch (e) { console.warn('速い保存を使えません', e); mediabunny = null; return false; }
+  const input = new M.Input({ source: new M.BlobSource(blob), formats: M.ALL_FORMATS });
+  const track = await input.getPrimaryVideoTrack().catch(() => null);
+  if (!track) return false;
+  const W = track.displayWidth, H = track.displayHeight;
+  // 拡大している部分を切り取る（引き伸ばさず、そのままの細かさで）
+  const z = view.zoom, even = n => Math.max(2, Math.round(n / 2) * 2);
+  const cw = even(W / z), ch = even(H / z);
+  const cx = Math.min(Math.max(view.cx, 0.5 / z), 1 - 0.5 / z), cy = Math.min(Math.max(view.cy, 0.5 / z), 1 - 0.5 / z);
+  const sx = Math.min(Math.max(0, Math.round(cx * W - cw / 2)), W - cw), sy = Math.min(Math.max(0, Math.round(cy * H - ch / 2)), H - ch);
+  if (!(await M.canEncodeVideo('avc', { width: cw, height: ch }).catch(() => false))) return false;
+  const full = new OffscreenCanvas(W, H), fctx = full.getContext('2d');
+  const out = new OffscreenCanvas(cw, ch), octx = out.getContext('2d');
+  // 最初の点のサーブ前から、最後の点を入れたところまで
+  const ranged = g.points.filter(p => p.r);
+  const a = ranged.length ? ranged[0].r[0] : 0;
+  const b = ranged.length ? ranged[ranged.length - 1].r[1] : await input.computeDuration();
+  const output = new M.Output({ format: new M.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new M.BufferTarget() });
+  let conv;
+  try {
+    conv = await M.Conversion.init({
+      input, output, trim: { start: a, end: b }, showWarnings: false,
+      video: {
+        codec: 'avc', bitrate: SAVE_BITRATE, forceTranscode: true, processedWidth: cw, processedHeight: ch,
+        process: sample => {
+          // 出てくる時刻は切り出しの始めが 0。顔の位置は元の動画の時刻で引く
+          const at = sample.timestamp + a;
+          const frame = sample.toCanvasImageSource();
+          fctx.drawImage(frame, 0, 0, W, H);
+          drawMasks(fctx, frame, W, H, W, H, g, headsAt(g.n, at), at, false, false);
+          octx.drawImage(full, sx, sy, cw, ch, 0, 0, cw, ch);
+          return out;
+        },
+      },
+    });
+  } catch (e) { console.warn('速い保存を使えません', e); return false; }
+  if (!conv.isValid) return false;
+  const stopBtn = document.getElementById('clipstop');
+  conv.onProgress = p => { clipmsg.textContent = `第${g.n}ゲームを保存中 ${Math.floor(p * 100)}%`; };
+  recording = { stop: () => conv.cancel() };
+  stopBtn.textContent = 'やめる'; stopBtn.hidden = false;
+  document.getElementById('save').classList.add('on');
+  try { await conv.execute(); }
+  catch (e) {
+    if (e instanceof M.ConversionCanceledError) { clipmsg.textContent = ''; clippop.hidden = true; return true; }
+    console.warn('速い保存に失敗', e);
+    clipmsg.textContent = '保存できませんでした';
+    return true;
+  } finally {
+    recording = null;
+    stopBtn.hidden = true; stopBtn.textContent = '止めて保存';
+    document.getElementById('save').classList.remove('on');
+  }
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([output.target.buffer], { type: 'video/mp4' }));
+  link.download = `${document.title.split(' ')[0]}-第${g.n}ゲーム.mp4`;
+  link.textContent = link.download;
+  clipmsg.innerHTML = '';
+  clipmsg.append(link);
+  link.click();
+  return true;
+}
 function pickMime() {
   const types = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
   return types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
@@ -1718,6 +1793,8 @@ document.getElementById('save').onclick = async () => {
     { if (f !== null) clipmsg.textContent = `動画を読み込み中… ${Math.floor(f * 100)}%`; } }) : media(g.video));
   if (!DRIVE && !picked[g.n] && !(await canExport(url))) url = await pickVideo(g.n);
   v.pause();
+  // 速い保存（再生せずに1コマずつ作り直す）。使えないブラウザでは、再生しながら録る
+  if (await fastSave(g, url)) return;
 
   const src = document.createElement('video');
   src.playsInline = true; src.preload = 'auto'; src.src = url;
