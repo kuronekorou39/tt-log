@@ -48,6 +48,10 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 .controls button { border:1px solid transparent; background:none; border-radius:8px; padding:4px 9px; cursor:pointer; min-height:36px; min-width:36px; font-size:.95rem;
   display:inline-flex; align-items:center; justify-content:center; gap:5px; color:var(--fg); }
 .controls button svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+/* 設定を開くボタン（オン・オフではない）：枠線と ▾。開いている間だけ薄く色 */
+.controls button.menu { border-color:var(--line); }
+.controls button.menu.open { background:var(--track); }
+.controls button .caret { width:14px; height:14px; margin-left:-2px; opacity:.7; }
 /* 幅が狭いときは記号だけ */
 @media (max-width: 720px) { .controls .lbl { display:none; } }
 .controls button:hover { background:var(--track); }
@@ -225,7 +229,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
         <button id="score" aria-label="動画の上の点数"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg><span class="lbl">点数</span></button>
         <button id="caps" aria-label="字幕" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M15 15h2M7 11h2M13 11h4"/></svg><span class="lbl">字幕</span></button>
         <button id="voice" aria-label="胸元マイクの音" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg><span class="lbl">音声</span></button>
-        <button id="face" aria-label="顔を隠す" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg><span class="lbl">顔</span></button>
+        <button id="face" class="menu" aria-label="顔の隠し方の設定" aria-haspopup="dialog" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg><span class="lbl">顔</span><svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
       </div>
       <div class="grp sepgrp">
         <button id="save" aria-label="このゲームを動画で保存"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg><span class="lbl">保存</span></button>
@@ -835,7 +839,10 @@ function drawPreview() {
 }
 requestAnimationFrame(drawPreview);
 
-function showFaceMode() { document.getElementById('face').classList.toggle('on', anyFace()); }
+function showFaceMode() {}
+// 設定が開いている間だけ「顔」ボタンに色
+new MutationObserver(() => document.getElementById('face').classList.toggle('open', !facepop.hidden))
+  .observe(facepop, { attributes: true, attributeFilter: ['hidden'] });
 const MODES = [['none', 'なし'], ['mosaic', 'モザイク'], ['text', '文字']];
 
 const LABELS = ['p0', 'p1', 'x', 'off'];
@@ -899,6 +906,8 @@ function renderFaceList() {
     row.className = 'opts';
     row.append(mode, input);
     const size = segmented(SIZES, () => set.size, z => { set.size = z; save(); });
+    // 小・中・大の文字も、その大きさに
+    size.querySelectorAll('button').forEach((b, k) => { b.style.fontSize = ['.78rem', '.95rem', '1.2rem'][k]; });
 
     card.append(head, row, size);
     box.append(card);
