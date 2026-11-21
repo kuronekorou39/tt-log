@@ -756,6 +756,63 @@ function step(dir) {
 // 読む前の位置と長さは覚えておき、play() されたら読み込んで、その位置から再生する
 let pending = null, pendingTime = 0;
 const bigplay = document.getElementById('bigplay');
+
+// ドライブの動画を、少しずつ何度も読むと Google に機械的なアクセスとみなされて止められる。
+// そこで1ファイルを1回で丸ごと読み、ブラウザの中に残す（2回目からは読まない）。
+// 丸ごと読んだものは同じページのデータになるので、保存（書き出し）もそのままできる
+const KEEP_VIDEOS = 3;              // ブラウザに残す動画の数（古いものから消す）
+const blobUrls = {};                // 場所 → ページの中の URL
+let download = null;                // 読み込み中の { path, abort }
+function cacheKey(path) {
+  return `https://cache.invalid/media/${DRIVE.ids[DRIVE.base + path]}/${encodeURIComponent(DRIVE.mod[DRIVE.base + path] || '')}`;
+}
+// 同じファイルを同時に2回読まない
+const inflight = {};
+function mediaBlob(path, onProgress) {
+  if (blobUrls[path]) return Promise.resolve(blobUrls[path]);
+  if (!inflight[path]) inflight[path] = readMedia(path, onProgress).finally(() => { delete inflight[path]; });
+  return inflight[path];
+}
+async function readMedia(path, onProgress) {
+  let cache = null;
+  try {
+    cache = await caches.open('tt-media');
+    const hit = await cache.match(cacheKey(path));
+    if (hit) return (blobUrls[path] = URL.createObjectURL(await hit.blob()));
+  } catch {}
+  const ctrl = new AbortController();
+  if (onProgress) download = { path, abort: () => ctrl.abort() };
+  let r;
+  try { r = await fetch(media(path), { signal: ctrl.signal }); }
+  catch (e) {
+    if (e.name === 'AbortError') throw e;
+    throw new ViewError('Google に一時的に止められています', '時間をおいて開き直してください。');
+  }
+  if (!r.ok) throw await driveError(r, path);
+  const total = +r.headers.get('content-length') || 0;
+  const reader = r.body.getReader(), parts = [];
+  let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value); got += value.length;
+    onProgress?.(got, total);
+  }
+  const blob = new Blob(parts, { type: r.headers.get('content-type') || 'video/mp4' });
+  if (download?.path === path) download = null;
+  try {
+    await cache?.put(cacheKey(path), new Response(blob));
+    // 動画は大きいので、新しい KEEP_VIDEOS 本だけ残す
+    if (/\.mp4$/.test(path)) {
+      const order = JSON.parse(localStorage.getItem('tt-media-order') || '[]').filter(k => k !== cacheKey(path));
+      order.push(cacheKey(path));
+      while (order.length > KEEP_VIDEOS) await cache.delete(order.shift());
+      localStorage.setItem('tt-media-order', JSON.stringify(order));
+    }
+  } catch {}
+  return (blobUrls[path] = URL.createObjectURL(blob));
+}
+const mb = n => `${Math.round(n / 1e6)}MB`;
 if (DRIVE) {
   const proto = HTMLMediaElement.prototype;
   const time = Object.getOwnPropertyDescriptor(proto, 'currentTime');
@@ -765,18 +822,27 @@ if (DRIVE) {
     set(x) { if (pending) { pendingTime = x; updateHead(); } else time.set.call(v, x); },
   });
   Object.defineProperty(v, 'duration', { get() { return pending ? DATA.games[current].dur || NaN : dur.get.call(v); } });
-  v.play = function () {
-    if (pending) {
-      const url = pending, at = pendingTime;
-      pending = null; bigplay.hidden = true;
-      v.crossOrigin = 'anonymous';
-      showLoading('動画を読み込み中…');
-      v.src = url;
-      return new Promise((res, rej) => v.addEventListener('loadedmetadata', () => {
-        time.set.call(v, at);
-        proto.play.call(v).then(res, rej);
-      }, { once: true }));
+  v.play = async function () {
+    if (!pending) return proto.play.call(v);
+    const path = pending, at = pendingTime, game = current;
+    bigplay.hidden = true;
+    // 別のゲームの読み込み中なら止める
+    if (download && download.path !== path) download.abort();
+    showLoading('動画を読み込み中…');
+    let url;
+    try {
+      url = await mediaBlob(path, (got, total) =>
+        showLoading(total ? `動画を読み込み中… ${Math.floor(got / total * 100)}%（${mb(got)} / ${mb(total)}）` : `動画を読み込み中… ${mb(got)}`));
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      if (current === game) showError(e, driveFileUrl(path));
+      throw e;
     }
+    if (current !== game || pending !== path) return;  // 読み込み中にゲームを切り替えた
+    pending = null;
+    v.src = url;
+    await new Promise(res => v.addEventListener('loadedmetadata', res, { once: true }));
+    time.set.call(v, at);
     return proto.play.call(v);
   };
   bigplay.onclick = e => { e.stopPropagation(); v.play().catch(() => {}); };
@@ -797,7 +863,7 @@ function select(i, autoplay) {
     v.removeAttribute('src'); v.load();
     // ▶ で、このゲームの最初のサーブ前から
     const first = g.points.find(p => p.vt !== null);
-    pending = media(g.video); pendingTime = first ? startOf(first) : 0;
+    pending = g.video; pendingTime = first ? startOf(first) : 0;
     boot.hidden = true; bigplay.hidden = false;
     setTimeout(() => { renderMarkers(); applyView(); updateHead(); });
   } else if (g.video) {
@@ -968,7 +1034,13 @@ let voiceOn = store.get('voiceOn') !== '0';
 function syncMic(force) {
   const g = DATA.games[current];
   if (!voiceOn || !g.voice) { mic.pause(); return; }
-  if (mic.dataset.path !== g.voice) { if (DRIVE) mic.crossOrigin = 'anonymous'; mic.src = media(g.voice); mic.dataset.path = g.voice; }
+  if (mic.dataset.path !== g.voice) {
+    if (DRIVE) {
+      if (!blobUrls[g.voice]) { mediaBlob(g.voice).then(() => syncMic(true)).catch(() => {}); mic.pause(); return; }
+      mic.src = blobUrls[g.voice];
+    } else mic.src = media(g.voice);
+    mic.dataset.path = g.voice;
+  }
   mic.playbackRate = v.playbackRate;
   if (force || Math.abs(mic.currentTime - v.currentTime) > 0.25) { try { mic.currentTime = v.currentTime; } catch {} }
   if (v.paused) mic.pause(); else mic.play().catch(() => {});
@@ -1453,12 +1525,13 @@ document.getElementById('save').onclick = async () => {
   clipmsg.textContent = '';
   const mime = pickMime();
   if (!mime) { clipmsg.textContent = 'このブラウザでは保存できません'; return; }
-  let url = picked[g.n] || media(g.video);
-  if (!picked[g.n] && !(await canExport(url))) url = await pickVideo(g.n);
+  let url = picked[g.n] || (DRIVE ? await mediaBlob(g.video, (got, total) =>
+    { clipmsg.textContent = `動画を読み込み中… ${total ? Math.floor(got / total * 100) + '%' : mb(got)}`; }) : media(g.video));
+  if (!DRIVE && !picked[g.n] && !(await canExport(url))) url = await pickVideo(g.n);
   v.pause();
 
   const src = document.createElement('video');
-  src.playsInline = true; src.preload = 'auto'; if (DRIVE && !picked[g.n]) src.crossOrigin = 'anonymous'; src.src = url;
+  src.playsInline = true; src.preload = 'auto'; src.src = url;
   await new Promise(r => src.addEventListener('loadedmetadata', r, { once: true }));
   const W = src.videoWidth, H = src.videoHeight;
   const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
