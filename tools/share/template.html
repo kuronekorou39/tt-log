@@ -783,7 +783,8 @@ function drawMasks(ctx, src, sw, sh, w, h, g, heads, t, allTags, ids) {
     const label = labelAt(g, head, t);
     const set = faceSet[label] || { mode: 'none', text: '', tag: false, size: 'm' };
     const mode = set.mode, emoji = set.text;
-    const r = head[2] * (SIZES.find(z => z[0] === set.size) || SIZES[1])[2];
+    const scale = (SIZES.find(z => z[0] === set.size) || SIZES[1])[2];
+    const r = head[2] * scale;
     const R = r * w;  // 描く先のピクセルでの半径
     if (emoji && mode === 'text') {
       const size = 1.9 * R;
@@ -803,7 +804,7 @@ function drawMasks(ctx, src, sw, sh, w, h, g, heads, t, allTags, ids) {
     if (allTags || set.tag) {
       const text = ids ? `${labelName(label)} #${tid}` : labelName(label);
       // 画面でも書き出しでも、映像の大きさに合わせる
-      const fs = Math.max(12, w * 0.014);
+      const fs = Math.max(11, w * 0.014 * scale);
       ctx.font = `bold ${fs}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
       const tw = ctx.measureText(text).width + 8;
       ctx.fillStyle = 'rgba(0,0,0,.65)';
