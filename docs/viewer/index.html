@@ -1,0 +1,1157 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>卓球</title>
+<style>
+:root {
+  --bg:#f4f5f7; --card:#fff; --fg:#1d2330; --muted:#6b7280; --line:#e3e6ea; --hl:#fff3d1;
+  --a:#d1495b; --a-soft:rgba(209,73,91,.16); --b:#2e86ab; --b-soft:rgba(46,134,171,.16);
+  --track:#e8ebef; --played:#c9ced6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#0f1216; --card:#181c22; --fg:#e7e9ee; --muted:#98a1ad; --line:#29303a; --hl:#352f1e;
+    --a:#f07484; --a-soft:rgba(240,116,132,.18); --b:#5db6d9; --b-soft:rgba(93,182,217,.18);
+    --track:#232932; --played:#3a424e;
+  }
+}
+* { box-sizing:border-box; }
+[hidden] { display:none !important; }
+html, body { margin:0; }
+body { background:var(--bg); color:var(--fg); font-family:system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif; }
+button { font:inherit; color:inherit; }
+.a { color:var(--a); } .b { color:var(--b); }
+small, .muted { color:var(--muted); }
+
+/* ---- 共通の部品 ---- */
+header { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
+.total { font-size:1.6rem; font-weight:800; white-space:nowrap; }
+.panel { background:var(--card); border:1px solid var(--line); border-radius:12px; }
+
+.stage { position:relative; overflow:hidden; background:#000; border-radius:10px; touch-action:none; }
+.stage video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; transform-origin:0 0; }
+.stage .empty { position:absolute; inset:0; display:grid; place-items:center; color:#aaa; }
+.stage .zoomtag { position:absolute; right:8px; top:8px; background:rgba(0,0,0,.55); color:#fff; font-size:.75rem;
+  padding:2px 8px; border-radius:99px; pointer-events:none; opacity:0; transition:opacity .2s; }
+.stage .zoomtag.show { opacity:1; }
+.stage .now { position:absolute; left:50%; transform:translateX(-50%); top:8px; background:rgba(0,0,0,.6); color:#fff; font-weight:800;
+  font-size:1.1rem; padding:2px 12px; border-radius:8px; pointer-events:none; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.stage .now .a { color:#ff9aa6; } .stage .now .b { color:#8fd3ef; }
+.stage .cap { position:absolute; left:50%; bottom:6%; transform:translateX(-50%); max-width:90%; text-align:center;
+  background:rgba(0,0,0,.65); color:#fff; font-weight:700; font-size:clamp(.95rem, 2.4vw, 1.5rem); padding:4px 14px;
+  border-radius:8px; pointer-events:none; }
+
+.controls { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.controls button { border:1px solid transparent; background:none; border-radius:8px; padding:4px 9px; cursor:pointer; min-height:36px; min-width:36px; font-size:.95rem;
+  display:inline-flex; align-items:center; justify-content:center; gap:5px; color:var(--fg); }
+.controls button svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+/* 設定を開くボタン（オン・オフではない）：枠線と ▾。開いている間だけ薄く色 */
+.controls button.menu { border-color:var(--line); }
+.controls button.menu.open { background:var(--track); }
+.controls button .caret { width:14px; height:14px; margin-left:-2px; opacity:.7; }
+/* 幅が狭いときは記号だけ */
+@media (max-width: 720px) { .controls .lbl { display:none; } }
+.controls button:hover { background:var(--track); }
+.controls .grp { display:flex; gap:6px; align-items:center; }
+.controls .sepgrp { border-left:1px solid var(--line); padding-left:10px; }
+.controls button.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
+.controls .time { font-variant-numeric:tabular-nums; color:var(--muted); margin-right:auto; padding-left:4px; }
+.controls .sep { width:1px; height:20px; background:var(--line); margin:0 4px; }
+
+/* 得点を並べたシークバー。上の段が A、下の段が B の点 */
+/* 上の段（赤）：☆・点数・印、帯、下の段（青）：印・点数・☆。☆ がなくてもその分を空けて、位置をそろえる */
+.seek { position:relative; height:100px; cursor:pointer; user-select:none; }
+.seek .track { position:absolute; left:0; right:0; top:42px; height:12px; border-radius:6px; background:var(--track); overflow:hidden; }
+.seek .played { position:absolute; left:0; top:0; bottom:0; background:var(--played); }
+.seek .band { position:absolute; top:0; bottom:0; opacity:.3; box-shadow:inset -1px 0 0 var(--card); }
+.seek .head { position:absolute; top:34px; width:3px; height:28px; margin-left:-1px; background:var(--fg); border-radius:2px; pointer-events:none; }
+.seek .mk { position:absolute; width:20px; margin-left:-10px; display:flex; flex-direction:column; align-items:center; }
+.seek .mk.a { top:0; } .seek .mk.b { top:58px; flex-direction:column-reverse; }
+.seek .mk i { display:block; width:4px; height:10px; border-radius:2px; background:currentColor; }
+.seek .mk b { font-size:.72rem; font-weight:700; line-height:1.25; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.seek .mk.hide b { visibility:hidden; }
+.seek .mk:hover b, .seek .mk.cur b { visibility:visible; }
+.seek .mk.cur i { height:14px; width:6px; }
+.seek .tip { position:absolute; top:-6px; transform:translate(-50%,-100%); background:var(--fg); color:var(--bg); font-size:.8rem;
+  padding:3px 8px; border-radius:6px; white-space:nowrap; pointer-events:none; display:none; z-index:2; }
+
+/* 印（★ は自分で付けたもの、☆ は長いラリーの候補） */
+:root { --star:#e0a100; }
+/* スクロールバー：細く、目立たない色に */
+* { scrollbar-width:thin; scrollbar-color:color-mix(in srgb, var(--muted) 35%, transparent) transparent; }
+::-webkit-scrollbar { width:8px; height:8px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:color-mix(in srgb, var(--muted) 35%, transparent); border-radius:4px; }
+.seek .mk .st { font-size:.8rem; line-height:1; height:14px; color:var(--star); }
+.seek .mk.cand .st { opacity:.55; }
+.seek .mk.marked b, .seek .mk.cand b { visibility:visible; }
+.controls #mark.on { background:var(--star); border-color:var(--star); color:#fff; }
+
+/* ゲームの一覧と流れ */
+.games { display:flex; flex-direction:column; }
+.game { display:grid; grid-template-columns:auto 1fr; grid-template-rows:auto auto; column-gap:10px; padding:5px 10px;
+  border:0; border-bottom:1px solid var(--line); background:none; text-align:left; cursor:pointer; }
+.game:last-child { border-bottom:0; }
+.game.sel { background:var(--hl); }
+.game .no { font-size:.8rem; color:var(--muted); }
+.game .sc { font-weight:800; font-variant-numeric:tabular-nums; text-align:right; }
+.game .sc small { font-weight:400; margin-left:6px; }
+.game svg { grid-column:1 / -1; width:100%; height:36px; display:block; margin-top:2px; }
+
+/* 情報のポップオーバー */
+.info { border:0; background:none; cursor:pointer; color:var(--muted); font-size:1.1rem; width:32px; height:32px; border-radius:50%; }
+.info:hover { background:var(--track); }
+#infopop { position:fixed; top:56px; right:14px; width:min(380px, calc(100vw - 24px)); max-height:calc(100vh - 80px); overflow:auto;
+  background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:20; }
+#infopop p { margin:4px 0 10px; font-size:.85rem; }
+/* 切り出し */
+.stage canvas.mask { position:absolute; left:0; top:0; transform-origin:0 0; pointer-events:none; }
+#clippop { position:fixed; right:14px; bottom:14px; width:min(320px, calc(100vw - 24px)); background:var(--card);
+  border:1px solid var(--line); border-radius:12px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:20;
+  display:grid; gap:10px; font-size:.9rem; }
+#clippop .row { display:flex; align-items:center; gap:8px; }
+#clippop .row > span:first-child { width:3.5em; color:var(--muted); }
+#clippop .t { font-variant-numeric:tabular-nums; min-width:4.5em; }
+#clippop button { border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:8px; padding:4px 10px;
+  cursor:pointer; min-height:32px; }
+#clippop button.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
+#clippop .go { background:var(--fg); color:var(--bg); font-weight:700; }
+#clippop .msg { font-size:.9rem; }
+#facepop { position:fixed; right:14px; bottom:14px; width:min(340px, calc(100vw - 24px)); max-height:calc(100vh - 80px);
+  overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px;
+  box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:20; display:grid; gap:10px; font-size:.9rem; }
+#facepop .row { display:flex; align-items:center; gap:8px; }
+#facepop .row > span:first-child { width:4.5em; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#facepop button { border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:8px; padding:4px 10px;
+  cursor:pointer; min-height:32px; }
+#facepop button.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
+#facepop .who { display:grid; gap:6px; padding:10px; border:1px solid var(--line); border-radius:10px; }
+#facepop .who .name { font-weight:800; font-size:1.05rem; }
+#facepop .who .opts { display:flex; gap:8px; align-items:center; }
+#facepop .who .head { display:flex; align-items:center; gap:6px; }
+#facepop .eye { border:0; background:none; padding:4px; min-height:0; width:34px; height:34px; color:var(--fg); border-radius:8px; }
+#facepop .eye.off { color:var(--muted); }
+#facepop .eye svg { width:22px; height:22px; display:block; margin:auto; }
+/* スライドする切り替え */
+.seg { display:inline-grid; grid-auto-flow:column; grid-auto-columns:1fr; position:relative; background:var(--track);
+  border-radius:10px; padding:3px; }
+.seg .knob { position:absolute; top:3px; bottom:3px; left:3px; border-radius:8px; background:var(--card);
+  box-shadow:0 1px 3px rgba(0,0,0,.2); transition:transform .18s ease; }
+#facepop .seg button { position:relative; z-index:1; border:0; background:none; color:var(--muted); min-height:36px;
+  padding:4px 10px; font-size:.95rem; white-space:nowrap; }
+#facepop .seg button.on { color:var(--fg); font-weight:700; background:none; }
+#facepop .who input { width:2.6em; font-size:1.4rem; text-align:center; border:1px solid var(--line); border-radius:8px;
+  background:var(--card); color:var(--fg); padding:0 2px; min-height:40px; }
+#facepop .who input:disabled { opacity:.35; }
+#facepop .more { justify-self:start; }
+.popx { position:sticky; top:-12px; justify-self:end; margin:-6px -6px -10px 0; border:0 !important; background:var(--card) !important;
+  font-size:1.2rem; width:40px; height:40px; z-index:1; }
+#facepop .heads { display:grid; grid-template-columns:repeat(auto-fill, minmax(92px, 1fr)); gap:8px; }
+#facepop .hd { display:grid; gap:3px; justify-items:center; font-size:.75rem; color:var(--muted); padding:4px;
+  border-radius:8px; border:2px solid transparent; }
+#facepop .hd.cur { border-color:var(--fg); }
+#facepop .hd img { width:56px; height:56px; border-radius:8px; cursor:pointer; background:var(--track); }
+#facepop .hd select { max-width:88px; font-size:.75rem; }
+#infopop .stats { margin-bottom:12px; }
+.stats { width:100%; border-collapse:collapse; font-size:.85rem; }
+.stats th, .stats td { padding:5px 4px; text-align:center; font-variant-numeric:tabular-nums; border-top:1px solid var(--line); }
+.stats th:first-child, .stats tbody th { text-align:left; font-weight:500; }
+.stats thead th { color:var(--muted); font-weight:500; border-top:0; }
+
+/* ---- PC：1画面に収める ---- */
+@media (min-width: 960px) and (min-height: 560px) {
+  body { height:100vh; overflow:hidden; }
+  .app { height:100vh; display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:14px; padding:14px; }
+  .left { min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto auto; gap:10px; }
+  .stage { min-height:0; }
+  .right { min-height:0; display:grid; grid-template-rows:minmax(0,1fr); }
+  .right .panel { min-height:0; }
+  .right .games { overflow:auto; }
+}
+
+/* ---- スマホ：縦に並べてスクロール ---- */
+@media not all and (min-width: 960px) and (min-height: 560px) {
+  .app { display:flex; flex-direction:column; gap:12px; padding:12px 12px 40px; }
+  .app { padding-top:0; }
+  .left { display:flex; flex-direction:column; gap:6px; position:sticky; top:0; z-index:5; background:var(--bg); padding-top:10px; padding-bottom:4px; }
+  header { flex-wrap:nowrap; }
+  header h1 { font-size:.8rem; }
+  .stage { aspect-ratio:auto; height:min(calc((100vw - 24px) * 9 / 16), 45vh); }
+  .total { font-size:1.3rem; }
+  .right { display:flex; flex-direction:column; gap:12px; }
+  .controls button { padding:4px 7px; }
+  .app { overflow-x:clip; }
+  #facepop, #clippop { left:0; right:0; bottom:0; width:auto; max-height:52vh; border-radius:14px 14px 0 0; }
+}
+/* 低い窓（横向きのスマホなど）：動画とボタンを固定すると下が見えないので、全体をスクロール */
+@media not all and (min-width: 960px) and (min-height: 560px) {
+  @media (max-height: 640px) { .left { position:static; } }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="left">
+    <header>
+      <h1 id="date"></h1>
+      <div style="display:flex; align-items:center; gap:4px">
+        <div class="total" id="total"></div>
+        <button class="info" id="infobtn" aria-label="くわしいデータ">ⓘ</button>
+      </div>
+    </header>
+    <div class="stage" id="stage">
+      <video id="v" playsinline preload="metadata"></video>
+      <canvas class="mask" id="mask"></canvas>
+      <div class="empty" id="empty" hidden>動画なし</div>
+      <div class="now" id="now"></div>
+      <div class="cap" id="cap" hidden></div>
+      <div class="zoomtag" id="zoomtag"></div>
+    </div>
+    <div class="seek" id="seek">
+      <div class="track"><div class="played" id="played"></div></div>
+      <div class="head" id="head"></div>
+      <div class="tip" id="tip"></div>
+    </div>
+    <div class="controls">
+      <div class="grp">
+        <button id="play" aria-label="再生">▶</button>
+        <button id="prev" aria-label="前の点">⏮</button>
+        <button id="next" aria-label="次の点">⏭</button>
+        <button id="rate" aria-label="速さ">1×</button>
+        <button id="rallyonly" aria-label="試合をしているところだけ再生"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg><span class="lbl">試合だけ</span></button>
+        <button id="mark" aria-label="★を付ける" style="font-size:1.25rem">☆</button>
+      </div>
+      <span class="time" id="time">0:00 / 0:00</span>
+      <div class="grp">
+        <button id="score" aria-label="動画の上の点数"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg><span class="lbl">点数</span></button>
+        <button id="caps" aria-label="字幕" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M15 15h2M7 11h2M13 11h4"/></svg><span class="lbl">字幕</span></button>
+        <button id="voice" aria-label="胸元マイクの音" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg><span class="lbl">音声</span></button>
+        <button id="face" class="menu" aria-label="顔の隠し方の設定" aria-haspopup="dialog" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg><span class="lbl">顔</span><svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+      </div>
+      <div class="grp sepgrp">
+        <button id="save" aria-label="このゲームを動画で保存"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg><span class="lbl">保存</span></button>
+      </div>
+    </div>
+    <audio id="mic" preload="auto"></audio>
+  </section>
+
+  <section class="right">
+    <div class="panel games" id="games"></div>
+  </section>
+</div>
+<div id="infopop" hidden></div>
+<div id="clippop" hidden>
+  <button class="popx" id="clipx" aria-label="閉じる">✕</button>
+  <div class="msg" id="clipmsg"></div>
+  <div class="row"><button id="clipstop">止めて保存</button></div>
+  <input type="file" id="clipfile" accept="video/*" hidden>
+</div>
+<div id="facepop" hidden>
+  <button class="popx" id="facex" aria-label="閉じる">✕</button>
+  <div id="facelabels" style="display:grid; gap:8px"></div>
+  <button class="more" id="facemore">くわしく</button>
+  <div id="facedetail" hidden style="display:grid; gap:8px">
+    <div class="row"><span>見つけた頭</span><span id="facecount"></span></div>
+    <div class="heads" id="faceheads"></div>
+  </div>
+  <div class="row"><button id="faceclose">閉じる</button></div>
+</div>
+
+
+<script>
+// フォルダの index.html では、データはここに入っている。Web に置いたページ（データなし）では、
+// URL の #d=ドライブのフォルダID&k=APIキー から、ドライブの data/page.json などを読む
+const EMBEDDED = null;
+const DRIVE = (() => {
+  const h = new URLSearchParams(location.hash.slice(1));
+  return h.get('d') ? { folder: h.get('d'), key: h.get('k') || '', api: h.get('api') || 'https://www.googleapis.com/drive/v3', ids: {} } : null;
+})();
+// ページの中の場所（videos/game01.mp4 など）を、読み込む URL に
+function media(path) {
+  if (!DRIVE) return path;
+  const id = DRIVE.ids[path];
+  return id ? `${DRIVE.api}/files/${id}?alt=media&key=${encodeURIComponent(DRIVE.key)}` : '';
+}
+async function driveList(id, prefix) {
+  const q = encodeURIComponent(`'${id}' in parents and trashed=false`);
+  const r = await fetch(`${DRIVE.api}/files?q=${q}&fields=files(id,name,mimeType)&pageSize=1000&key=${encodeURIComponent(DRIVE.key)}`);
+  if (!r.ok) throw new Error(`ドライブを読めませんでした（${r.status}）`);
+  for (const f of (await r.json()).files || []) {
+    if (f.mimeType === 'application/vnd.google-apps.folder') await driveList(f.id, `${prefix}${f.name}/`);
+    else DRIVE.ids[`${prefix}${f.name}`] = f.id;
+  }
+}
+async function loadPage() {
+  if (EMBEDDED) return EMBEDDED;
+  if (!DRIVE) throw new Error('読み込むフォルダがありません');
+  await driveList(DRIVE.folder, '');
+  const get = async path => {
+    const r = await fetch(media(path));
+    if (!r.ok) throw new Error(`${path} を読めませんでした（${r.status}）`);
+    return r.text();
+  };
+  const page = JSON.parse(await get('data/page.json'));
+  // 顔の位置（faces-gameNN.js）は、中の JSON だけを取り出す
+  window.FACES = {};
+  await Promise.all(Object.keys(DRIVE.ids).filter(p => /^data\/faces-game\d+\.js$/.test(p)).map(async p => {
+    const text = await get(p);
+    window.FACES[+p.match(/(\d+)\.js$/)[1]] = JSON.parse(text.slice(text.indexOf('] = ') + 4, text.lastIndexOf(';')));
+  }));
+  return page;
+}
+
+(async () => {
+let PAGE;
+try { PAGE = await loadPage(); }
+catch (e) {
+  document.getElementById('empty').textContent = e.message;
+  document.getElementById('empty').hidden = false;
+  return;
+}
+const DATA = PAGE.data;
+document.title = PAGE.title;
+document.getElementById('date').textContent = PAGE.date;
+{
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  document.getElementById('total').innerHTML =
+    `<span class="a">${esc(DATA.names[0])} ${PAGE.won[0]}</span> - <span class="b">${PAGE.won[1]} ${esc(DATA.names[1])}</span>`;
+  document.getElementById('infopop').innerHTML = PAGE.stats;
+}
+// 範囲のない点は、点が入った時刻のこれだけ前から見せる
+const LEAD = 8;
+
+const v = document.getElementById('v');
+const stage = document.getElementById('stage');
+const seek = document.getElementById('seek');
+let current = 0;
+let view = { zoom: 1, cx: 0.5, cy: 0.5 };
+
+const fmt = s => { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+                set(k, x) { try { localStorage.setItem(k, x); } catch {} } };
+
+// ---------- 流れのグラフ（中央線より上は A のリード、下は B のリード） ----------
+function flowSVG(g, id, mark) {
+  const gi = DATA.games.indexOf(g);
+  const W = 300, H = 36, M = H / 2, n = g.points.length;
+  const ds = [0, ...g.points.map(p => p.s[0] - p.s[1])];
+  const max = Math.max(3, ...ds.map(Math.abs));
+  const x = i => (i / n) * (W - 4) + 2, y = d => M - d / max * (M - 3);
+  // 1点ごとの階段にする（どこで点が動いたかが見やすい）
+  let line = `M${x(0)} ${y(0)}`;
+  for (let i = 1; i <= n; i++) line += ` H${x(i).toFixed(1)} V${y(ds[i]).toFixed(1)}`;
+  const area = `${line} V${M} H${x(0)} Z`;
+  const markX = mark == null ? null : x(mark + 1);
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+    <defs>
+      <clipPath id="t${id}"><rect x="0" y="0" width="${W}" height="${M}"/></clipPath>
+      <clipPath id="u${id}"><rect x="0" y="${M}" width="${W}" height="${M}"/></clipPath>
+    </defs>
+    <g clip-path="url(#t${id})"><path d="${area}" fill="var(--a-soft)"/><path d="${line}" fill="none" stroke="var(--a)" stroke-width="2" vector-effect="non-scaling-stroke"/></g>
+    <g clip-path="url(#u${id})"><path d="${area}" fill="var(--b-soft)"/><path d="${line}" fill="none" stroke="var(--b)" stroke-width="2" vector-effect="non-scaling-stroke"/></g>
+    <line x1="0" x2="${W}" y1="${M}" y2="${M}" stroke="var(--muted)" stroke-width="1" opacity=".55" vector-effect="non-scaling-stroke"/>
+    ${g.points.map((p, k) => {
+      const m = markOf(gi, k);
+      if (!m) return '';
+      const px = x(k + 1).toFixed(1);
+      return `<line x1="${px}" x2="${px}" y1="0" y2="${H}" stroke="var(--star)" stroke-width="${m === 'star' ? 3 : 2}" opacity="${m === 'star' ? .55 : .25}" vector-effect="non-scaling-stroke"/>`;
+    }).join('')}
+    ${markX == null ? '' : `<line x1="${markX}" x2="${markX}" y1="0" y2="${H}" stroke="var(--fg)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`}
+  </svg>`;
+}
+
+function renderGames(mark) {
+  const box = document.getElementById('games');
+  box.innerHTML = DATA.games.map((g, i) => {
+    const cls = g.winner === null ? '' : (g.winner === 0 ? 'a' : 'b');
+    return `<button class="game ${i === current ? 'sel' : ''}" data-i="${i}">
+      <span class="no">第${g.n}ゲーム</span>
+      <span class="sc ${cls}">${g.final[0]} - ${g.final[1]}<small>${g.winner === null ? '途中' : g.minutes + '分'}</small></span>
+      ${flowSVG(g, i, i === current ? mark : null)}
+    </button>`;
+  }).join('');
+  box.querySelectorAll('.game').forEach(b => b.onclick = () => select(+b.dataset.i, true));
+}
+
+// ---------- シークバー ----------
+function points() { return DATA.games[current].points.filter(p => p.vt !== null); }
+
+function renderMarkers() {
+  seek.querySelectorAll('.mk, .band').forEach(m => m.remove());
+  const d = v.duration;
+  if (!d) return;
+  const width = seek.clientWidth;
+  // ラリーの区間をうすく塗る
+  const track = seek.querySelector('.track');
+  // 点ごとの範囲（サーブの少し前〜点を入れたところ）を、取った人の色でうすく塗る
+  const ranged = DATA.games[current].points.filter(p => p.r);
+  ranged.forEach((p, k) => {
+    const a = p.r[0], e = k + 1 < ranged.length ? Math.min(p.r[1], ranged[k + 1].r[0]) : p.r[1];
+    const b = document.createElement('div');
+    b.className = 'band';
+    b.style.left = `${a / d * 100}%`;
+    b.style.width = `${Math.max(0.3, (e - a) / d * 100)}%`;
+    b.style.background = p.w === 0 ? 'var(--a)' : 'var(--b)';
+    track.appendChild(b);
+  });
+  let lastX = [-99, -99];
+  points().forEach(p => {
+    const m = document.createElement('div');
+    const x = p.vt / d * width;
+    m.className = `mk ${p.w === 0 ? 'a' : 'b'}`;
+    m.style.left = `${x}px`;
+    m.style.color = p.w === 0 ? 'var(--a)' : 'var(--b)';
+    const mark = markOf(current, DATA.games[current].points.indexOf(p));
+    const star = `<span class="st">${mark ? (mark === 'star' ? '★' : '☆') : ''}</span>`;
+    m.innerHTML = p.w === 0 ? `${star}<b>${p.s[0]}-${p.s[1]}</b><i></i>` : `${star}<b>${p.s[0]}-${p.s[1]}</b><i></i>`;
+    if (mark) m.classList.add(mark === 'star' ? 'marked' : 'cand');
+    // 文字が重なるところは数字を隠す（触れると出る）
+    const label = `${p.s[0]}-${p.s[1]}`.length * 7 + 8;
+    if (x - lastX[p.w] < label) m.classList.add('hide'); else lastX[p.w] = x;
+    m.dataset.vt = p.vt;
+    m.onclick = e => { e.stopPropagation(); jump(p); };
+    m.onmouseenter = () => showTip(x, `${p.s[0]} - ${p.s[1]}　${DATA.names[p.w]}　${p.t}${p.fx ? '（時刻を推定）' : ''}`);
+    m.onmouseleave = hideTip;
+    seek.appendChild(m);
+  });
+  updateHead();
+}
+
+function showTip(x, text) {
+  const t = document.getElementById('tip');
+  t.textContent = text; t.style.display = 'block';
+  const half = t.offsetWidth / 2, w = seek.clientWidth;
+  t.style.left = `${Math.min(Math.max(x, half), w - half)}px`;
+}
+function hideTip() { document.getElementById('tip').style.display = 'none'; }
+
+function seekFromEvent(e) {
+  if (!v.duration) return;
+  const r = seek.getBoundingClientRect();
+  v.currentTime = Math.min(Math.max(0, (e.clientX - r.left) / r.width), 1) * v.duration;
+}
+let seeking = false;
+seek.addEventListener('pointerdown', e => { if (e.target.closest('.mk')) return; seeking = true; seek.setPointerCapture(e.pointerId); seekFromEvent(e); });
+seek.addEventListener('pointermove', e => { if (seeking) seekFromEvent(e); });
+seek.addEventListener('pointerup', () => { seeking = false; });
+
+function currentIndex() {
+  const ps = DATA.games[current].points;
+  let k = -1;
+  // ラリーを見せるために LEAD 秒前から再生するので、その間は前の点のまま
+  ps.forEach((p, i) => { if (p.vt !== null && p.vt <= v.currentTime + 0.3) k = i; });
+  return k;
+}
+
+let lastMark = null;
+function updateHead() {
+  const d = v.duration || 0;
+  const f = d ? v.currentTime / d : 0;
+  document.getElementById('played').style.width = `${f * 100}%`;
+  document.getElementById('head').style.left = `${f * seek.clientWidth}px`;
+  document.getElementById('time').textContent = `${fmt(v.currentTime)} / ${fmt(d)}`;
+  const k = currentIndex();
+  const p = DATA.games[current].points[k];
+  const g = DATA.games[current], l = g.vl, sc = p ? p.s : [0, 0];
+  document.getElementById('now').innerHTML =
+    `<span class="${'ab'[l]}">${DATA.names[l]}</span> ${sc[l]} - ${sc[1 - l]} <span class="${'ab'[1 - l]}">${DATA.names[1 - l]}</span>`;
+  showCaption();
+  seek.querySelectorAll('.mk').forEach(m => m.classList.toggle('cur', !!p && +m.dataset.vt === p.vt));
+  if (k !== lastMark) { lastMark = k; renderGames(k); }
+  const fi = focusIndex();
+  const fm = fi >= 0 ? markOf(current, fi) : null;
+  const mb = document.getElementById('mark');
+  mb.textContent = fm === 'star' ? '★' : '☆';
+  mb.classList.toggle('on', fm === 'star');
+}
+
+function jump(p) {
+  v.currentTime = startOf(p);
+  v.play();
+}
+
+function step(dir) {
+  const ps = points();
+  if (!ps.length) return;
+  const t = v.currentTime;
+  const next = dir > 0 ? ps.find(p => startOf(p) > t + 0.5) : [...ps].reverse().find(p => startOf(p) < t - 1.5);
+  if (next) jump(next); else if (dir < 0) v.currentTime = 0;
+}
+
+// ---------- 再生 ----------
+function select(i, autoplay) {
+  current = i;
+  lastMark = null;
+  const g = DATA.games[i];
+  document.getElementById('empty').hidden = !!g.video;
+  v.hidden = !g.video;
+  if (g.video) { if (DRIVE) v.crossOrigin = 'anonymous'; v.src = media(g.video); } else { v.removeAttribute('src'); v.load(); }
+  v.playbackRate = rate;
+  renderGames(null);
+  seek.querySelectorAll('.mk, .band').forEach(m => m.remove());
+  if (autoplay && g.video) {
+    const first = g.points.find(p => p.vt !== null);
+    v.addEventListener('loadedmetadata', () => {
+      if (first) v.currentTime = startOf(first);
+      v.play();
+    }, { once: true });
+  }
+}
+
+// その点の見始め（サーブの少し前）
+function startOf(p) { return Math.max(0, p.r ? p.r[0] : p.vt - LEAD); }
+
+// ---------- 印 ----------
+// 点ごとの印。1 = ★、0 = 外した（候補の ☆ も出さない）。ないものは、候補なら ☆
+// このブラウザにだけ覚える（あとで自分で見返す用）
+const MARK_KEY = `marks-${DATA.id}`;
+const keyOf = (gi, k) => `${DATA.games[gi].n}-${k + 1}`;
+let marks = {};
+try { marks = JSON.parse(store.get(MARK_KEY)) || {}; } catch {}
+
+function markOf(gi, k) {
+  const key = keyOf(gi, k);
+  if (marks[key] === 1) return 'star';
+  if (marks[key] === 0) return null;
+  return DATA.candidates.includes(key) ? 'cand' : null;
+}
+
+// いま見ている点：再生位置がラリーの中ならその点、そうでなければ直前に入った点
+function focusIndex() {
+  const ps = DATA.games[current].points, t = v.currentTime;
+  const inRally = ps.findIndex(p => p.vt !== null && startOf(p) - 1 <= t && t <= p.vt + 1);
+  return inRally >= 0 ? inRally : currentIndex();
+}
+
+function toggleMark() {
+  const k = focusIndex();
+  if (k < 0) return;
+  const key = keyOf(current, k);
+  marks[key] = markOf(current, k) === 'star' ? 0 : 1;
+  store.set(MARK_KEY, JSON.stringify(marks));
+  renderMarkers(); lastMark = null; updateHead();
+}
+
+
+document.getElementById('mark').onclick = toggleMark;
+// ---------- 間を飛ばす ----------
+// 点の範囲（サーブの少し前から点を入れたところ）の間を飛ばす。ゲームの最後まで来たら次のゲームへ
+let rallyOnly = store.get('rallyOnly') === '1';
+// 確認用（URL に ?cuts）：逆に、飛ばすところだけを流す。ゲーム前は最初の点の直前だけ
+const CUTS_ONLY = new URLSearchParams(location.search).has('cuts');
+const CUT_BEFORE_FIRST = 20;
+function spans() {
+  const ss = DATA.games[current].spans;
+  if (!CUTS_ONLY) return ss;
+  const out = ss.length ? [[Math.max(0, ss[0][0] - CUT_BEFORE_FIRST), ss[0][0]]] : [];
+  for (let k = 0; k + 1 < ss.length; k++) out.push([ss[k][1], ss[k + 1][0]]);
+  return out;
+}
+function skipToRally() {
+  if (!(rallyOnly || CUTS_ONLY) || v.paused || v.seeking) return;
+  const t = v.currentTime;
+  const ss = spans();
+  if (ss.some(([a, b]) => a <= t && t < b)) return;
+  const next = ss.find(([a]) => a > t);
+  if (next) { v.currentTime = next[0]; return; }
+  // このゲームのラリーは終わり。次のゲームの最初のラリーへ
+  if (current + 1 < DATA.games.length) select(current + 1, true);
+  else v.pause();
+}
+v.addEventListener('timeupdate', skipToRally);
+v.addEventListener('play', skipToRally);
+function showRallyOnly() {
+  const b = document.getElementById('rallyonly');
+  b.classList.toggle('on', rallyOnly || CUTS_ONLY);
+  if (CUTS_ONLY) { b.querySelector('.lbl').textContent = 'カットだけ'; b.disabled = true; }
+}
+document.getElementById('rallyonly').onclick = () => {
+  rallyOnly = !rallyOnly;
+  store.set('rallyOnly', rallyOnly ? '1' : '0');
+  showRallyOnly();
+  skipToRally();
+};
+showRallyOnly();
+
+v.addEventListener('loadedmetadata', () => { renderMarkers(); applyView(); });
+v.addEventListener('timeupdate', updateHead);
+v.addEventListener('seeked', updateHead);
+v.addEventListener('play', () => document.getElementById('play').textContent = '❚❚');
+v.addEventListener('pause', () => document.getElementById('play').textContent = '▶');
+document.getElementById('play').onclick = () => v.paused ? v.play() : v.pause();
+document.getElementById('prev').onclick = () => step(-1);
+document.getElementById('next').onclick = () => step(1);
+
+const RATES = [1, 2, 0.5];
+let rate = 1;
+document.getElementById('rate').onclick = () => {
+  rate = RATES[(RATES.indexOf(rate) + 1) % RATES.length];
+  v.playbackRate = rate;
+  document.getElementById('rate').textContent = `${rate}×`;
+  document.getElementById('rate').classList.toggle('on', rate !== 1);
+};
+
+addEventListener('keydown', e => {
+  if (e.target.closest('input,textarea')) return;
+  if (e.key === ' ') { e.preventDefault(); v.paused ? v.play() : v.pause(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); select(Math.min(current + 1, DATA.games.length - 1), true); }
+  else if (e.key === 'm' || e.key === 'M') { toggleMark(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); select(Math.max(current - 1, 0), true); }
+});
+addEventListener('resize', () => { renderMarkers(); applyView(); });
+
+// ---------- 情報 ----------
+const pop = document.getElementById('infopop');
+document.getElementById('infobtn').onclick = e => { e.stopPropagation(); pop.hidden = !pop.hidden; };
+document.addEventListener('click', e => { if (!pop.hidden && !pop.contains(e.target)) pop.hidden = true; });
+addEventListener('keydown', e => { if (e.key === 'Escape') pop.hidden = true; });
+
+// ---------- 字幕（スコアボードが聞き取った言葉） ----------
+// 動画の上の点数
+let scoreOn = store.get('scoreOn') !== '0';
+function showScore() {
+  document.getElementById('now').hidden = !scoreOn;
+  document.getElementById('score').classList.toggle('on', scoreOn);
+}
+document.getElementById('score').onclick = () => { scoreOn = !scoreOn; store.set('scoreOn', scoreOn ? '1' : '0'); showScore(); };
+showScore();
+
+let capsOn = store.get('capsOn') !== '0';
+function showCaption() {
+  const el = document.getElementById('cap');
+  const cs = DATA.games[current].captions || [];
+  const t = v.currentTime;
+  const c = capsOn ? cs.find(([a, b]) => a <= t && t < b) : null;
+  el.hidden = !c;
+  if (c) el.textContent = c[2];
+}
+document.getElementById('caps').hidden = !DATA.games.some(g => (g.captions || []).length);
+document.getElementById('caps').classList.toggle('on', capsOn);
+document.getElementById('caps').onclick = () => {
+  capsOn = !capsOn; store.set('capsOn', capsOn ? '1' : '0');
+  document.getElementById('caps').classList.toggle('on', capsOn); showCaption();
+};
+
+// ---------- 胸元マイクの音（スコアボードが残した声の録音を、動画に合わせて流す） ----------
+const mic = document.getElementById('mic');
+let voiceOn = store.get('voiceOn') === '1';
+function syncMic(force) {
+  const g = DATA.games[current];
+  if (!voiceOn || !g.voice) { mic.pause(); return; }
+  if (mic.dataset.path !== g.voice) { if (DRIVE) mic.crossOrigin = 'anonymous'; mic.src = media(g.voice); mic.dataset.path = g.voice; }
+  mic.playbackRate = v.playbackRate;
+  if (force || Math.abs(mic.currentTime - v.currentTime) > 0.25) { try { mic.currentTime = v.currentTime; } catch {} }
+  if (v.paused) mic.pause(); else mic.play().catch(() => {});
+}
+function showVoice() {
+  const b = document.getElementById('voice');
+  b.hidden = !DATA.games.some(g => g.voice);
+  b.classList.toggle('on', voiceOn);
+}
+document.getElementById('voice').onclick = () => { voiceOn = !voiceOn; store.set('voiceOn', voiceOn ? '1' : '0'); showVoice(); syncMic(true); };
+['play', 'pause', 'seeked', 'ratechange'].forEach(ev => v.addEventListener(ev, () => syncMic(true)));
+v.addEventListener('timeupdate', () => syncMic(false));
+v.addEventListener('emptied', () => mic.pause());
+showVoice();
+
+// ---------- 画角（拡大と、ドラッグで位置合わせ） ----------
+// 映像が枠に収まる大きさ（contain）を基準に、zoom 倍して、映像上の (cx, cy) を枠の中央に置く
+function applyView() {
+  const W = stage.clientWidth, H = stage.clientHeight;
+  const vw = v.videoWidth || 16, vh = v.videoHeight || 9;
+  const base = Math.min(W / vw, H / vh);
+  const s = base * view.zoom;
+  const dw = vw * s, dh = vh * s;
+  // 黒い余白が出ないよう、中心の動ける範囲を絞る
+  const clamp = (c, size, box) => size <= box ? 0.5 : Math.min(Math.max(c, box / 2 / size), 1 - box / 2 / size);
+  view.cx = clamp(view.cx, dw, W); view.cy = clamp(view.cy, dh, H);
+  const tx = W / 2 - view.cx * dw, ty = H / 2 - view.cy * dh;
+  v.style.objectFit = 'fill';
+  v.style.width = `${dw}px`; v.style.height = `${dh}px`;
+  v.style.left = '0'; v.style.top = '0'; v.style.right = 'auto'; v.style.bottom = 'auto';
+  v.style.transform = `translate(${tx}px, ${ty}px)`;
+  const m = document.getElementById('mask');
+  m.style.width = `${dw}px`; m.style.height = `${dh}px`; m.style.transform = v.style.transform;
+  store.set('view', JSON.stringify(view));
+}
+function setZoom(z, keepCenter) {
+  view.zoom = Math.min(Math.max(z, 1), 3);
+  const tag = document.getElementById('zoomtag');
+  tag.textContent = `${view.zoom.toFixed(2)}×`; tag.classList.add('show');
+  clearTimeout(setZoom.t); setZoom.t = setTimeout(() => tag.classList.remove('show'), 800);
+  applyView();
+}
+stage.addEventListener('wheel', e => { e.preventDefault(); setZoom(view.zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08)); }, { passive: false });
+
+// ドラッグで動かす。2本指で広げる・縮める。動かさずに離したら再生／一時停止
+let drag = null, pinch = null;
+const touches = new Map();
+const spread = () => { const [a, b] = [...touches.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+stage.addEventListener('pointerdown', e => {
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  stage.setPointerCapture(e.pointerId);
+  if (touches.size === 2) { pinch = { d: spread(), zoom: view.zoom }; drag = null; return; }
+  drag = { x: e.clientX, y: e.clientY, cx: view.cx, cy: view.cy, moved: false };
+});
+const release = e => { touches.delete(e.pointerId); if (touches.size < 2) pinch = null; };
+stage.addEventListener('pointercancel', e => { release(e); drag = null; });
+stage.addEventListener('pointermove', e => {
+  if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && touches.size === 2) { setZoom(pinch.zoom * spread() / pinch.d); return; }
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 6) drag.moved = true;
+  if (!drag.moved || view.zoom === 1) return;
+  const w = parseFloat(v.style.width), h = parseFloat(v.style.height);
+  view.cx = drag.cx - dx / w; view.cy = drag.cy - dy / h;
+  applyView();
+});
+stage.addEventListener('pointerup', e => {
+  const wasPinch = !!pinch || touches.size > 1;
+  release(e);
+  if (drag && !drag.moved && !wasPinch && v.src) { v.paused ? v.play() : v.pause(); }
+  drag = null;
+});
+stage.addEventListener('dblclick', () => { document.fullscreenElement ? document.exitFullscreen() : stage.requestFullscreen?.(); });
+document.addEventListener('fullscreenchange', () => setTimeout(applyView, 50));
+
+// ---------- 顔を隠す ----------
+// 頭の位置は data/faces-gameNN.js（0.1秒ごと、続いている頭ごとに番号）。間は同じ番号どうしをなめらかにつなぐ
+// ラベル：p0・p1（選手）、x（その他）、off（隠さない）。ラベルごとに隠し方（なし・モザイク・文字）と文字を選ぶ
+// 設定と付け替えはこのブラウザに覚える
+const FACES = window.FACES || {};
+const HAS_FACES = Object.keys(FACES).length > 0;
+const SET_KEY = `faceSet2-${DATA.id}`, LABEL_KEY = `faceLabels-${DATA.id}`;
+// mode：none・mosaic・text、tag：名前を出すか、size：s・m・l
+const faceSet = {
+  p0: { mode: 'mosaic', text: '😀', tag: true, size: 'm' },
+  p1: { mode: 'text', text: '😎', tag: false, size: 'l' },
+  x: { mode: 'mosaic', text: '🙂', tag: false, size: 'l' },
+};
+const SIZES = [['s', '小', 0.75], ['m', '中', 1], ['l', '大', 1.35]];
+try { const saved = JSON.parse(store.get(SET_KEY)) || {}; for (const l in faceSet) Object.assign(faceSet[l], saved[l] || {}); } catch {}
+const anyFace = () => HAS_FACES && Object.values(faceSet).some(f => f.mode !== 'none' || f.tag);
+let faceLabels = {};
+try { faceLabels = JSON.parse(store.get(LABEL_KEY)) || {}; } catch {}
+const labelName = l => l === 'x' ? 'その他' : l === 'off' ? '隠さない' : DATA.names[+l[1]];
+
+// 頭のつながりごとの左右の見立て（試合の外で使う。試合中はコマごとに labelAt で決める）。
+// 試合の外での位置から決め、試合の外に映っていなければ試合中の位置から。カメラのすぐ前は数えない
+const NEAR_CAMERA = 0.05;     // 頭の半径（画面の幅に対する割合）がこれより大きければカメラのすぐ前
+const MIN_IN_PLAY = 5;        // 試合中にこれだけ映っていれば、その位置で決める（コマ数）
+const MIN_OUT_OF_PLAY = 15;   // 試合の外だけなら、これだけ映っていれば位置で決める
+const sideCache = {};
+function sidesOf(g) {
+  if (sideCache[g.n]) return sideCache[g.n];
+  const F = FACES[g.n], inPlayX = {}, outPlay = {};
+  const ranges = g.points.filter(p => p.r).map(p => p.r);
+  F.frames.forEach((heads, k) => {
+    const t = k / F.fps;
+    const playing = ranges.some(([a, b]) => a <= t && t <= b);
+    for (const [x, , r, tid] of heads) {
+      if (r > NEAR_CAMERA) continue;
+      ((playing ? inPlayX : outPlay)[tid] ||= []).push(x);
+    }
+  });
+  const median = xs => xs.sort((a, b) => a - b)[xs.length >> 1];
+  const out = {};
+  for (const tid of Object.keys(F.tracks)) {
+    const xs = F.tracks[tid].n < MIN_DETECTIONS ? null
+      : outPlay[tid]?.length >= MIN_OUT_OF_PLAY ? outPlay[tid] : inPlayX[tid]?.length >= MIN_IN_PLAY ? inPlayX[tid] : null;
+    out[tid] = xs ? (median(xs) < 0.5 ? 'L' : 'R') : 'X';
+  }
+  return (sideCache[g.n] = out);
+}
+function autoLabel(g, tid) {
+  const side = FACES[g.n] ? sidesOf(g)[tid] : null;
+  if (side === 'L') return `p${g.vl}`;
+  if (side === 'R') return `p${1 - g.vl}`;
+  return 'x';
+}
+function labelOf(g, tid) { return faceLabels[`${g.n}-${tid}`] || autoLabel(g, tid); }
+// 映像の中の1つの頭のラベル。試合中は、その瞬間に台の左右どちらにいるかで決める
+// （頭のつながりは、人が交差したときに別の人へ乗り移ることがあるため。2026-11-20 第1ゲーム #69）
+const MIN_DETECTIONS = 3;  // これより少ししか見つからなかった頭は誤検知とみなし、位置では決めない
+// 位置で決められないコマ（カメラのすぐ前・試合の外）は、同じつながりで前後これだけのコマ以内に決められたものを引き継ぐ
+const CARRY_FRAMES = 50;
+const frameCache = {};
+function frameSides(g) {
+  if (frameCache[g.n]) return frameCache[g.n];
+  const F = FACES[g.n], ranges = g.points.filter(p => p.r).map(p => p.r);
+  const byTrack = {};
+  F.frames.forEach((heads, k) => {
+    const t = k / F.fps, playing = ranges.some(([a, b]) => a <= t && t <= b);
+    for (const [x, , r, tid] of heads) {
+      const ok = playing && r <= NEAR_CAMERA && F.tracks[tid].n >= MIN_DETECTIONS;
+      (byTrack[tid] ||= []).push([k, ok ? (x < 0.5 ? 'L' : 'R') : null]);
+    }
+  });
+  const out = {};
+  for (const [tid, list] of Object.entries(byTrack)) {
+    // 前から・後ろから、一番近い決まったコマを探す
+    const prev = [], next = [];
+    let last = null;
+    list.forEach(([k, s], i) => { if (s) last = [k, s]; prev[i] = last; });
+    last = null;
+    for (let i = list.length - 1; i >= 0; i--) { if (list[i][1]) last = list[i]; next[i] = last; }
+    list.forEach(([k, s], i) => {
+      let side = s;
+      if (!side) {
+        const a = prev[i], b = next[i];
+        const da = a ? k - a[0] : Infinity, db = b ? b[0] - k : Infinity;
+        if (Math.min(da, db) <= CARRY_FRAMES) side = da <= db ? a[1] : b[1];
+      }
+      if (side) out[`${k}-${tid}`] = side;
+    });
+  }
+  return (frameCache[g.n] = out);
+}
+function labelAt(g, head, t) {
+  const tid = head[3];
+  const fixed = faceLabels[`${g.n}-${tid}`];
+  if (fixed) return fixed;
+  const side = frameSides(g)[`${Math.floor(t * FACES[g.n].fps)}-${tid}`];
+  if (side) return `p${side === 'L' ? g.vl : 1 - g.vl}`;
+  return autoLabel(g, tid);
+}
+
+
+function headsAt(n, t) {
+  const F = FACES[n];
+  if (!F) return [];
+  const k = t * F.fps, i = Math.floor(k), f = k - i;
+  const a = F.frames[i] || [], b = F.frames[i + 1] || [];
+  return a.map(h => {
+    const o = b.find(o => o[3] === h[3]);
+    return o ? [h[0] + (o[0] - h[0]) * f, h[1] + (o[1] - h[1]) * f, h[2] + (o[2] - h[2]) * f, h[3]] : h;
+  });
+}
+const tile = document.createElement('canvas');
+// 映像 src（幅 sw・高さ sh）の上の頭を、ctx（幅 w・高さ h）に隠して描く。
+// 名前はラベルごとの設定で出す。allTags ならすべてに（ids なら番号も）
+function drawMasks(ctx, src, sw, sh, w, h, g, heads, t, allTags, ids) {
+  for (const head of heads) {
+    const [x, y, , tid] = head;
+    const label = labelAt(g, head, t);
+    const set = faceSet[label] || { mode: 'none', text: '', tag: false, size: 'm' };
+    const mode = set.mode, emoji = set.text;
+    const scale = (SIZES.find(z => z[0] === set.size) || SIZES[1])[2];
+    const r = head[2] * scale;
+    const R = r * w;  // 描く先のピクセルでの半径
+    if (emoji && mode === 'text') {
+      const size = 1.9 * R;
+      ctx.font = `${size}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(emoji, x * w, y * h + size * 0.05);
+    } else if (mode === 'mosaic') {
+      // 頭のまわりを 8 マスに縮めてから、ぼかさずに広げる
+      const n = 8, Rs = r * sw;
+      tile.width = n; tile.height = n;
+      tile.getContext('2d').drawImage(src, x * sw - Rs, y * sh - Rs, 2 * Rs, 2 * Rs, 0, 0, n, n);
+      ctx.save();
+      ctx.imageSmoothingEnabled = false;
+      ctx.beginPath(); ctx.arc(x * w, y * h, R, 0, Math.PI * 2); ctx.clip();
+      ctx.drawImage(tile, 0, 0, n, n, x * w - R, y * h - R, 2 * R, 2 * R);
+      ctx.restore();
+    }
+    if (allTags || set.tag) {
+      const text = ids ? `${labelName(label)} #${tid}` : labelName(label);
+      // 画面でも書き出しでも、映像の大きさに合わせる
+      const fs = Math.max(11, w * 0.014 * scale);
+      ctx.font = `bold ${fs}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      const tw = ctx.measureText(text).width + 8;
+      ctx.fillStyle = 'rgba(0,0,0,.65)';
+      const top = mode === 'none' ? r * w / 1.35 : R;
+      ctx.fillRect(x * w - tw / 2, y * h - top - fs - 6, tw, fs + 4);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(text, x * w, y * h - top - 3);
+    }
+  }
+}
+const mask = document.getElementById('mask');
+const facepop = document.getElementById('facepop');
+const facedetail = document.getElementById('facedetail');
+let lastIds = '';
+function drawPreview() {
+  const ctx = mask.getContext('2d');
+  const w = Math.round(mask.clientWidth * devicePixelRatio), h = Math.round(mask.clientHeight * devicePixelRatio);
+  if (mask.width !== w || mask.height !== h) { mask.width = w; mask.height = h; }
+  ctx.clearRect(0, 0, w, h);
+  const g = DATA.games[current];
+  if (HAS_FACES && v.videoWidth && !v.hidden) {
+    const heads = headsAt(g.n, v.currentTime);
+    drawMasks(ctx, v, v.videoWidth, v.videoHeight, w, h, g, heads, v.currentTime, !facepop.hidden, !facedetail.hidden);
+    // 一覧で、今映っている頭に枠
+    const ids = heads.map(h => h[3]).join(',');
+    if (ids !== lastIds && !facepop.hidden) {
+      lastIds = ids;
+      const on = new Set(heads.map(h => String(h[3])));
+      document.querySelectorAll('#faceheads .hd').forEach(e => e.classList.toggle('cur', on.has(e.dataset.tid)));
+    }
+  }
+  requestAnimationFrame(drawPreview);
+}
+requestAnimationFrame(drawPreview);
+
+function showFaceMode() {}
+// 設定が開いている間だけ「顔」ボタンに色
+new MutationObserver(() => document.getElementById('face').classList.toggle('open', !facepop.hidden))
+  .observe(facepop, { attributes: true, attributeFilter: ['hidden'] });
+const MODES = [['none', 'なし'], ['mosaic', 'モザイク'], ['text', '文字']];
+
+const LABELS = ['p0', 'p1', 'x', 'off'];
+// 選んだところへ白い板がすべる切り替え。items は [値, 文字]
+function segmented(items, get, set) {
+  const box = document.createElement('div');
+  box.className = 'seg';
+  const knob = document.createElement('span');
+  knob.className = 'knob';
+  knob.style.width = `calc((100% - 6px) / ${items.length})`;
+  box.append(knob);
+  const buttons = items.map(([value, text]) => {
+    const b = document.createElement('button');
+    b.textContent = text;
+    b.onclick = () => { set(value); paint(); };
+    box.append(b);
+    return [value, b];
+  });
+  const paint = () => {
+    const k = Math.max(0, buttons.findIndex(([value]) => value === get()));
+    knob.style.transform = `translateX(${k * 100}%)`;
+    buttons.forEach(([value, b]) => b.classList.toggle('on', value === get()));
+  };
+  paint();
+  return box;
+}
+const EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7c2 0 3.8.7 5.2 1.6M22 12s-3.5 7-10 7c-2 0-3.8-.7-5.2-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="M3 3l18 18"/></svg>';
+function renderFaceList() {
+  // ラベルごとの設定：名前の表示（目）、隠し方、大きさ
+  const box = document.getElementById('facelabels');
+  box.innerHTML = '';
+  ['p0', 'p1', 'x'].forEach(l => {
+    const set = faceSet[l];
+    const save = () => { store.set(SET_KEY, JSON.stringify(faceSet)); showFaceMode(); };
+    const card = document.createElement('div');
+    card.className = 'who';
+
+    const head = document.createElement('div');
+    head.className = 'head';
+    const name = document.createElement('div');
+    name.className = `name ${l === 'x' ? '' : 'ab'[+l[1]]}`;
+    name.textContent = labelName(l);
+    const eye = document.createElement('button');
+    eye.className = 'eye';
+    const paintEye = () => {
+      eye.classList.toggle('off', !set.tag);
+      eye.innerHTML = set.tag ? EYE : EYE_OFF;
+      eye.setAttribute('aria-label', set.tag ? '名前を出している' : '名前を出していない');
+    };
+    eye.onclick = () => { set.tag = !set.tag; paintEye(); save(); };
+    paintEye();
+    head.append(name, eye);
+
+    const input = document.createElement('input');
+    input.value = set.text; input.maxLength = 8; input.setAttribute('aria-label', `${labelName(l)}の文字`);
+    input.oninput = () => { set.text = input.value.trim(); save(); };
+    const mode = segmented(MODES, () => set.mode, m => { set.mode = m; input.disabled = m !== 'text'; save(); });
+    input.disabled = set.mode !== 'text';
+    const row = document.createElement('div');
+    row.className = 'opts';
+    row.append(mode, input);
+    const size = segmented(SIZES, () => set.size, z => { set.size = z; save(); });
+    // 小・中・大の文字も、その大きさに
+    size.querySelectorAll('button').forEach((b, k) => { b.style.fontSize = ['.78rem', '.95rem', '1.2rem'][k]; });
+
+    card.append(head, row, size);
+    box.append(card);
+  });
+  // このゲームで見つけた頭（長く映っていた順）
+  const g = DATA.games[current];
+  const tracks = Object.entries(FACES[g.n]?.tracks || {}).sort((a, b) => b[1].n - a[1].n);
+  document.getElementById('facecount').textContent = `第${g.n}ゲーム ${tracks.length}`;
+  const list = document.getElementById('faceheads');
+  list.innerHTML = '';
+  lastIds = '';
+  for (const [tid, tr] of tracks) {
+    const d = document.createElement('div');
+    d.className = 'hd'; d.dataset.tid = tid;
+    const img = document.createElement('img');
+    if (tr.img) img.src = tr.img;
+    img.title = 'ここへ';
+    img.onclick = () => { v.currentTime = tr.t0; };
+    const sel = document.createElement('select');
+    LABELS.forEach(l => sel.add(new Option(labelName(l), l)));
+    sel.value = labelOf(g, tid);
+    sel.onchange = () => {
+      const key = `${g.n}-${tid}`;
+      if (sel.value === autoLabel(g, tid)) delete faceLabels[key]; else faceLabels[key] = sel.value;
+      store.set(LABEL_KEY, JSON.stringify(faceLabels));
+    };
+    const info = document.createElement('span');
+    info.textContent = `#${tid} ${fmt(tr.t0)}–${fmt(tr.t1)}`;
+    d.append(img, info, sel);
+    list.append(d);
+  }
+}
+document.getElementById('face').onclick = () => {
+  if (!facepop.hidden) { facepop.hidden = true; return; }
+  clippop.hidden = true;
+  renderFaceList();
+  facepop.hidden = false;
+  fitSheet(facepop);
+};
+document.getElementById('faceclose').onclick = () => { facepop.hidden = true; };
+// スマホでは下からの板。上の動画とボタンにかぶらない高さにする
+function fitSheet(pop) {
+  if (matchMedia('(min-width: 960px) and (min-height: 560px)').matches) { pop.style.maxHeight = ''; return; }
+  const bottom = document.querySelector('.controls').getBoundingClientRect().bottom;
+  pop.style.maxHeight = `${Math.max(200, innerHeight - bottom - 6)}px`;
+}
+addEventListener('resize', () => [facepop, clippop].forEach(p => !p.hidden && fitSheet(p)));
+document.getElementById('facex').onclick = () => { facepop.hidden = true; };
+document.getElementById('clipx').onclick = () => { clippop.hidden = true; };
+document.getElementById('facemore').onclick = () => {
+  facedetail.hidden = !facedetail.hidden;
+  document.getElementById('facemore').classList.toggle('on', !facedetail.hidden);
+};
+v.addEventListener('loadedmetadata', () => { if (!facepop.hidden) renderFaceList(); });
+document.getElementById('face').hidden = !HAS_FACES;
+showFaceMode();
+
+// ---------- 保存（このゲームを、拡大と顔の設定のまま動画に書き出す） ----------
+// ブラウザで再生しながら録画するので、ゲームの長さだけ時間がかかる。途中で止めたら、そこまでを保存
+const clippop = document.getElementById('clippop');
+const clipmsg = document.getElementById('clipmsg');
+let recording = null;
+document.getElementById('clipx').onclick = () => { clippop.hidden = true; };
+document.getElementById('clipstop').onclick = () => { if (recording) recording.stop(); };
+
+// ファイルとして開いたページでは、ブラウザが動画の絵を書き出させてくれない。動画ファイルを選んでもらう
+const picked = {};
+function canExport(url) {
+  return new Promise(res => {
+    const t = document.createElement('video');
+    t.muted = true; t.preload = 'auto'; if (DRIVE) t.crossOrigin = 'anonymous'; t.src = url;
+    t.addEventListener('loadeddata', () => {
+      const c = document.createElement('canvas'); c.width = c.height = 2;
+      try { c.getContext('2d').drawImage(t, 0, 0, 2, 2); c.getContext('2d').getImageData(0, 0, 1, 1); res(true); }
+      catch { res(false); }
+      t.removeAttribute('src'); t.load();
+    }, { once: true });
+    t.addEventListener('error', () => res(false), { once: true });
+  });
+}
+function pickVideo(n) {
+  return new Promise(res => {
+    const input = document.getElementById('clipfile');
+    clipmsg.innerHTML = '';
+    const b = document.createElement('button');
+    b.textContent = `game${String(n).padStart(2, '0')}.mp4 を選ぶ`;
+    b.onclick = () => input.click();
+    clipmsg.append('videos フォルダの ', b);
+    input.onchange = () => {
+      const f = input.files[0]; input.value = '';
+      if (!f) return;
+      picked[n] = URL.createObjectURL(f);
+      clipmsg.textContent = '';
+      res(picked[n]);
+    };
+  });
+}
+function pickMime() {
+  const types = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+  return types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
+}
+document.getElementById('save').onclick = async () => {
+  if (recording) { clippop.hidden = false; fitSheet(clippop); return; }
+  const g = DATA.games[current];
+  if (!g.video) return;
+  facepop.hidden = true;
+  clippop.hidden = false; fitSheet(clippop);
+  document.getElementById('clipstop').hidden = true;
+  clipmsg.textContent = '';
+  const mime = pickMime();
+  if (!mime) { clipmsg.textContent = 'このブラウザでは保存できません'; return; }
+  let url = picked[g.n] || media(g.video);
+  if (!picked[g.n] && !(await canExport(url))) url = await pickVideo(g.n);
+  v.pause();
+
+  const src = document.createElement('video');
+  src.playsInline = true; src.preload = 'auto'; if (DRIVE && !picked[g.n]) src.crossOrigin = 'anonymous'; src.src = url;
+  await new Promise(r => src.addEventListener('loadedmetadata', r, { once: true }));
+  const W = src.videoWidth, H = src.videoHeight;
+  const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  // 顔を隠した1コマを描いてから、そのときの拡大のぶんを切り取る
+  const full = document.createElement('canvas'); full.width = W; full.height = H;
+  const fctx = full.getContext('2d');
+  const cropOf = () => {
+    const z = view.zoom, cw = 1 / z, ch = 1 / z;
+    const cx = Math.min(Math.max(view.cx, cw / 2), 1 - cw / 2), cy = Math.min(Math.max(view.cy, ch / 2), 1 - ch / 2);
+    return [(cx - cw / 2) * W, (cy - ch / 2) * H, cw * W, ch * H];
+  };
+  const stream = canvas.captureStream(30);
+  // 音：映像の音を録音にも、スピーカーにも流す
+  const ac = new AudioContext();
+  const node = ac.createMediaElementSource(src);
+  const dest = ac.createMediaStreamDestination();
+  node.connect(dest); node.connect(ac.destination);
+  dest.stream.getAudioTracks().forEach(tr => stream.addTrack(tr));
+
+  const chunks = [];
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12e6 });
+  rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+  // 最初の点のサーブ前から、最後の点を入れたところまで
+  const ranged = g.points.filter(p => p.r);
+  const a = ranged.length ? ranged[0].r[0] : 0;
+  const b = ranged.length ? ranged[ranged.length - 1].r[1] : src.duration;
+  src.currentTime = a;
+  await new Promise(r => src.addEventListener('seeked', r, { once: true }));
+  let done = false;
+  const draw = () => {
+    if (done) return;
+    fctx.drawImage(src, 0, 0, W, H);
+    drawMasks(fctx, src, W, H, W, H, g, headsAt(g.n, src.currentTime), src.currentTime, false, false);
+    ctx.drawImage(full, ...cropOf(), 0, 0, W, H);
+    clipmsg.textContent = `第${g.n}ゲームを保存中 ${fmt(src.currentTime - a)} / ${fmt(b - a)}`;
+    if (src.currentTime >= b || src.ended) { rec.stop(); return; }
+    if (src.requestVideoFrameCallback) src.requestVideoFrameCallback(draw); else requestAnimationFrame(draw);
+  };
+  rec.onstop = () => {
+    done = true; recording = null;
+    src.pause(); ac.close();
+    document.getElementById('save').classList.remove('on');
+    document.getElementById('clipstop').hidden = true;
+    const blob = new Blob(chunks, { type: mime.split(';')[0] });
+    const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${document.title.split(' ')[0]}-第${g.n}ゲーム.${ext}`;
+    link.textContent = link.download;
+    clipmsg.innerHTML = '';
+    clipmsg.append(link);
+    link.click();
+  };
+  recording = rec;
+  document.getElementById('save').classList.add('on');
+  document.getElementById('clipstop').hidden = false;
+  ctx.drawImage(src, 0, 0, W, H);
+  rec.start(500);
+  draw();
+  try { await ac.resume(); await src.play(); }
+  catch { done = true; recording = null; rec.onstop = null; rec.stop(); ac.close();
+    document.getElementById('save').classList.remove('on'); document.getElementById('clipstop').hidden = true;
+    clipmsg.textContent = '再生できませんでした'; }
+};
+
+try { const saved = JSON.parse(store.get('view')); if (saved && saved.zoom) view = saved; } catch {}
+select(0, false);
+})();
+</script>
+</body>
+</html>

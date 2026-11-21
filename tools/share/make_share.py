@@ -197,6 +197,7 @@ def main():
     ap.add_argument("--camera-same-side", action="store_true",
                     help="カメラがスコアボードと同じ向きから撮っている（動画の左にいる人＝スコアボードの左の人）")
     ap.add_argument("--voice", type=Path, help="iPad の VoiceLogs（log.tsv と audio/）。あれば声の音声と字幕を動画に重ねられる")
+    ap.add_argument("--viewer", type=Path, help="Web に置く、データの入っていないページの書き出し先（例：docs/viewer/index.html）")
     args = ap.parse_args()
 
     index = json.loads((args.camera / "index.json").read_text(encoding="utf-8"))
@@ -261,7 +262,12 @@ def main():
         # 2026-11-20 はカメラがスコアボードと向かい合う側にあり、左右が逆だった
         g["video_left"] = board_left if args.camera_same_side else 1 - board_left
     write_html(out / "index.html", index["id"], names, log, games)
+    if args.viewer:
+        write_viewer(args.viewer)
     print(f"できました: {out.resolve()}")
+
+
+TEMPLATE = Path(__file__).with_name("template.html")
 
 
 def write_html(path: Path, session_id: str, names: list[str], log: dict, games: list[dict]):
@@ -315,15 +321,27 @@ def write_html(path: Path, session_id: str, names: list[str], log: dict, games: 
         + (f"<p class='muted'>ラリー（推定）：平均 {sum(rally_lengths) / len(rally_lengths):.1f}秒・最長 {max(rally_lengths):.1f}秒</p>"
            if rally_lengths else "")
     )
-    page = (Path(__file__).with_name("template.html")).read_text(encoding="utf-8").replace("{{TITLE}}", f"{started:%Y-%m-%d} 卓球")
-    page = page.replace("{{DATE}}", f"{started:%Y年%m月%d日 %H:%M}")
-    page = page.replace("{{A}}", html.escape(names[0])).replace("{{B}}", html.escape(names[1]))
-    page = page.replace("{{WA}}", str(won[0])).replace("{{WB}}", str(won[1]))
-    page = page.replace("{{STATS}}", rows)
+    content = {
+        "title": f"{started:%Y-%m-%d} 卓球",
+        "date": f"{started:%Y年%m月%d日 %H:%M}",
+        "won": won,
+        "stats": rows,
+        "data": {"id": session_id, "names": names, "games": data, "candidates": highlights.candidates(games)},
+    }
+    # Web に置いたページ（write_viewer）がドライブから読む
+    (path.parent / "data" / "page.json").write_text(json.dumps(content, ensure_ascii=False), encoding="utf-8")
     # 顔を隠すための頭の位置（faces.py で作る）。file:// でも読めるようスクリプトで読む
     faces = sorted(path.parent.glob("data/faces-game*.js"))
+    page = TEMPLATE.read_text(encoding="utf-8")
     page = page.replace("{{FACES}}", "\n".join(f'<script src="data/{f.name}"></script>' for f in faces))
-    page = page.replace("{{DATA}}", json.dumps({"id": session_id, "names": names, "games": data, "candidates": highlights.candidates(games)}, ensure_ascii=False))
+    page = page.replace("{{PAGE}}", json.dumps(content, ensure_ascii=False).replace("</", "<\\/"))
+    path.write_text(page, encoding="utf-8")
+
+
+def write_viewer(path: Path):
+    """データの入っていないページ。Web に置き、#d=ドライブのフォルダID&k=APIキー で開く。"""
+    page = TEMPLATE.read_text(encoding="utf-8").replace("{{FACES}}", "").replace("{{PAGE}}", "null")
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(page, encoding="utf-8")
 
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{TITLE}}</title>
+<title>卓球</title>
 <style>
 :root {
   --bg:#f4f5f7; --card:#fff; --fg:#1d2330; --muted:#6b7280; --line:#e3e6ea; --hl:#fff3d1;
@@ -196,9 +196,9 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 <div class="app">
   <section class="left">
     <header>
-      <h1>{{DATE}}</h1>
+      <h1 id="date"></h1>
       <div style="display:flex; align-items:center; gap:4px">
-        <div class="total"><span class="a">{{A}} {{WA}}</span> - <span class="b">{{WB}} {{B}}</span></div>
+        <div class="total" id="total"></div>
         <button class="info" id="infobtn" aria-label="くわしいデータ">ⓘ</button>
       </div>
     </header>
@@ -242,7 +242,7 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
     <div class="panel games" id="games"></div>
   </section>
 </div>
-<div id="infopop" hidden>{{STATS}}</div>
+<div id="infopop" hidden></div>
 <div id="clippop" hidden>
   <button class="popx" id="clipx" aria-label="閉じる">✕</button>
   <div class="msg" id="clipmsg"></div>
@@ -262,7 +262,64 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 {{FACES}}
 
 <script>
-const DATA = {{DATA}};
+// フォルダの index.html では、データはここに入っている。Web に置いたページ（データなし）では、
+// URL の #d=ドライブのフォルダID&k=APIキー から、ドライブの data/page.json などを読む
+const EMBEDDED = {{PAGE}};
+const DRIVE = (() => {
+  const h = new URLSearchParams(location.hash.slice(1));
+  return h.get('d') ? { folder: h.get('d'), key: h.get('k') || '', api: h.get('api') || 'https://www.googleapis.com/drive/v3', ids: {} } : null;
+})();
+// ページの中の場所（videos/game01.mp4 など）を、読み込む URL に
+function media(path) {
+  if (!DRIVE) return path;
+  const id = DRIVE.ids[path];
+  return id ? `${DRIVE.api}/files/${id}?alt=media&key=${encodeURIComponent(DRIVE.key)}` : '';
+}
+async function driveList(id, prefix) {
+  const q = encodeURIComponent(`'${id}' in parents and trashed=false`);
+  const r = await fetch(`${DRIVE.api}/files?q=${q}&fields=files(id,name,mimeType)&pageSize=1000&key=${encodeURIComponent(DRIVE.key)}`);
+  if (!r.ok) throw new Error(`ドライブを読めませんでした（${r.status}）`);
+  for (const f of (await r.json()).files || []) {
+    if (f.mimeType === 'application/vnd.google-apps.folder') await driveList(f.id, `${prefix}${f.name}/`);
+    else DRIVE.ids[`${prefix}${f.name}`] = f.id;
+  }
+}
+async function loadPage() {
+  if (EMBEDDED) return EMBEDDED;
+  if (!DRIVE) throw new Error('読み込むフォルダがありません');
+  await driveList(DRIVE.folder, '');
+  const get = async path => {
+    const r = await fetch(media(path));
+    if (!r.ok) throw new Error(`${path} を読めませんでした（${r.status}）`);
+    return r.text();
+  };
+  const page = JSON.parse(await get('data/page.json'));
+  // 顔の位置（faces-gameNN.js）は、中の JSON だけを取り出す
+  window.FACES = {};
+  await Promise.all(Object.keys(DRIVE.ids).filter(p => /^data\/faces-game\d+\.js$/.test(p)).map(async p => {
+    const text = await get(p);
+    window.FACES[+p.match(/(\d+)\.js$/)[1]] = JSON.parse(text.slice(text.indexOf('] = ') + 4, text.lastIndexOf(';')));
+  }));
+  return page;
+}
+
+(async () => {
+let PAGE;
+try { PAGE = await loadPage(); }
+catch (e) {
+  document.getElementById('empty').textContent = e.message;
+  document.getElementById('empty').hidden = false;
+  return;
+}
+const DATA = PAGE.data;
+document.title = PAGE.title;
+document.getElementById('date').textContent = PAGE.date;
+{
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  document.getElementById('total').innerHTML =
+    `<span class="a">${esc(DATA.names[0])} ${PAGE.won[0]}</span> - <span class="b">${PAGE.won[1]} ${esc(DATA.names[1])}</span>`;
+  document.getElementById('infopop').innerHTML = PAGE.stats;
+}
 // 範囲のない点は、点が入った時刻のこれだけ前から見せる
 const LEAD = 8;
 
@@ -431,7 +488,7 @@ function select(i, autoplay) {
   const g = DATA.games[i];
   document.getElementById('empty').hidden = !!g.video;
   v.hidden = !g.video;
-  if (g.video) { v.src = g.video; } else { v.removeAttribute('src'); v.load(); }
+  if (g.video) { if (DRIVE) v.crossOrigin = 'anonymous'; v.src = media(g.video); } else { v.removeAttribute('src'); v.load(); }
   v.playbackRate = rate;
   renderGames(null);
   seek.querySelectorAll('.mk, .band').forEach(m => m.remove());
@@ -586,7 +643,7 @@ let voiceOn = store.get('voiceOn') === '1';
 function syncMic(force) {
   const g = DATA.games[current];
   if (!voiceOn || !g.voice) { mic.pause(); return; }
-  if (!mic.src.endsWith(g.voice)) mic.src = g.voice;
+  if (mic.dataset.path !== g.voice) { if (DRIVE) mic.crossOrigin = 'anonymous'; mic.src = media(g.voice); mic.dataset.path = g.voice; }
   mic.playbackRate = v.playbackRate;
   if (force || Math.abs(mic.currentTime - v.currentTime) > 0.25) { try { mic.currentTime = v.currentTime; } catch {} }
   if (v.paused) mic.pause(); else mic.play().catch(() => {});
@@ -979,7 +1036,7 @@ const picked = {};
 function canExport(url) {
   return new Promise(res => {
     const t = document.createElement('video');
-    t.muted = true; t.preload = 'auto'; t.src = url;
+    t.muted = true; t.preload = 'auto'; if (DRIVE) t.crossOrigin = 'anonymous'; t.src = url;
     t.addEventListener('loadeddata', () => {
       const c = document.createElement('canvas'); c.width = c.height = 2;
       try { c.getContext('2d').drawImage(t, 0, 0, 2, 2); c.getContext('2d').getImageData(0, 0, 1, 1); res(true); }
@@ -1020,12 +1077,12 @@ document.getElementById('save').onclick = async () => {
   clipmsg.textContent = '';
   const mime = pickMime();
   if (!mime) { clipmsg.textContent = 'このブラウザでは保存できません'; return; }
-  let url = picked[g.n] || g.video;
+  let url = picked[g.n] || media(g.video);
   if (!picked[g.n] && !(await canExport(url))) url = await pickVideo(g.n);
   v.pause();
 
   const src = document.createElement('video');
-  src.playsInline = true; src.preload = 'auto'; src.src = url;
+  src.playsInline = true; src.preload = 'auto'; if (DRIVE && !picked[g.n]) src.crossOrigin = 'anonymous'; src.src = url;
   await new Promise(r => src.addEventListener('loadedmetadata', r, { once: true }));
   const W = src.videoWidth, H = src.videoHeight;
   const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
@@ -1094,6 +1151,7 @@ document.getElementById('save').onclick = async () => {
 
 try { const saved = JSON.parse(store.get('view')); if (saved && saved.zoom) view = saved; } catch {}
 select(0, false);
+})();
 </script>
 </body>
 </html>
