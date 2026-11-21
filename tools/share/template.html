@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>卓球</title>
+<script>
+// PC と横向きのスマホは、動画とゲーム一覧を横に並べて1画面に。縦長はスマホの配置
+const WIDE = '(min-width: 960px) and (min-height: 560px), (orientation: landscape) and (min-width: 560px)';
+const setWide = () => document.documentElement.classList.toggle('wide', matchMedia(WIDE).matches);
+setWide();
+matchMedia(WIDE).addEventListener('change', setWide);
+</script>
 <style>
 :root {
   --bg:#f4f5f7; --card:#fff; --fg:#1d2330; --muted:#6b7280; --line:#e3e6ea; --hl:#fff3d1;
@@ -139,6 +146,30 @@ header h1 .session:hover { border-color:var(--line); }
 .info { border:0; background:none; cursor:pointer; color:var(--muted); font-size:1.1rem; width:32px; height:32px; border-radius:50%; }
 .info:hover { background:var(--track); }
 #infopop, #facepop, #clippop { overscroll-behavior:contain; }
+/* 全画面：動画の場所を画面いっぱいにし、自作の操作パネルを重ねる（iPhone は動画以外を全画面にできないため） */
+html.fs, html.fs body { overflow:hidden; }
+html.fs .stage { position:fixed; inset:0; z-index:40; border-radius:0; width:100vw; height:100vh; height:100dvh; }
+.fsbar { display:none; }
+html.fs .fsbar { display:grid; gap:6px; position:absolute; left:0; right:0; bottom:0; z-index:4; padding:24px 14px 12px;
+  padding-bottom:max(12px, env(safe-area-inset-bottom)); background:linear-gradient(transparent, rgba(0,0,0,.7));
+  color:#fff; transition:opacity .25s; }
+html.fs .fsbar.hide { opacity:0; pointer-events:none; }
+.fsseek { position:relative; height:16px; cursor:pointer; }
+.fsseek::before { content:''; position:absolute; left:0; right:0; top:6px; height:4px; border-radius:2px; background:rgba(255,255,255,.3); }
+.fsplayed { position:absolute; left:0; top:6px; height:4px; border-radius:2px; background:#fff; }
+.fsrow { display:flex; align-items:center; gap:10px; }
+.fsrow button { border:0; background:none; color:#fff; font-size:1.1rem; min-width:40px; min-height:40px; cursor:pointer; border-radius:8px;
+  display:grid; place-items:center; }
+.fsrow #fsplay { width:48px; height:48px; border-radius:50%; background:#fff; color:#111; }
+.fsrow svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+#fstime { font-variant-numeric:tabular-nums; font-size:.9rem; }
+#drivepop { position:fixed; top:52px; right:14px; width:min(300px, calc(100vw - 24px)); background:var(--card); border:1px solid var(--line);
+  border-radius:12px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:21; display:grid; gap:10px; font-size:.9rem; }
+#drivepop p { margin:0; }
+#drivepop .row { display:flex; gap:8px; justify-content:flex-end; }
+#drivepop .row > * { border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:8px; padding:6px 14px;
+  cursor:pointer; font-size:.9rem; text-decoration:none; }
+#drivepop .go { background:var(--fg); color:var(--bg); border-color:var(--fg); }
 #infopop { position:fixed; top:56px; right:14px; width:min(380px, calc(100vw - 24px)); max-height:calc(100vh - 80px); overflow:auto;
   background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:20; }
 #infopop p { margin:4px 0 10px; font-size:.85rem; }
@@ -197,38 +228,37 @@ header h1 .session:hover { border-color:var(--line); }
 .stats th:first-child, .stats tbody th { text-align:left; font-weight:500; }
 .stats thead th { color:var(--muted); font-weight:500; border-top:0; }
 
-/* ---- PC：1画面に収める ---- */
-@media (min-width: 960px) and (min-height: 560px) {
-  body { height:100vh; overflow:hidden; }
-  .app { height:100vh; display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:14px; padding:14px; }
-  .left { min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto auto; gap:10px; }
-  .stage { min-height:0; }
-  .right { min-height:0; display:grid; grid-template-rows:minmax(0,1fr); }
-  .right .panel { min-height:0; }
-  .right .games { overflow:auto; }
+/* ---- 横に広い画面（PC・横向きのスマホ）：1画面に収める ---- */
+html.wide body { height:100vh; height:100dvh; overflow:hidden; }
+html.wide .app { height:100vh; height:100dvh; display:grid; grid-template-columns:minmax(0,1fr) clamp(220px, 30vw, 360px); gap:14px; padding:14px; }
+html.wide .left { min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto auto; gap:10px; }
+html.wide .stage { min-height:0; }
+html.wide .right { min-height:0; display:grid; grid-template-rows:minmax(0,1fr); }
+html.wide .right .panel { min-height:0; }
+html.wide .right .games { overflow:auto; }
+/* 横向きのスマホ（低い）：すき間を詰める */
+@media (max-height: 559px) {
+  html.wide .app { gap:8px; padding:6px 8px; }
+  html.wide .left { gap:4px; }
+  html.wide header h1 { font-size:.75rem; }
+  html.wide .total { font-size:1.15rem; }
 }
 
-/* ---- スマホ：縦に並べてスクロール ---- */
-@media not all and (min-width: 960px) and (min-height: 560px) {
-  .app { display:flex; flex-direction:column; gap:12px; padding:12px 12px 40px; }
-  .app { padding-top:0; }
-  .left { display:flex; flex-direction:column; gap:6px; position:sticky; top:0; z-index:5; background:var(--bg); padding-top:10px; padding-bottom:4px; }
-  header { flex-wrap:nowrap; }
-  header h1 { font-size:.8rem; }
-  .stage { aspect-ratio:auto; height:min(calc((100vw - 24px) * 9 / 16), 45vh); }
-  .total { font-size:1.3rem; }
-  .right { display:flex; flex-direction:column; gap:12px; }
-  .controls button { padding:4px 7px; }
-  .controls .time { margin-right:0; margin-left:auto; }
-  .controls .brk { display:block; flex-basis:100%; height:0; }
-  .controls .sepgrp { margin-left:auto; }
-  .app { overflow-x:clip; }
-  #facepop, #clippop { left:0; right:0; bottom:0; width:auto; max-height:52vh; border-radius:14px 14px 0 0; }
-}
-/* 低い窓（横向きのスマホなど）：動画とボタンを固定すると下が見えないので、全体をスクロール */
-@media not all and (min-width: 960px) and (min-height: 560px) {
-  @media (max-height: 640px) { .left { position:static; } }
-}
+/* ---- 縦長（スマホ）：縦に並べてスクロール ---- */
+html:not(.wide) .app { display:flex; flex-direction:column; gap:12px; padding:0 12px 40px; overflow-x:clip; }
+html:not(.wide) .left { display:flex; flex-direction:column; gap:6px; position:sticky; top:0; z-index:5; background:var(--bg); padding-top:10px; padding-bottom:4px; }
+html:not(.wide) header { flex-wrap:nowrap; }
+html:not(.wide) header h1 { font-size:.8rem; }
+html:not(.wide) .stage { aspect-ratio:auto; height:min(calc((100vw - 24px) * 9 / 16), 45vh); }
+html:not(.wide) .total { font-size:1.3rem; }
+html:not(.wide) .right { display:flex; flex-direction:column; gap:12px; }
+html:not(.wide) .controls button { padding:4px 7px; }
+html:not(.wide) .controls .time { margin-right:0; margin-left:auto; }
+html:not(.wide) .controls .brk { display:block; flex-basis:100%; height:0; }
+html:not(.wide) .controls .sepgrp { margin-left:auto; }
+html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; width:auto; max-height:52vh; border-radius:14px 14px 0 0; }
+/* 低い窓：動画とボタンを固定すると下が見えないので、全体をスクロール */
+@media (max-height: 640px) { html:not(.wide) .left { position:static; } }
 </style>
 </head>
 <body>
@@ -238,7 +268,7 @@ header h1 .session:hover { border-color:var(--line); }
       <h1 id="date"></h1>
       <div style="display:flex; align-items:center; gap:4px">
         <div class="total" id="total"></div>
-        <a class="info drivelink" id="drivelink" target="_blank" rel="noopener noreferrer" aria-label="ドライブで開く" title="ドライブで開く" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg></a>
+        <button class="info drivelink" id="drivelink" aria-label="ドライブで開く" title="ドライブで開く" aria-haspopup="dialog" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg></button>
         <button class="info" id="infobtn" aria-label="くわしいデータ">ⓘ</button>
       </div>
     </header>
@@ -247,6 +277,17 @@ header h1 .session:hover { border-color:var(--line); }
       <canvas class="mask" id="mask"></canvas>
       <div class="empty" id="empty" hidden>動画なし</div>
       <div class="boot" id="boot" hidden></div>
+      <div class="fsbar" id="fsbar">
+        <div class="fsseek" id="fsseek"><div class="fsplayed" id="fsplayed"></div></div>
+        <div class="fsrow">
+          <button id="fsplay" aria-label="再生">▶</button>
+          <button id="fsprev" aria-label="前の点">⏮</button>
+          <button id="fsnext" aria-label="次の点">⏭</button>
+          <span id="fstime"></span>
+          <span style="flex:1"></span>
+          <button id="fsexit" aria-label="全画面をやめる"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/></svg></button>
+        </div>
+      </div>
       <button class="bigplay" id="bigplay" aria-label="動画を読み込んで再生" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
       <div class="now" id="now"></div>
       <div class="cap" id="cap" hidden></div>
@@ -272,6 +313,7 @@ header h1 .session:hover { border-color:var(--line); }
         <button id="score" aria-label="動画の上の点数"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg><span class="lbl">点数</span></button>
         <button id="caps" aria-label="字幕" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M15 15h2M7 11h2M13 11h4"/></svg><span class="lbl">字幕</span></button>
         <button id="voice" aria-label="胸元マイクの音" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg><span class="lbl">音声</span></button>
+        <button id="fullscreen" aria-label="全画面"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span class="lbl">全画面</span></button>
         <button id="face" class="menu" aria-label="顔の隠し方の設定" aria-haspopup="dialog" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg><span class="lbl">顔</span><svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
       </div>
       <div class="grp sepgrp">
@@ -286,6 +328,10 @@ header h1 .session:hover { border-color:var(--line); }
   </section>
 </div>
 <div id="infopop" hidden></div>
+<div id="drivepop" hidden>
+  <p>Google ドライブのフォルダを、新しいタブで開きます。</p>
+  <div class="row"><a id="drivego" class="go" target="_blank" rel="noopener noreferrer">開く</a><button id="drivecancel">やめる</button></div>
+</div>
 <div id="clippop" hidden>
   <button class="popx" id="clipx" aria-label="閉じる">✕</button>
   <div class="msg" id="clipmsg"></div>
@@ -374,8 +420,16 @@ function driveFileUrl(path) {
   return id && DRIVE_ID.test(id) ? `https://drive.google.com/file/d/${encodeURIComponent(id)}/view` : null;
 }
 {
-  const a = document.getElementById('drivelink'), url = driveFolderUrl();
-  if (url) { a.href = url; a.hidden = false; }
+  const b = document.getElementById('drivelink'), url = driveFolderUrl();
+  const pop = document.getElementById('drivepop');
+  if (url) {
+    document.getElementById('drivego').href = url;
+    b.hidden = false;
+    b.onclick = e => { e.stopPropagation(); pop.hidden = !pop.hidden; };
+    document.getElementById('drivego').onclick = () => { pop.hidden = true; };
+    document.getElementById('drivecancel').onclick = () => { pop.hidden = true; };
+    document.addEventListener('click', e => { if (!pop.hidden && !pop.contains(e.target) && e.target !== b) pop.hidden = true; });
+  }
 }
 function showLoading(text) {
   boot.innerHTML = `<div class="spin"></div><p>${text}</p>`;
@@ -987,8 +1041,51 @@ stage.addEventListener('pointerup', e => {
   if (drag && !drag.moved && !wasPinch && v.src) { v.paused ? v.play() : v.pause(); }
   drag = null;
 });
-stage.addEventListener('dblclick', () => { document.fullscreenElement ? document.exitFullscreen() : stage.requestFullscreen?.(); });
-document.addEventListener('fullscreenchange', () => setTimeout(applyView, 50));
+// 全画面：動画の場所を画面いっぱいに。使えるブラウザでは、ブラウザ自体も全画面にしてアドレスバーを消す
+const fsbar = document.getElementById('fsbar');
+function setFull(on) {
+  document.documentElement.classList.toggle('fs', on);
+  if (on) document.documentElement.requestFullscreen?.().catch(() => {});
+  else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  showFsBar();
+  setTimeout(applyView, 60);
+}
+const isFull = () => document.documentElement.classList.contains('fs');
+document.getElementById('fullscreen').onclick = () => setFull(true);
+document.getElementById('fsexit').onclick = e => { e.stopPropagation(); setFull(false); };
+stage.addEventListener('dblclick', () => setFull(!isFull()));
+// Esc や戻る操作でブラウザの全画面が解けたら、こちらも戻す
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && isFull()) setFull(false); setTimeout(applyView, 60); });
+addEventListener('resize', () => { if (isFull()) applyView(); });
+// 操作パネル：触ると出て、再生中は少しすると消える
+let fsTimer = null;
+function showFsBar() {
+  updateFsBar();
+  fsbar.classList.remove('hide');
+  clearTimeout(fsTimer);
+  if (!v.paused) fsTimer = setTimeout(() => fsbar.classList.add('hide'), 3000);
+}
+stage.addEventListener('pointermove', () => { if (isFull()) showFsBar(); });
+stage.addEventListener('pointerdown', () => { if (isFull()) showFsBar(); });
+v.addEventListener('play', showFsBar);
+v.addEventListener('pause', showFsBar);
+['pointerdown', 'pointerup', 'click', 'dblclick'].forEach(ev => fsbar.addEventListener(ev, e => e.stopPropagation()));
+document.getElementById('fsplay').onclick = () => { v.paused ? v.play() : v.pause(); };
+document.getElementById('fsprev').onclick = () => step(-1);
+document.getElementById('fsnext').onclick = () => step(1);
+const fsseek = document.getElementById('fsseek');
+fsseek.onclick = e => {
+  const r = fsseek.getBoundingClientRect();
+  if (v.duration) v.currentTime = Math.min(Math.max(0, (e.clientX - r.left) / r.width), 1) * v.duration;
+};
+function updateFsBar() {
+  const d = v.duration || 0, t = v.currentTime || 0;
+  document.getElementById('fsplayed').style.width = d ? `${t / d * 100}%` : '0';
+  document.getElementById('fstime').textContent = `${fmt(t)} / ${fmt(d)}`;
+  document.getElementById('fsplay').textContent = v.paused ? '▶' : '❚❚';
+}
+['timeupdate', 'play', 'pause', 'seeked', 'loadedmetadata'].forEach(ev => v.addEventListener(ev, updateFsBar));
+updateFsBar();
 
 // ---------- 顔を隠す ----------
 // 頭の位置は data/faces-gameNN.js（0.1秒ごと、続いている頭ごとに番号）。間は同じ番号どうしをなめらかにつなぐ
@@ -1286,7 +1383,7 @@ document.getElementById('face').onclick = () => {
 document.getElementById('faceclose').onclick = () => { facepop.hidden = true; };
 // スマホでは下からの板。上の動画とボタンにかぶらない高さにする
 function fitSheet(pop) {
-  if (matchMedia('(min-width: 960px) and (min-height: 560px)').matches) { pop.style.maxHeight = ''; return; }
+  if (document.documentElement.classList.contains('wide')) { pop.style.maxHeight = ''; return; }
   const bottom = document.querySelector('.controls').getBoundingClientRect().bottom;
   pop.style.maxHeight = `${Math.max(200, innerHeight - bottom - 6)}px`;
 }
