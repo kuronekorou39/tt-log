@@ -202,6 +202,7 @@ header h1 .session:hover { border-color:var(--line); }
 #clippop .seg button { position:relative; z-index:1; border:0; background:none; color:var(--muted); min-height:36px;
   padding:4px 16px; font-size:.95rem; white-space:nowrap; }
 #clippop .seg button.on { color:var(--fg); font-weight:700; background:none; }
+#clippop #clipdl { color:var(--muted); font-size:.85rem; font-variant-numeric:tabular-nums; white-space:nowrap; }
 #clippop #clipgo { min-height:40px; }
 #facepop { position:fixed; right:14px; bottom:14px; width:min(340px, calc(100vw - 24px)); max-height:calc(100vh - 80px);
   overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px;
@@ -372,6 +373,7 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
   <button class="popx" id="clipx" aria-label="閉じる">✕</button>
   <div class="pick" id="clippick" hidden>
     <div class="pickrow"><span id="clipseg"></span><span id="clipsize"></span></div>
+    <div id="clipdl" hidden></div>
     <button id="clipbar">シークバー</button>
     <button class="go" id="clipgo">保存</button>
   </div>
@@ -615,6 +617,12 @@ catch (e) {
 }
 boot.hidden = true;
 const DATA = PAGE.data;
+// ドライブに小さい版があれば、見るのはそちら。g.full は元の動画
+for (const g of DATA.games) {
+  g.full = g.video;
+  const small = g.video?.replace('videos/', 'videos-small/');
+  if (DRIVE && small && DRIVE.ids[DRIVE.base + small]) g.video = small;
+}
 document.title = PAGE.title;
 document.getElementById('date').textContent = PAGE.date;
 // ドライブに回がいくつもあれば、日付から切り替えられるように
@@ -1010,7 +1018,9 @@ if (DRIVE && store.get('dataNote') !== '0') {
 if (DRIVE) {
   openCache().then(async cache => {
     if (!cache) return;
-    for (const g of DATA.games) if (g.video && await cache.match(cacheKey(g.video)).catch(() => null)) have.add(g.video);
+    for (const g of DATA.games) for (const p of new Set([g.video, g.full])) {
+      if (p && await cache.match(cacheKey(p)).catch(() => null)) have.add(p);
+    }
     DATA.games.forEach(g => g.video && paintGame(g.video));
     if (pending && have.has(pending) && v.paused) activate(false).catch(() => {});
   });
@@ -1877,7 +1887,7 @@ async function runFastSave(g, url, tier, onInput) {
   } catch (e) { console.warn('速い保存を使えません', e); mediabunny = null; return false; }
   // 動画をもう1本コピーすると、空きの少ない端末で失敗する。手元の中身か URL から必要な分だけ読む
   const known = blobOf[url];
-  const bytes = known ? known.size : await sourceBytes(g);
+  const bytes = (await sourceBytes(g)) || known?.size || 0;
   const input = new M.Input({ source: known ? new M.BlobSource(known) : new M.UrlSource(url), formats: M.ALL_FORMATS });
   onInput(input);
   const track = await input.getPrimaryVideoTrack().catch(() => null);
@@ -2015,10 +2025,12 @@ function pickMime() {
   return types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
 }
 const clippick = document.getElementById('clippick');
+// 小で拡大なしなら見ている動画から。それ以外は元の動画から作る
+const saveSource = (g, tier) => tier.key === 'low' && view.zoom <= 1 ? g.video : g.full;
 // 保存される大きさの目安（元のファイルの大きさから）
 async function sourceBytes(g) {
-  if (DRIVE) return sizeOf(g.video);
-  try { return +(await fetch(media(g.video), { method: 'HEAD' })).headers.get('content-length') || 0; } catch { return 0; }
+  if (DRIVE) return sizeOf(g.full);
+  try { return +(await fetch(media(g.full), { method: 'HEAD' })).headers.get('content-length') || 0; } catch { return 0; }
 }
 document.getElementById('save').onclick = async () => {
   if (recording) { clippop.hidden = false; fitSheet(clippop); return; }
@@ -2030,7 +2042,12 @@ document.getElementById('save').onclick = async () => {
   const size = document.getElementById('clipsize');
   const bytes = await sourceBytes(g);
   const showSize = () => {
-    const tier = SAVE_TIERS[saveTier], W = v.videoWidth || 1920, H = v.videoHeight || 1080;
+    const tier = SAVE_TIERS[saveTier];
+    // 小さい版を見ているときも、大きさは元の動画で見積もる
+    const W = g.full === g.video && v.videoWidth || 1920, H = g.full === g.video && v.videoHeight || 1080;
+    const path = saveSource(g, tier), dl = document.getElementById('clipdl');
+    dl.hidden = !DRIVE || path === g.video || have.has(path) || !!blobUrls[path];
+    if (!dl.hidden) dl.textContent = `元動画を読み込み ${mb(sizeOf(path))}`;
     const { share } = outputOf(tier, W, H, even(W / view.zoom), even(H / view.zoom));
     const len = lengthOf(keptRanges(g));
     const wait = `作成に${fmtWait(paceOf(tier.key) * len)}`;
@@ -2050,8 +2067,25 @@ document.getElementById('save').onclick = async () => {
 async function startSave(g, tier) {
   const mime = pickMime();
   if (!mime) { clipmsg.textContent = 'このブラウザでは保存できません'; return; }
-  let url = picked[g.n] || (DRIVE ? await mediaBlob(g.video, { urgent: true, onProgress: f =>
-    { if (f !== null) clipmsg.textContent = `動画を読み込み中… ${Math.floor(f * 100)}%`; } }) : media(g.video));
+  const path = saveSource(g, tier), stopLoad = document.getElementById('clipstop');
+  let url = picked[g.n];
+  if (!url && !DRIVE) url = media(g.full);
+  if (!url) {
+    const label = path === g.full && path !== g.video ? '元動画' : '動画';
+    recording = { stop: () => cancelMedia(path) };
+    stopLoad.textContent = 'やめる'; stopLoad.hidden = false;
+    try {
+      url = await mediaBlob(path, { urgent: true, onProgress: f =>
+        { if (f !== null) clipmsg.textContent = `${label}を読み込み中… ${Math.floor(f * 100)}%`; } });
+    } catch (e) {
+      if (e.name === 'AbortError') { clipmsg.textContent = ''; clippop.hidden = true; }
+      else clipmsg.textContent = e.message || '読み込めませんでした';
+      return;
+    } finally {
+      recording = null;
+      stopLoad.hidden = true; stopLoad.textContent = '止めて保存';
+    }
+  }
   v.pause();
   // 速い保存（再生せずに1コマずつ作り直す）。使えないブラウザでは、再生しながら録る
   if (await fastSave(g, url, tier)) return;

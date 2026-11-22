@@ -146,6 +146,25 @@ def join_videos(camera: Path, index: dict, game_index: int, out: Path, make: boo
     return parts
 
 
+# 見る用の小さい動画（720p・30コマ）。元の動画と時刻をそろえ、音はそのまま
+SMALL_DIR = "videos-small"
+H264_SMALL = ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-b:v", "2.8M", "-maxrate", "4M",
+              "-bufsize", "8M", "-g", "30", "-profile:v", "high", "-pix_fmt", "yuv420p"]
+
+
+def make_small(src: Path, out: Path):
+    if out.exists() and out.stat().st_mtime >= src.stat().st_mtime:
+        return
+    out.parent.mkdir(parents=True, exist_ok=True)
+    work = out.with_name(out.stem + ".tmp.mp4")
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-i", str(src), "-map", "0:v:0", "-map", "0:a:0?",
+         "-vf", "scale=-2:720,fps=30", *H264_SMALL, "-c:a", "copy", "-movflags", "+faststart", str(work)],
+        check=True,
+    )
+    work.replace(out)
+
+
 def video_time(parts: list[dict], at: dt.datetime, shift: list[float] | None = None) -> float | None:
     """その時刻が、つないだ動画の何秒目か。録画の切れ目に落ちたら次の部分の頭。
 
@@ -199,6 +218,7 @@ def main():
     ap.add_argument("--camera", required=True, type=Path, help="iPhone の Sessions/<フォルダ>")
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--no-video", action="store_true", help="動画を新しく作らない（まとめだけ作り直す）")
+    ap.add_argument("--small", action="store_true", help="見る用の小さい動画を作る（--no-video でも作る）")
     ap.add_argument("--no-rally", action="store_true", help="動画の音からラリーを探さない")
     ap.add_argument("--camera-same-side", action="store_true",
                     help="カメラがスコアボードと同じ向きから撮っている（動画の左にいる人＝スコアボードの左の人）")
@@ -224,6 +244,8 @@ def main():
         parts = join_videos(args.camera, index, g["index"], out / "videos" / name, make=not args.no_video)
         g["video"] = f"videos/{name}" if parts or (out / "videos" / name).exists() else None
         g["parts"] = len(parts)
+        if g["video"] and (args.small or not args.no_video) and (out / g["video"]).exists():
+            make_small(out / g["video"], out / SMALL_DIR / name)
         g["duration"] = parts[-1]["offset"] + parts[-1]["duration"] if parts else None
         g["voice"], g["captions"], shift = None, [], None
         if voice_log and g["video"] and (out / g["video"]).exists():
