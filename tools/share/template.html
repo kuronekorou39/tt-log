@@ -372,6 +372,7 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
   <button class="popx" id="clipx" aria-label="閉じる">✕</button>
   <div class="pick" id="clippick" hidden>
     <div class="pickrow"><span id="clipseg"></span><span id="clipsize"></span></div>
+    <button id="clipbar">シークバー</button>
     <button class="go" id="clipgo">保存</button>
   </div>
   <div class="msg" id="clipmsg"></div>
@@ -1753,17 +1754,119 @@ function outputOf(tier, W, H, cw, ch) {
   const full = tier.h ? Math.min(H, tier.h) ** 2 * (W / H) : W * H;
   return { ow, oh, share: tier.share * Math.min(1, ow * oh / full) };
 }
-const saveRange = g => {
-  const ranged = g.points.filter(p => p.r);
-  return ranged.length ? [ranged[0].r[0], ranged[ranged.length - 1].r[1]] : [0, g.dur || 0];
-};
+// 保存する区間：「試合だけ」がオンならラリーだけ、オフなら全部
+const keptRanges = (g, dur = g.dur || 0) => rallyOnly && g.spans?.length ? g.spans : [[0, dur]];
+const lengthOf = ranges => ranges.reduce((sum, [a, b]) => sum + b - a, 0);
+let saveBar = store.get('saveBar') !== '0';
+// 上の点数・字幕・下のシークバーを映像に描く。t は元の動画の時刻
+function saveOverlay(g, W, H, ranges) {
+  const FONT = 'system-ui, sans-serif', COLORS = ['#f07484', '#5db6d9'], SCORE = ['#ff9aa6', '#8fd3ef'];
+  const total = lengthOf(ranges) || 1;
+  const toOut = t => {
+    let sum = 0;
+    for (const [a, b] of ranges) { if (t < b) return sum + Math.max(0, t - a); sum += b - a; }
+    return sum;
+  };
+  const barH = saveBar ? Math.round(H * 0.1) : 0, pad = Math.round(H * 0.025);
+  const trackY = H - barH / 2, trackH = Math.max(3, Math.round(H * 0.012));
+  const xOf = t => pad + toOut(t) / total * (W - pad * 2);
+  let bar = null;
+  if (saveBar) {
+    bar = new OffscreenCanvas(W, barH);
+    const c = bar.getContext('2d'), y = barH / 2, px = Math.round(barH * 0.3);
+    c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(0, 0, W, barH);
+    c.fillStyle = 'rgba(255,255,255,.25)'; c.fillRect(pad, y - trackH / 2, W - pad * 2, trackH);
+    const ranged = g.points.filter(p => p.r);
+    ranged.forEach((p, k) => {
+      const e = k + 1 < ranged.length ? Math.min(p.r[1], ranged[k + 1].r[0]) : p.r[1];
+      c.fillStyle = COLORS[p.w];
+      c.fillRect(xOf(p.r[0]), y - trackH / 2, Math.max(1, xOf(e) - xOf(p.r[0])), trackH);
+    });
+    c.font = `700 ${px}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    const last = [-1e9, -1e9];
+    g.points.filter(p => p.vt !== null).forEach(p => {
+      const x = xOf(p.vt), label = `${p.s[0]}-${p.s[1]}`, w = c.measureText(label).width + px * 0.4;
+      c.fillStyle = COLORS[p.w];
+      c.fillRect(x - 1, y - trackH, 2, trackH * 2);
+      if (x - last[p.w] < w) return;
+      last[p.w] = x;
+      c.fillText(label, Math.min(Math.max(x, w / 2), W - w / 2), p.w === 0 ? y - barH * 0.3 : y + barH * 0.3);
+    });
+  }
+  const pill = (c, x, y, w, h) => {
+    c.fillStyle = 'rgba(0,0,0,.62)';
+    c.beginPath(); c.roundRect(x, y, w, h, h * 0.2); c.fill();
+  };
+  const drawScore = (c, t) => {
+    let p = null;
+    for (const q of g.points) if (q.vt !== null && q.vt <= t + 0.3) p = q;
+    const l = g.vl, sc = p ? p.s : [0, 0], px = Math.round(H * 0.042);
+    const parts = [[DATA.names[l], SCORE[l]], [` ${sc[l]} - ${sc[1 - l]} `, '#fff'], [DATA.names[1 - l], SCORE[1 - l]]];
+    c.font = `800 ${px}px ${FONT}`; c.textAlign = 'left'; c.textBaseline = 'middle';
+    const width = parts.reduce((sum, [text]) => sum + c.measureText(text).width, 0);
+    const h = px * 1.5, top = Math.round(H * 0.02);
+    let x = (W - width) / 2;
+    pill(c, x - px * 0.6, top, width + px * 1.2, h);
+    for (const [text, color] of parts) { c.fillStyle = color; c.fillText(text, x, top + h / 2); x += c.measureText(text).width; }
+  };
+  const drawCaption = (c, t) => {
+    const hit = (g.captions || []).find(([a, b]) => a <= t && t < b);
+    if (!hit) return;
+    const px = Math.round(H * 0.045), max = W * 0.86;
+    c.font = `700 ${px}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    const lines = [''];
+    for (const ch of hit[2]) {
+      if (c.measureText(lines[lines.length - 1] + ch).width > max) lines.push('');
+      lines[lines.length - 1] += ch;
+    }
+    const lh = px * 1.35, h = lh * lines.length + px * 0.4, top = H - barH - H * 0.03 - h;
+    const width = Math.max(...lines.map(x => c.measureText(x).width));
+    pill(c, (W - width) / 2 - px * 0.6, top, width + px * 1.2, h);
+    c.fillStyle = '#fff';
+    lines.forEach((x, k) => c.fillText(x, W / 2, top + px * 0.2 + lh * (k + 0.5)));
+  };
+  return (c, t) => {
+    if (bar) {
+      c.drawImage(bar, 0, H - barH);
+      const x = xOf(t);
+      c.fillStyle = '#fff'; c.fillRect(x - 1.5, trackY - trackH * 1.6, 3, trackH * 3.2);
+    }
+    if (scoreOn) drawScore(c, t);
+    if (capsOn) drawCaption(c, t);
+  };
+}
+// 音を少しずつ読み、1本（モノラル）にして dest に足す。途中で切れる区間の分は次回に持ち越す
+async function mixAudio(st, dest, from, rate) {
+  const to = from + dest.length / rate;
+  for (;;) {
+    if (!st.cur) {
+      const r = await st.it.next();
+      if (r.done) return;
+      const x = r.value, n = x.numberOfFrames, data = new Float32Array(n), plane = new Float32Array(n);
+      for (let ch = 0; ch < x.numberOfChannels; ch++) {
+        x.copyTo(plane, { planeIndex: ch, format: 'f32-planar' });
+        for (let i = 0; i < n; i++) data[i] += plane[i] / x.numberOfChannels;
+      }
+      st.cur = { t: x.timestamp, data, rate: x.sampleRate };
+      x.close();
+    }
+    const c = st.cur, end = c.t + c.data.length / c.rate;
+    const i0 = Math.max(0, Math.ceil((c.t - from) * rate)), i1 = Math.min(dest.length, Math.ceil((end - from) * rate));
+    for (let i = i0; i < i1; i++) {
+      const p = (from + i / rate - c.t) * c.rate, j = Math.floor(p), f = p - j;
+      dest[i] += (c.data[j] ?? 0) * (1 - f) + (c.data[j + 1] ?? c.data[j] ?? 0) * f;
+    }
+    if (end > to) return;
+    st.cur = null;
+  }
+}
 const MEDIABUNNY = 'https://cdn.jsdelivr.net/npm/mediabunny@1.63.0/dist/bundles/mediabunny.min.mjs';
 let mediabunny = null;
 async function fastSave(g, url, tier) {
   // 読み終わったら通信を閉じる（開いたままだと、次の動画の読み込みが詰まる）
-  let opened = null;
-  try { return await runFastSave(g, url, tier, i => { opened = i; }); }
-  finally { opened?.dispose(); }
+  const opened = [];
+  try { return await runFastSave(g, url, tier, i => opened.push(i)); }
+  finally { opened.forEach(i => i.dispose()); }
 }
 async function runFastSave(g, url, tier, onInput) {
   if (!canFastSave()) return false;
@@ -1788,54 +1891,107 @@ async function runFastSave(g, url, tier, onInput) {
   const { ow, oh, share } = outputOf(tier, W, H, cw, ch);
   if (!(await M.canEncodeVideo('avc', { width: ow, height: oh }).catch(() => false))) return false;
   const full = new OffscreenCanvas(W, H), fctx = full.getContext('2d');
-  const out = new OffscreenCanvas(ow, oh), octx = out.getContext('2d');
   const asIs = ow === W && oh === H;  // 切り取りも縮小もなければ、1回ぶん描かずに済む
-  // 最初の点のサーブ前から、最後の点を入れたところまで
-  const ranged = g.points.filter(p => p.r);
-  const a = ranged.length ? ranged[0].r[0] : 0;
+  const out = asIs ? full : new OffscreenCanvas(ow, oh), octx = asIs ? fctx : out.getContext('2d');
   const duration = await input.computeDuration();
-  const b = ranged.length ? ranged[ranged.length - 1].r[1] : duration;
+  const ranges = keptRanges(g, duration).map(([x, y]) => [Math.max(0, x), Math.min(duration, y)]).filter(([x, y]) => y > x);
+  const total = lengthOf(ranges);
+  if (!total) return false;
+  const overlay = saveOverlay(g, ow, oh, ranges);
   // コマ数を伝えないと圧縮器が 30 コマと見なして大きくなる。一定のビットレートで、端末によらず狙った大きさに
   const srcFps = Math.round((await track.computePacketStats(120)).averagePacketRate) || 60;
   const frameRate = Math.min(tier.fps || srcFps, srcFps);
   const bitrate = Math.round((bytes ? bytes * 8 / duration : FALLBACK_BITRATE) * share);
+  // 音：カメラの音に胸元マイクを重ねて、作り直す
+  const RATE = 48000, AUDIO_BITRATE = 128e3;
+  const camTrack = await input.getPrimaryAudioTrack().catch(() => null);
+  let micTrack = null, micLost = false;
+  if (voiceOn && g.voice) {
+    try {
+      const micUrl = DRIVE ? await mediaBlob(g.voice, { urgent: true }) : media(g.voice);
+      const known2 = blobOf[micUrl];
+      const micInput = new M.Input({ source: known2 ? new M.BlobSource(known2) : new M.UrlSource(micUrl), formats: M.ALL_FORMATS });
+      onInput(micInput);
+      micTrack = await micInput.getPrimaryAudioTrack();
+    } catch (e) { console.warn('胸元マイクを読めません', e); micLost = true; }
+  }
+  const hasAudio = !!(camTrack || micTrack);
+  const audioCodec = hasAudio
+    ? await M.getFirstEncodableAudioCodec(['aac', 'opus'], { numberOfChannels: 1, sampleRate: RATE, bitrate: AUDIO_BITRATE }).catch(() => null)
+    : null;
+  if (hasAudio && !audioCodec) return false;
   const output = new M.Output({ format: new M.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new M.BufferTarget() });
-  let conv;
-  try {
-    conv = await M.Conversion.init({
-      input, output, trim: { start: a, end: b }, showWarnings: false,
-      video: {
-        codec: 'avc', quality: new M.Quality({ bitrate, bitrateMode: 'constant' }), frameRate,
-        forceTranscode: true, processedWidth: ow, processedHeight: oh,
-        process: sample => {
-          // 出てくる時刻は切り出しの始めが 0。顔の位置は元の動画の時刻で引く
-          const at = sample.timestamp + a;
-          const frame = sample.toCanvasImageSource();
-          fctx.drawImage(frame, 0, 0, W, H);
-          drawMasks(fctx, frame, W, H, W, H, g, headsAt(g.n, at), at, false, false);
-          if (asIs) return full;
-          octx.drawImage(full, sx, sy, cw, ch, 0, 0, ow, oh);
-          return out;
-        },
-      },
-    });
-  } catch (e) { console.warn('速い保存を使えません', e); return false; }
-  if (!conv.isValid) return false;
+  const videoOut = new M.CanvasSource(out, { codec: 'avc', quality: new M.Quality({ bitrate, bitrateMode: 'constant' }) });
+  output.addVideoTrack(videoOut, { frameRate });
+  const audioOut = hasAudio ? new M.AudioSampleSource({ codec: audioCodec, bitrate: AUDIO_BITRATE }) : null;
+  if (audioOut) output.addAudioTrack(audioOut);
   const stopBtn = document.getElementById('clipstop');
   const started = performance.now();
   const elapsed = () => (performance.now() - started) / 1000;
-  conv.onProgress = p => {
+  const showProgress = p => {
     // 出だしは速さが安定しないので、少し進んでから残り時間を出す
     const left = p > 0.03 && elapsed() > 3 ? `　残り${fmtWait(elapsed() / p * (1 - p))}` : '';
     clipmsg.textContent = `第${g.n}ゲーム（画質：${tier.label}）を保存中 ${Math.floor(p * 100)}%　経過${fmt(elapsed())}${left}`;
   };
-  recording = { stop: () => conv.cancel() };
+  let stopped = false;
+  const checkStop = () => { if (stopped) throw new DOMException('stop', 'AbortError'); };
+  const writeVideo = async () => {
+    const sink = new M.VideoSampleSink(track), step = 1 / frameRate;
+    let offset = 0, next = 0;
+    for (const [x, y] of ranges) {
+      for await (const sample of sink.samples(x, y)) {
+        try {
+          checkStop();
+          const at = sample.timestamp, when = Math.max(offset, offset + at - x);
+          // コマを減らすときは、間のコマを飛ばす
+          if (when < next - step / 4) continue;
+          const frame = sample.toCanvasImageSource();
+          fctx.drawImage(frame, 0, 0, W, H);
+          drawMasks(fctx, frame, W, H, W, H, g, headsAt(g.n, at), at, false, false);
+          if (!asIs) octx.drawImage(full, sx, sy, cw, ch, 0, 0, ow, oh);
+          overlay(octx, at);
+          await videoOut.add(when, step);
+          next = Math.max(next + step, when + step / 2);
+          showProgress(Math.min(0.999, (when + step) / total));
+        } finally { sample.close(); }
+      }
+      offset += y - x;
+    }
+  };
+  const writeAudio = async () => {
+    const FADE = Math.round(RATE * 0.01);  // つなぎ目のプツッを防ぐ
+    let written = 0;
+    for (const [x, y] of ranges) {
+      const open = tr => tr ? { it: new M.AudioSampleSink(tr).samples(x, y)[Symbol.asyncIterator](), cur: null } : null;
+      const sources = [open(camTrack), open(micTrack)].filter(Boolean);
+      const frames = Math.round((y - x) * RATE);
+      for (let pos = 0; pos < frames; pos += RATE) {
+        checkStop();
+        const n = Math.min(RATE, frames - pos), block = new Float32Array(n);
+        for (const src of sources) await mixAudio(src, block, x + pos / RATE, RATE);
+        for (let i = 0; i < n; i++) {
+          const edge = Math.min(pos + i, frames - 1 - pos - i);
+          block[i] = Math.min(1, Math.max(-1, block[i])) * (edge < FADE ? edge / FADE : 1);
+        }
+        const piece = new M.AudioSample({ data: block, format: 'f32', numberOfChannels: 1, sampleRate: RATE, timestamp: written / RATE });
+        await audioOut.add(piece);
+        piece.close();
+        written += n;
+      }
+      for (const src of sources) await src.it.return?.();
+    }
+  };
+  recording = { stop: () => { stopped = true; output.cancel().catch(() => {}); } };
   stopBtn.textContent = 'やめる'; stopBtn.hidden = false;
   document.getElementById('save').classList.add('on');
-  try { await conv.execute(); }
-  catch (e) {
-    if (e instanceof M.ConversionCanceledError) { clipmsg.textContent = ''; clippop.hidden = true; return true; }
+  try {
+    await output.start();
+    await Promise.all([writeVideo(), audioOut ? writeAudio() : null]);
+    await output.finalize();
+  } catch (e) {
+    if (stopped) { clipmsg.textContent = ''; clippop.hidden = true; return true; }
     console.warn('速い保存に失敗', e);
+    output.cancel().catch(() => {});
     clipmsg.textContent = '保存できませんでした';
     return true;
   } finally {
@@ -1843,13 +1999,14 @@ async function runFastSave(g, url, tier, onInput) {
     stopBtn.hidden = true; stopBtn.textContent = '止めて保存';
     document.getElementById('save').classList.remove('on');
   }
-  try { store.set('savePace', JSON.stringify({ ...learnedPace(), [tier.key]: +(elapsed() / (b - a)).toFixed(3) })); } catch {}
+  try { store.set('savePace', JSON.stringify({ ...learnedPace(), [tier.key]: +(elapsed() / total).toFixed(3) })); } catch {}
   const link = document.createElement('a');
   link.href = URL.createObjectURL(new Blob([output.target.buffer], { type: 'video/mp4' }));
   link.download = `${document.title.split(' ')[0]}-第${g.n}ゲーム.mp4`;
   link.textContent = link.download;
   clipmsg.innerHTML = '';
   clipmsg.append(link);
+  if (micLost) clipmsg.append('（マイクなし）');
   link.click();
   return true;
 }
@@ -1875,14 +2032,17 @@ document.getElementById('save').onclick = async () => {
   const showSize = () => {
     const tier = SAVE_TIERS[saveTier], W = v.videoWidth || 1920, H = v.videoHeight || 1080;
     const { share } = outputOf(tier, W, H, even(W / view.zoom), even(H / view.zoom));
-    const [a, b] = saveRange(g);
-    const wait = `作成に${fmtWait(paceOf(tier.key) * (b - a))}`;
-    size.textContent = bytes && g.dur ? `約${mb(bytes * share * (b - a) / g.dur)}・${wait}` : wait;
+    const len = lengthOf(keptRanges(g));
+    const wait = `作成に${fmtWait(paceOf(tier.key) * len)}`;
+    size.textContent = bytes && g.dur ? `約${mb(bytes * share * len / g.dur)}・${wait}` : wait;
   };
   const host = document.getElementById('clipseg');
   host.replaceChildren(segmented(Object.entries(SAVE_TIERS).map(([k, x]) => [k, x.label]), () => saveTier,
     k => { saveTier = k; store.set('saveTier', k); showSize(); }));
   showSize();
+  const barBtn = document.getElementById('clipbar');
+  barBtn.classList.toggle('on', saveBar);
+  barBtn.onclick = () => { saveBar = !saveBar; store.set('saveBar', saveBar ? '1' : '0'); barBtn.classList.toggle('on', saveBar); };
   document.getElementById('clipgo').onclick = () => { clippick.hidden = true; startSave(g, SAVE_TIERS[saveTier]); };
   clippick.hidden = false;
   clippop.hidden = false; fitSheet(clippop);
@@ -1933,12 +2093,14 @@ async function startSave(g, tier) {
   src.currentTime = a;
   await new Promise(r => src.addEventListener('seeked', r, { once: true }));
   let done = false;
+  const overlay = saveOverlay(g, OW, OH, [[a, b]]);
   const recStart = performance.now();
   const draw = () => {
     if (done) return;
     fctx.drawImage(src, 0, 0, W, H);
     drawMasks(fctx, src, W, H, W, H, g, headsAt(g.n, src.currentTime), src.currentTime, false, false);
     ctx.drawImage(full, ...cropOf(), 0, 0, OW, OH);
+    overlay(ctx, src.currentTime);
     clipmsg.textContent = `第${g.n}ゲーム（画質：${tier.label}）を保存中 ${fmt(src.currentTime - a)} / ${fmt(b - a)}　経過${fmt((performance.now() - recStart) / 1000)}`;
     if (src.currentTime >= b || src.ended) { rec.stop(); return; }
     if (src.requestVideoFrameCallback) src.requestVideoFrameCallback(draw); else requestAnimationFrame(draw);
