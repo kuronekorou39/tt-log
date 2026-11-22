@@ -2520,6 +2520,8 @@ function takeSnapshot(g, tier) {
 const snapRanges = (snap, dur) => (snap.ranges || [[0, dur]])
   .map(([a, b]) => [Math.max(0, a), Math.min(dur, b)]).filter(([a, b]) => b > a);
 const endSave = snap => { if (activeSave === snap) activeSave = null; };
+// 保存中に閉じたり更新したりすると作りかけが消えるので、ブラウザの確認を出す
+addEventListener('beforeunload', e => { if (activeSave) { e.preventDefault(); e.returnValue = ''; } });
 async function startSave(g, tier) {
   if (activeSave) return;
   const snap = activeSave = takeSnapshot(g, tier);
