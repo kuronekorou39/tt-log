@@ -138,6 +138,17 @@ html.ov.idle .stage .rotreset { opacity:0; pointer-events:none; }
 :root { --star:#e0a100; }
 .seek .starband { position:absolute; top:22px; height:24px; box-sizing:border-box; border:2px solid var(--star); border-radius:4px;
   background:color-mix(in srgb, var(--star) 28%, transparent); pointer-events:none; z-index:1; }
+.seek .starband.edit { border-width:3px; background:color-mix(in srgb, var(--star) 48%, transparent); }
+.stage .trim { position:absolute; left:50%; bottom:8px; transform:translateX(-50%); z-index:7; display:grid;
+  grid-template-columns:repeat(4, auto) auto; gap:4px 6px; align-items:center; padding:6px 8px; border-radius:10px;
+  background:rgba(0,0,0,.76); color:#fff; font-size:.78rem; white-space:nowrap; }
+.stage .trim[hidden] { display:none; }
+.stage .trim b { min-width:3.6em; text-align:right; font-variant-numeric:tabular-nums; }
+.stage .trim button { min-width:40px; min-height:30px; padding:2px 6px; border:1px solid rgba(255,255,255,.35); border-radius:6px;
+  background:none; color:#fff; font-size:.78rem; cursor:pointer; font-variant-numeric:tabular-nums; }
+.stage .trim .side { grid-column:5; grid-row:1 / 3; display:grid; gap:4px; }
+.stage .trim #trimx { border-color:transparent; }
+.stage .trim #trimreset:disabled { opacity:.35; cursor:default; }
 .controls #mark { font-size:1.25rem; color:var(--muted); }
 .controls #mark.on { color:var(--star); }
 /* スクロールバー：細く、目立たない色に */
@@ -342,6 +353,11 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
       <div class="now" id="now"></div>
       <div class="cap" id="cap" hidden></div>
       <div class="zoomtag" id="zoomtag"></div>
+      <div class="trim" id="trim" hidden>
+        <span>始まり</span><button data-end="0" data-d="-0.5">−0.5</button><button data-end="0" data-d="0.5">+0.5</button><b id="trimA"></b>
+        <span>終わり</span><button data-end="1" data-d="-0.5">−0.5</button><button data-end="1" data-d="0.5">+0.5</button><b id="trimB"></b>
+        <div class="side"><button id="trimx" aria-label="閉じる">✕</button><button id="trimreset">戻す</button></div>
+      </div>
       <button class="rotreset" id="rotreset" aria-label="角度を戻す" hidden></button>
     </div>
     <div class="seek" id="seek">
@@ -759,9 +775,9 @@ function renderMarkers() {
     track.appendChild(b);
   });
   // ☆を付けた点は、その区間を帯で見せる
-  starRanges(DATA.games[current]).forEach(([a, e]) => {
-    const b = document.createElement('div');
-    b.className = 'starband';
+  starRanges(DATA.games[current]).forEach(r => {
+    const [a, e] = r, b = document.createElement('div');
+    b.className = `starband${trimEdit && r.keys.includes(trimEdit.from) ? ' edit' : ''}`;
     b.style.left = `${a / d * 100}%`;
     b.style.width = `max(6px, ${(e - a) / d * 100}%)`;
     seek.appendChild(b);
@@ -804,9 +820,14 @@ function seekFromEvent(e) {
   v.currentTime = Math.min(Math.max(0, f), 1) * v.duration;
 }
 let seeking = false;
-seek.addEventListener('pointerdown', e => { if (e.target.closest('.mk')) return; seeking = true; seek.setPointerCapture(e.pointerId); seekFromEvent(e); });
+let seekTap = null;  // 動かさずに離したら、☆の帯のタップ
+seek.addEventListener('pointerdown', e => { if (e.target.closest('.mk')) return; seeking = true; seekTap = pt(e); seek.setPointerCapture(e.pointerId); seekFromEvent(e); });
 seek.addEventListener('pointermove', e => { if (seeking) seekFromEvent(e); });
-seek.addEventListener('pointerup', () => { seeking = false; });
+seek.addEventListener('pointerup', e => {
+  const p = pt(e), tapped = seeking && seekTap && Math.hypot(p.x - seekTap.x, p.y - seekTap.y) < 6;
+  seeking = false; seekTap = null;
+  if (tapped) openTrimAt(v.currentTime);
+});
 
 function currentIndex() {
   const ps = DATA.games[current].points;
@@ -1087,6 +1108,7 @@ if (DRIVE) {
 }
 
 function select(i, autoplay) {
+  closeTrim();
   current = i;
   lastMark = null;
   const g = DATA.games[i];
@@ -1132,17 +1154,84 @@ const keyOf = (gi, k) => `${DATA.games[gi].n}-${k + 1}`;
 let marks = {};
 try { marks = JSON.parse(store.get(MARK_KEY)) || {}; } catch {}
 function isStar(gi, k) { return marks[keyOf(gi, k)] === 1; }
-// ☆を付けた点の区間（重なりはつなぐ）
+// 調整した区間（点ごと）。このブラウザにだけ覚える
+const TRIM_KEY = `star-trims-${DATA.id}`;
+let trims = {};
+try { trims = JSON.parse(store.get(TRIM_KEY)) || {}; } catch {}
+const autoRange = p => p.r ? p.r : p.vt !== null ? [startOf(p), p.vt] : null;
+const starRange = (gi, k) => trims[keyOf(gi, k)] || autoRange(DATA.games[gi].points[k]);
+// ☆を付けた点の区間（重なりはつなぐ）。from / to は始まり・終わりを決めている点
 function starRanges(g) {
   const gi = DATA.games.indexOf(g), out = [];
-  const rs = g.points.flatMap((p, k) => !isStar(gi, k) ? [] : p.r ? [p.r] : p.vt !== null ? [[startOf(p), p.vt]] : [])
-    .sort((x, y) => x[0] - y[0]);
-  for (const [a, b] of rs) {
+  const items = g.points.flatMap((p, k) => {
+    const r = isStar(gi, k) ? starRange(gi, k) : null;
+    return r ? [{ a: r[0], b: r[1], key: keyOf(gi, k) }] : [];
+  }).sort((x, y) => x.a - y.a);
+  for (const { a, b, key } of items) {
     const last = out[out.length - 1];
-    if (last && a <= last[1]) last[1] = Math.max(last[1], b); else out.push([a, b]);
+    if (last && a <= last[1]) {
+      last.keys.push(key);
+      if (b > last[1]) { last[1] = b; last.to = key; }
+    } else out.push(Object.assign([a, b], { from: key, to: key, keys: [key] }));
   }
   return out;
 }
+// ---- ☆の区間の調整 ----
+const TRIM_MIN = 0.5;  // 区間の最短（秒）
+const trimEl = document.getElementById('trim');
+let trimEdit = null, refreshSaveSize = null;
+const fmtTenth = x => `${fmt(x)}.${Math.floor(x * 10 + 1e-6) % 10}`;
+const editBand = () => trimEdit && starRanges(DATA.games[current]).find(r => r.keys.includes(trimEdit.from) || r.keys.includes(trimEdit.to));
+function showTrim() {
+  const band = editBand();
+  if (!band) { closeTrim(); return; }
+  trimEdit = { from: band.from, to: band.to };
+  document.getElementById('trimA').textContent = fmtTenth(band[0]);
+  document.getElementById('trimB').textContent = fmtTenth(band[1]);
+  document.getElementById('trimreset').disabled = !band.keys.some(k => trims[k]);
+  trimEl.hidden = false;
+  renderMarkers();
+  refreshSaveSize?.();
+}
+function closeTrim() {
+  const was = !!trimEdit;
+  trimEdit = null; trimEl.hidden = true;
+  if (was) renderMarkers();
+}
+function openTrimAt(at) {
+  const g = DATA.games[current], margin = (v.duration || g.dur || 0) / (seek.clientWidth || 1) * 4;
+  const band = starRanges(g).find(([a, b]) => a - margin <= at && at <= b + margin);
+  if (!band) return;
+  trimEdit = { from: band.from, to: band.to };
+  showTrim();
+}
+function saveTrims() { store.set(TRIM_KEY, JSON.stringify(trims)); }
+function nudgeTrim(end, d) {
+  const g = DATA.games[current], key = end ? trimEdit.to : trimEdit.from;
+  const k = +key.split('-')[1] - 1, r = starRange(current, k), base = autoRange(g.points[k]);
+  const limit = g.dur || v.duration || r[1];
+  const x = end ? Math.min(limit, Math.max(r[0] + TRIM_MIN, r[1] + d)) : Math.max(0, Math.min(r[1] - TRIM_MIN, r[0] + d));
+  const next = end ? [r[0], x] : [x, r[1]];
+  const same = Math.abs(next[0] - base[0]) < 0.005 && Math.abs(next[1] - base[1]) < 0.005;
+  if (same) delete trims[key]; else trims[key] = next.map(n => Math.round(n * 100) / 100);
+  saveTrims();
+  showTrim();
+  // 調整した位置の絵を見せる（終わりは、区間に入る最後のあたり）
+  v.pause();
+  v.currentTime = end ? Math.max(0, x - 0.05) : x;
+}
+trimEl.querySelectorAll('[data-d]').forEach(b => { b.onclick = () => nudgeTrim(b.dataset.end === '1', +b.dataset.d); });
+document.getElementById('trimx').onclick = closeTrim;
+document.getElementById('trimreset').onclick = () => {
+  const band = editBand();
+  if (!band) return;
+  const keys = band.keys;
+  keys.forEach(k => delete trims[k]);
+  saveTrims();
+  trimEdit = { from: keys[0], to: keys[keys.length - 1] };
+  showTrim();
+};
+['pointerdown', 'pointerup', 'click', 'dblclick'].forEach(ev => trimEl.addEventListener(ev, e => e.stopPropagation()));
 // いま見ている点：再生位置がラリーの中ならその点、そうでなければ直前に入った点
 function focusIndex() {
   const ps = DATA.games[current].points, t = v.currentTime;
@@ -1153,8 +1242,9 @@ function toggleMark() {
   const k = focusIndex();
   if (k < 0) return;
   const key = keyOf(current, k);
-  if (marks[key] === 1) delete marks[key]; else marks[key] = 1;
+  if (marks[key] === 1) { delete marks[key]; delete trims[key]; saveTrims(); } else marks[key] = 1;
   store.set(MARK_KEY, JSON.stringify(marks));
+  if (trimEdit) showTrim();
   renderMarkers(); lastMark = null; updateHead();
 }
 document.getElementById('mark').onclick = toggleMark;
@@ -1884,11 +1974,14 @@ function saveOverlay(g, W, H, ranges) {
     c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(0, 0, W, barH);
     c.fillStyle = 'rgba(255,255,255,.25)'; c.fillRect(pad, y - trackH / 2, W - pad * 2, trackH);
     const kept = x => ranges.some(([a, b]) => a <= x && x <= b);
-    const ranged = g.points.filter(p => p.r && kept(p.r[0]));
+    const ranged = g.points.filter(p => p.r);
     ranged.forEach((p, k) => {
-      const e = k + 1 < ranged.length ? Math.min(p.r[1], ranged[k + 1].r[0]) : p.r[1];
+      const end = k + 1 < ranged.length ? Math.min(p.r[1], ranged[k + 1].r[0]) : p.r[1];
       c.fillStyle = COLORS[p.w];
-      c.fillRect(xOf(p.r[0]), y - trackH / 2, Math.max(1, xOf(e) - xOf(p.r[0])), trackH);
+      for (const [x0, x1] of ranges) {
+        const from = Math.max(p.r[0], x0), to = Math.min(end, x1);
+        if (to > from) c.fillRect(xOf(from), y - trackH / 2, Math.max(1, xOf(to - 1e-3) - xOf(from)), trackH);
+      }
     });
     c.font = `700 ${px}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
     const last = [-1e9, -1e9];
@@ -2184,6 +2277,7 @@ document.getElementById('save').onclick = async () => {
   starBox.querySelector('span').textContent = `☆だけ（${starCount}）`;
   starBtn.checked = saveStarOnly;
   starBtn.onchange = () => { saveStarOnly = starBtn.checked; showSize(); };
+  refreshSaveSize = () => { if (!clippop.hidden && !recording) showSize(); };
   document.getElementById('clipgo').onclick = () => { clippick.hidden = true; startSave(g, SAVE_TIERS[saveTier]); };
   clippick.hidden = false;
   clippop.hidden = false; fitSheet(clippop);
