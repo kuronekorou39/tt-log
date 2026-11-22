@@ -973,6 +973,7 @@ const bigplay = document.getElementById('bigplay');
 // ドライブの動画を、少しずつ何度も読むと Google に機械的なアクセスとみなされて止められる。
 // そこで1ファイルを1回で丸ごと読み、ブラウザの中に残す（2回目からは読まない）。
 // 丸ごと読んだものは同じページのデータになるので、保存（書き出し）もそのままできる
+let activeSave = null;               // 保存中の内容（動画の場所と、押した時点の設定）
 const KEEP_VIDEOS = 10;             // ブラウザに残す動画の数（古いものから消す）
 const blobUrls = {};                // 場所 → ページの中の URL
 const blobOf = {};                  // ページの中の URL → 中身（保存のときにコピーせず読む）
@@ -997,14 +998,15 @@ async function fromCache(path) {
 }
 const loadOrder = () => { try { return JSON.parse(localStorage.getItem('tt-media-order')) || []; } catch { return []; } };
 const saveOrder = o => { try { localStorage.setItem('tt-media-order', JSON.stringify(o)); } catch {} };
-// 入れる前に、古いものを消して場所を空ける（今見ているゲームは消さない）
+// 入れる前に、古いものを消して場所を空ける（今見ているゲームと、保存中の動画は消さない）
 async function makeRoom(cache, need) {
-  const keep = cacheKey(DATA.games[current].video || '');
+  const keep = new Set([cacheKey(DATA.games[current].video || '')]);
+  if (activeSave) keep.add(cacheKey(activeSave.path));
   const order = loadOrder();
   const est = await navigator.storage?.estimate?.().catch(() => null);
   let free = est ? est.quota - est.usage : Infinity;
   for (let k = 0; k < order.length && (order.length >= KEEP_VIDEOS || free < need * 1.1);) {
-    if (order[k] === keep) { k++; continue; }
+    if (keep.has(order[k])) { k++; continue; }
     const key = order.splice(k, 1)[0];
     const res = await cache.match(key).catch(() => null);
     free += +res?.headers.get('x-size') || 0;
@@ -1061,7 +1063,7 @@ async function fetchMedia(path) {
       memOrder.push(path);
       for (let k = 0; memOrder.length > IN_MEMORY && k < memOrder.length;) {
         const old = memOrder[k];
-        if (old === DATA.games[current].video || old === path) { k++; continue; }
+        if (old === DATA.games[current].video || old === path || old === activeSave?.path) { k++; continue; }
         memOrder.splice(k, 1);
         URL.revokeObjectURL(blobUrls[old]); delete blobOf[blobUrls[old]]; delete blobUrls[old]; paintGame(old);
       }
@@ -1599,16 +1601,16 @@ showVoice();
 // ---------- 画角（拡大と、ドラッグで位置合わせ） ----------
 // 映像が枠に収まる大きさ（contain）を基準に、zoom 倍して、映像上の (cx, cy) を枠の中央に置く
 // 傾けると四隅に黒が出るので、そのぶんだけ大きくする倍率
-function tiltScale(w, h) {
-  const r = Math.abs(view.rot) * Math.PI / 180;
+function tiltScale(w, h, at = view) {
+  const r = Math.abs(at.rot) * Math.PI / 180;
   return r ? Math.cos(r) + Math.max(w / h, h / w) * Math.sin(r) : 1;
 }
 // 映像（大きさ w×h）の中で、見える範囲（bw×bh）がはみ出さない中心
-function clampCenter(w, h, bw, bh) {
-  const r = Math.abs(view.rot) * Math.PI / 180, c = Math.cos(r), n = Math.sin(r);
+function clampCenter(w, h, bw, bh, at = view) {
+  const r = Math.abs(at.rot) * Math.PI / 180, c = Math.cos(r), n = Math.sin(r);
   const ex = (bw * c + bh * n) / 2 / w, ey = (bw * n + bh * c) / 2 / h;
   const fit = (x, e) => e >= 0.5 ? 0.5 : Math.min(Math.max(x, e), 1 - e);
-  return [fit(view.cx, ex), fit(view.cy, ey)];
+  return [fit(at.cx, ex), fit(at.cy, ey)];
 }
 function applyView() {
   const W = stage.clientWidth, H = stage.clientHeight;
@@ -1845,9 +1847,9 @@ function frameSides(g) {
   }
   return (frameCache[g.n] = out);
 }
-function labelAt(g, head, t) {
+function labelAt(g, head, t, labels = faceLabels) {
   const tid = head[3];
-  const fixed = faceLabels[`${g.n}-${tid}`];
+  const fixed = labels[`${g.n}-${tid}`];
   if (fixed) return fixed;
   const side = frameSides(g)[`${Math.floor(t * FACES[g.n].fps)}-${tid}`];
   if (side) return `p${side === 'L' ? g.vl : 1 - g.vl}`;
@@ -1868,11 +1870,12 @@ function headsAt(n, t) {
 const tile = document.createElement('canvas');
 // 映像 src（幅 sw・高さ sh）の上の頭を、ctx（幅 w・高さ h）に隠して描く。
 // 名前はラベルごとの設定で出す。allTags ならすべてに（ids なら番号も）
-function drawMasks(ctx, src, sw, sh, w, h, g, heads, t, allTags, ids) {
+// faces を渡すと、今の設定ではなくその控え（保存を押した時点）で描く
+function drawMasks(ctx, src, sw, sh, w, h, g, heads, t, allTags, ids, faces = null) {
   for (const head of heads) {
     const [x, y, , tid] = head;
-    const label = labelAt(g, head, t);
-    const set = faceSet[label] || { mode: 'none', text: '', tag: false, size: 'm' };
+    const label = labelAt(g, head, t, faces?.faceLabels || faceLabels);
+    const set = (faces?.faceSet || faceSet)[label] || { mode: 'none', text: '', tag: false, size: 'm' };
     const mode = set.mode, emoji = set.text;
     const scale = (SIZES.find(z => z[0] === set.size) || SIZES[1])[2];
     const r = head[2] * scale;
@@ -2152,12 +2155,12 @@ function outputOf(tier, W, H, cw, ch) {
   return { ow, oh, share: tier.share * Math.min(1, ow * oh / full) };
 }
 // 今の拡大と角度で切り出す範囲（元の映像のピクセル）
-function viewCrop(W, H) {
-  const rad = view.rot * Math.PI / 180;
+function viewCrop(W, H, at = view) {
+  const rad = at.rot * Math.PI / 180;
   // 丸めで四隅に黒が残らないよう、傾けたときは少しだけ余分に
-  const Z = view.zoom * tiltScale(W, H) * (view.rot ? 1.002 : 1);
+  const Z = at.zoom * tiltScale(W, H, at) * (at.rot ? 1.002 : 1);
   const cw = even(W / Z), ch = even(H / Z);
-  const [cx, cy] = clampCenter(W, H, cw, ch);
+  const [cx, cy] = clampCenter(W, H, cw, ch, at);
   return { rad, cw, ch, cx, cy };
 }
 function drawCrop(c, src, W, H, crop, ow, oh) {
@@ -2178,7 +2181,7 @@ const keptRanges = (g, dur = g.dur || 0) => {
 const lengthOf = ranges => ranges.reduce((sum, [a, b]) => sum + b - a, 0);
 let saveBar = store.get('saveBar') !== '0';
 // 上の点数・字幕・下のシークバーを映像に描く。t は元の動画の時刻
-function saveOverlay(g, W, H, ranges) {
+function saveOverlay(g, W, H, ranges, snap) {
   const FONT = 'system-ui, sans-serif', COLORS = ['#f07484', '#5db6d9'], SCORE = ['#ff9aa6', '#8fd3ef'];
   const total = lengthOf(ranges) || 1;
   const toOut = t => {
@@ -2186,11 +2189,11 @@ function saveOverlay(g, W, H, ranges) {
     for (const [a, b] of ranges) { if (t < b) return sum + Math.max(0, t - a); sum += b - a; }
     return sum;
   };
-  const barH = saveBar ? Math.round(H * 0.1) : 0, pad = Math.round(H * 0.025);
+  const barH = snap.bar ? Math.round(H * 0.1) : 0, pad = Math.round(H * 0.025);
   const trackY = H - barH / 2, trackH = Math.max(3, Math.round(H * 0.012));
   const xOf = t => pad + toOut(t) / total * (W - pad * 2);
   let bar = null;
-  if (saveBar) {
+  if (snap.bar) {
     bar = new OffscreenCanvas(W, barH);
     const c = bar.getContext('2d'), y = barH / 2, px = Math.round(barH * 0.3);
     c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(0, 0, W, barH);
@@ -2254,8 +2257,8 @@ function saveOverlay(g, W, H, ranges) {
       const x = xOf(t);
       c.fillStyle = '#fff'; c.fillRect(x - 1.5, trackY - trackH * 1.6, 3, trackH * 3.2);
     }
-    if (scoreOn) drawScore(c, t);
-    if (capsOn) drawCaption(c, t);
+    if (snap.score) drawScore(c, t);
+    if (snap.caps) drawCaption(c, t);
   };
 }
 // 2つの音を足して大きくなったところを、割れないようになめらかに抑える
@@ -2300,13 +2303,13 @@ async function mixAudio(st, dest, from, rate) {
 }
 const MEDIABUNNY = 'https://cdn.jsdelivr.net/npm/mediabunny@1.63.0/dist/bundles/mediabunny.min.mjs';
 let mediabunny = null;
-async function fastSave(g, url, tier) {
+async function fastSave(g, url, tier, snap) {
   // 読み終わったら通信を閉じる（開いたままだと、次の動画の読み込みが詰まる）
   const opened = [];
-  try { return await runFastSave(g, url, tier, i => opened.push(i)); }
+  try { return await runFastSave(g, url, tier, snap, i => opened.push(i)); }
   finally { opened.forEach(i => i.dispose()); }
 }
-async function runFastSave(g, url, tier, onInput) {
+async function runFastSave(g, url, tier, snap, onInput) {
   if (!canFastSave()) return false;
   let M;
   try {
@@ -2322,17 +2325,17 @@ async function runFastSave(g, url, tier, onInput) {
   if (!track) return false;
   const W = track.displayWidth, H = track.displayHeight;
   // 拡大している部分を切り取る（引き伸ばさず、そのままの細かさで）
-  const crop = viewCrop(W, H), { cw, ch } = crop;
+  const crop = viewCrop(W, H, snap.view), { cw, ch } = crop;
   const { ow, oh, share } = outputOf(tier, W, H, cw, ch);
   if (!(await M.canEncodeVideo('avc', { width: ow, height: oh }).catch(() => false))) return false;
   const full = new OffscreenCanvas(W, H), fctx = full.getContext('2d');
-  const asIs = ow === W && oh === H && !view.rot;  // 切り取りも縮小もなければ、1回ぶん描かずに済む
+  const asIs = ow === W && oh === H && !snap.view.rot;  // 切り取りも縮小もなければ、1回ぶん描かずに済む
   const out = asIs ? full : new OffscreenCanvas(ow, oh), octx = asIs ? fctx : out.getContext('2d');
   const duration = await input.computeDuration();
-  const ranges = keptRanges(g, duration).map(([x, y]) => [Math.max(0, x), Math.min(duration, y)]).filter(([x, y]) => y > x);
+  const ranges = snapRanges(snap, duration);
   const total = lengthOf(ranges);
   if (!total) return false;
-  const overlay = saveOverlay(g, ow, oh, ranges);
+  const overlay = saveOverlay(g, ow, oh, ranges, snap);
   // コマ数を伝えないと圧縮器が 30 コマと見なして大きくなる。一定のビットレートで、端末によらず狙った大きさに
   const srcFps = Math.round((await track.computePacketStats(120)).averagePacketRate) || 60;
   const frameRate = Math.min(tier.fps || srcFps, srcFps);
@@ -2341,7 +2344,7 @@ async function runFastSave(g, url, tier, onInput) {
   const RATE = 48000, AUDIO_BITRATE = 128e3;
   const camTrack = await input.getPrimaryAudioTrack().catch(() => null);
   let micTrack = null, micLost = false;
-  if (voiceOn && g.voice) {
+  if (snap.voice && g.voice) {
     try {
       const micUrl = DRIVE ? await mediaBlob(g.voice, { urgent: true }) : media(g.voice);
       const known2 = blobOf[micUrl];
@@ -2387,7 +2390,7 @@ async function runFastSave(g, url, tier, onInput) {
           const place = Math.max(slot, Math.round(raw / step + shift)), when = place * step;
           const frame = sample.toCanvasImageSource();
           fctx.drawImage(frame, 0, 0, W, H);
-          drawMasks(fctx, frame, W, H, W, H, g, headsAt(g.n, at), at, false, false);
+          drawMasks(fctx, frame, W, H, W, H, g, headsAt(g.n, at), at, false, false, snap);
           if (!asIs) drawCrop(octx, full, W, H, crop, ow, oh);
           overlay(octx, at);
           await videoOut.add(when, step);
@@ -2469,7 +2472,7 @@ async function sourceBytes(g) {
   try { return +(await fetch(media(g.full), { method: 'HEAD' })).headers.get('content-length') || 0; } catch { return 0; }
 }
 document.getElementById('save').onclick = async () => {
-  if (recording) { clippop.hidden = false; fitSheet(clippop); return; }
+  if (recording || activeSave) { clippop.hidden = false; fitSheet(clippop); return; }
   const g = DATA.games[current];
   if (!g.video) return;
   facepop.hidden = true;
@@ -2502,10 +2505,32 @@ document.getElementById('save').onclick = async () => {
   clippick.hidden = false;
   clippop.hidden = false; fitSheet(clippop);
 };
+// 保存を押した時点の設定。保存中に画面で変えても、作っている動画には影響しない
+function takeSnapshot(g, tier) {
+  return {
+    path: saveSource(g, tier),
+    ranges: playOf(g) === 'all' ? null : keptRanges(g).map(([a, b]) => [a, b]),
+    view: { ...view },
+    score: scoreOn, caps: capsOn, bar: saveBar, voice: voiceOn,
+    faceSet: JSON.parse(JSON.stringify(faceSet)),
+    faceLabels: { ...faceLabels },
+    hold: false,  // 再生しながら録る方式は、録り終わるまで保護を続ける
+  };
+}
+const snapRanges = (snap, dur) => (snap.ranges || [[0, dur]])
+  .map(([a, b]) => [Math.max(0, a), Math.min(dur, b)]).filter(([a, b]) => b > a);
+const endSave = snap => { if (activeSave === snap) activeSave = null; };
 async function startSave(g, tier) {
+  if (activeSave) return;
+  const snap = activeSave = takeSnapshot(g, tier);
+  try { await runSave(g, tier, snap); }
+  catch (e) { console.warn('保存に失敗', e); clipmsg.textContent = '保存できませんでした'; snap.hold = false; }
+  finally { if (!snap.hold) endSave(snap); }
+}
+async function runSave(g, tier, snap) {
   const mime = pickMime();
   if (!mime) { clipmsg.textContent = 'このブラウザでは保存できません'; return; }
-  const path = saveSource(g, tier), stopLoad = document.getElementById('clipstop');
+  const path = snap.path, stopLoad = document.getElementById('clipstop');
   let url = picked[g.n];
   if (!url && !DRIVE) url = media(g.full);
   if (!url) {
@@ -2524,19 +2549,20 @@ async function startSave(g, tier) {
       stopLoad.hidden = true; stopLoad.textContent = '止めて保存';
     }
   }
-  v.pause();
-  // 速い保存（再生せずに1コマずつ作り直す）。使えないブラウザでは、再生しながら録る
-  if (await fastSave(g, url, tier)) return;
+  // 速い保存（再生せずに1コマずつ作り直す）。保存中も別のゲームを見ていられる
+  if (await fastSave(g, url, tier, snap)) return;
   if (!DRIVE && !picked[g.n] && !(await canExport(url))) {
     url = await pickVideo(g.n);
-    if (await fastSave(g, url, tier)) return;
+    if (await fastSave(g, url, tier, snap)) return;
   }
+  // 使えないブラウザでは、再生しながら録る（音が重なるので、見ている動画は止める）
+  v.pause();
 
   const src = document.createElement('video');
   src.playsInline = true; src.preload = 'auto'; src.src = url;
   await new Promise(r => src.addEventListener('loadedmetadata', r, { once: true }));
   const W = src.videoWidth, H = src.videoHeight;
-  const startCrop = viewCrop(W, H);
+  const startCrop = viewCrop(W, H, snap.view);
   const { ow: OW, oh: OH, share } = outputOf(tier, W, H, startCrop.cw, startCrop.ch);
   const canvas = document.createElement('canvas'); canvas.width = OW; canvas.height = OH;
   const ctx = canvas.getContext('2d');
@@ -2555,19 +2581,19 @@ async function startSave(g, tier) {
   const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: Math.round(FALLBACK_BITRATE * share) });
   rec.ondataavailable = e => e.data.size && chunks.push(e.data);
   // 最初の点のサーブ前から、最後の点を入れたところまで
-  const ranges = keptRanges(g, src.duration);
+  const ranges = snapRanges(snap, src.duration);
   const a = ranges[0][0], b = Math.min(src.duration, ranges[ranges.length - 1][1]);
   src.currentTime = a;
   await new Promise(r => src.addEventListener('seeked', r, { once: true }));
   let done = false;
-  const overlay = saveOverlay(g, OW, OH, ranges);
+  const overlay = saveOverlay(g, OW, OH, ranges, snap);
   const recStart = performance.now();
   const draw = () => {
     if (done) return;
     const gap = ranges.find(([, y]) => src.currentTime < y);
     if (gap && src.currentTime < gap[0] - 0.05) src.currentTime = gap[0];
     fctx.drawImage(src, 0, 0, W, H);
-    drawMasks(fctx, src, W, H, W, H, g, headsAt(g.n, src.currentTime), src.currentTime, false, false);
+    drawMasks(fctx, src, W, H, W, H, g, headsAt(g.n, src.currentTime), src.currentTime, false, false, snap);
     drawCrop(ctx, full, W, H, startCrop, OW, OH);
     overlay(ctx, src.currentTime);
     clipmsg.textContent = `第${g.n}ゲーム（画質：${tier.label}）を保存中 ${fmt(src.currentTime - a)} / ${fmt(b - a)}　経過${fmt((performance.now() - recStart) / 1000)}`;
@@ -2576,6 +2602,7 @@ async function startSave(g, tier) {
   };
   rec.onstop = () => {
     done = true; recording = null;
+    snap.hold = false; endSave(snap);
     src.pause(); ac.close();
     document.getElementById('save').classList.remove('on');
     document.getElementById('clipstop').hidden = true;
@@ -2590,13 +2617,14 @@ async function startSave(g, tier) {
     link.click();
   };
   recording = rec;
+  snap.hold = true;
   document.getElementById('save').classList.add('on');
   document.getElementById('clipstop').hidden = false;
   ctx.drawImage(src, 0, 0, OW, OH);
   rec.start(500);
   draw();
   try { await ac.resume(); await src.play(); }
-  catch { done = true; recording = null; rec.onstop = null; rec.stop(); ac.close();
+  catch { done = true; recording = null; snap.hold = false; endSave(snap); rec.onstop = null; rec.stop(); ac.close();
     document.getElementById('save').classList.remove('on'); document.getElementById('clipstop').hidden = true;
     clipmsg.textContent = '再生できませんでした'; }
 }
