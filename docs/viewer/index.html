@@ -213,7 +213,7 @@ html.ov.idle .stage .rotreset { opacity:0; pointer-events:none; }
 .boot a.drive { margin-top:4px; color:#fff; border:1px solid #666; border-radius:8px; padding:6px 16px; text-decoration:none; }
 .info { border:0; background:none; cursor:pointer; color:var(--muted); font-size:1.1rem; width:32px; height:32px; border-radius:50%; }
 .info:hover { background:var(--track); }
-#infopop, #facepop, #clippop { overscroll-behavior:contain; }
+#infopop, #howpop, #facepop, #clippop { overscroll-behavior:contain; }
 #drivepop { position:fixed; top:52px; right:14px; width:min(300px, calc(100vw - 24px)); background:var(--card); border:1px solid var(--line);
   border-radius:12px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:21; display:grid; gap:10px; font-size:.9rem; }
 #drivepop p { margin:0; }
@@ -221,9 +221,23 @@ html.ov.idle .stage .rotreset { opacity:0; pointer-events:none; }
 #drivepop .row > * { border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:8px; padding:6px 14px;
   cursor:pointer; font-size:.9rem; text-decoration:none; }
 #drivepop .go { background:var(--fg); color:var(--bg); border-color:var(--fg); }
-#infopop { position:fixed; top:56px; right:14px; width:min(380px, calc(100vw - 24px)); max-height:50vh; max-height:50dvh; overflow:auto;
+#infopop, #howpop { position:fixed; top:56px; right:14px; width:min(380px, calc(100vw - 24px)); max-height:50vh; max-height:50dvh; overflow:auto;
   background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:20; }
 #infopop p { margin:4px 0 10px; font-size:.85rem; }
+/* 仕組み：上から順に流れる3段 */
+#howpop h2 { margin:0 0 10px; font-size:.95rem; }
+#howpop ol { list-style:none; margin:0; padding:0; display:grid; gap:0; }
+#howpop li { position:relative; padding:0 0 12px 22px; }
+#howpop li::before { content:''; position:absolute; left:3px; top:5px; width:9px; height:9px; border-radius:50%; background:var(--fg); }
+#howpop li:not(:last-child)::after { content:''; position:absolute; left:7px; top:16px; bottom:-3px; width:1px; background:var(--line); }
+#howpop .when { display:flex; align-items:baseline; gap:8px; font-weight:700; font-size:.9rem; }
+#howpop .when small { font-weight:400; }
+#howpop ul { margin:3px 0 0; padding:0; list-style:none; display:flex; flex-wrap:wrap; gap:4px; }
+#howpop ul li { padding:2px 8px; border-radius:99px; background:var(--track); font-size:.78rem; white-space:nowrap; }
+#howpop ul li::before, #howpop ul li::after { content:none; }
+#howpop .todo { display:grid; gap:2px; padding:8px 10px; border-radius:8px; background:var(--hl); font-size:.85rem; }
+#howpop .todo b { font-size:.75rem; color:var(--muted); font-weight:500; }
+#howpop .free { margin:8px 0 0; color:var(--muted); font-size:.8rem; text-align:center; }
 /* 切り出し */
 .stage canvas.mask { position:absolute; left:0; top:0; transform-origin:0 0; pointer-events:none; }
 #clippop { position:fixed; right:14px; bottom:14px; width:min(320px, calc(100vw - 24px)); background:var(--card);
@@ -379,6 +393,7 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
       <div style="display:flex; align-items:center; gap:4px">
         <button class="info drivelink" id="drivelink" aria-label="ドライブで開く" title="ドライブで開く" aria-haspopup="dialog" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg></button>
         <button class="info" id="infobtn" aria-label="くわしいデータ">ⓘ</button>
+        <button class="info" id="howbtn" aria-label="このサイトの仕組み" title="仕組み" aria-haspopup="dialog">?</button>
       </div>
     </header>
     <div class="stage" id="stage">
@@ -436,6 +451,19 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
   </section>
 </div>
 <div id="infopop" hidden></div>
+<div id="howpop" hidden>
+  <h2>仕組み</h2>
+  <ol>
+    <li><div class="when">試合中 <small>アプリ tt-log</small></div>
+      <ul><li>スコア表示</li><li>音声操作</li><li>動画撮影</li><li>スコアタイムライン保存</li><li>マイク録音</li></ul></li>
+    <li><div class="when">試合後 <small>PC</small></div>
+      <ul><li>データをPCへ</li><li>小さい動画を生成</li><li>顔の位置を検出</li><li>Googleドライブへ配置</li></ul></li>
+    <li><div class="when">このサイト <small>GitHub Pages</small></div>
+      <ul><li>ドライブの動画を表示</li><li>切り出し</li><li>表示設定</li><li>顔モザイク設定</li><li>ブラウザ内で動画を生成</li></ul></li>
+  </ol>
+  <div class="todo"><b>試合後にやること</b>スマホをPCにつないで処理を実行</div>
+  <p class="free">サーバなし・無料</p>
+</div>
 <div id="dlpop" hidden></div>
 <div id="datanote" hidden><span></span><button aria-label="閉じる">✕</button></div>
 <div id="drivepop" hidden>
@@ -1618,7 +1646,11 @@ addEventListener('resize', () => { renderMarkers(); applyView(); });
 
 // ---------- 情報 ----------
 const pop = document.getElementById('infopop');
-document.getElementById('infobtn').onclick = e => { e.stopPropagation(); pop.hidden = !pop.hidden; };
+const howPop = document.getElementById('howpop');
+document.getElementById('infobtn').onclick = e => { e.stopPropagation(); howPop.hidden = true; pop.hidden = !pop.hidden; };
+document.getElementById('howbtn').onclick = e => { e.stopPropagation(); pop.hidden = true; howPop.hidden = !howPop.hidden; };
+document.addEventListener('click', e => { if (!howPop.hidden && !howPop.contains(e.target)) howPop.hidden = true; });
+addEventListener('keydown', e => { if (e.key === 'Escape') howPop.hidden = true; });
 document.addEventListener('click', e => { if (!pop.hidden && !pop.contains(e.target)) pop.hidden = true; });
 addEventListener('keydown', e => { if (e.key === 'Escape') pop.hidden = true; });
 
@@ -2049,10 +2081,10 @@ requestAnimationFrame(drawPreview);
 function showFaceMode() {}
 // ポップオーバーを開いている間は、後ろの画面をスクロールさせない（保存は時間がかかるので、その間も操作できるように除く）
 const lockScroll = () => {
-  const open = ['infopop', 'facepop'].some(id => !document.getElementById(id).hidden);
+  const open = ['infopop', 'howpop', 'facepop'].some(id => !document.getElementById(id).hidden);
   document.documentElement.style.overflow = open ? 'hidden' : '';
 };
-['infopop', 'facepop'].forEach(id =>
+['infopop', 'howpop', 'facepop'].forEach(id =>
   new MutationObserver(lockScroll).observe(document.getElementById(id), { attributes: true, attributeFilter: ['hidden'] }));
 // 保存の窓に隠れないよう、ゲーム一覧の下に同じ高さの余白を足す
 {
