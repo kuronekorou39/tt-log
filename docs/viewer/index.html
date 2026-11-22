@@ -674,7 +674,7 @@ async function driveText(path, url) {
   return text;
 }
 // 開いてよいフォルダ（ID のハッシュ。tools/share/allow_folder.py で登録する）。ほかのフォルダには通信しない
-const ALLOWED_FOLDERS = [];
+const ALLOWED_FOLDERS = ['5e52391042031df035d9941a92e6b13cdc2cb66dd1e75b5c4e6d7e41d7d3b088'];
 async function folderAllowed(id) {
   if (!ALLOWED_FOLDERS.length || ['localhost', '127.0.0.1'].includes(location.hostname)) return true;
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`tt-log:${id}`));
