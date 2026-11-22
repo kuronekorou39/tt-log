@@ -1943,28 +1943,43 @@ function saveOverlay(g, W, H, ranges) {
     if (capsOn) drawCaption(c, t);
   };
 }
-// 音を少しずつ読み、1本（モノラル）にして dest に足す。途中で切れる区間の分は次回に持ち越す
+// 2つの音を足して大きくなったところを、割れないようになめらかに抑える
+const KNEE = 0.8;
+function softClip(x) {
+  const a = Math.abs(x);
+  return a <= KNEE ? x : Math.sign(x) * (KNEE + (1 - KNEE) * Math.tanh((a - KNEE) / (1 - KNEE)));
+}
+// 音を少しずつ読み、1本（モノラル）にして dest に足す。途中で切れる区間の分は次回に持ち越す。
+// 同じ位置を二度足すとプツッと鳴るので、書いた位置（st.next）を覚える
 async function mixAudio(st, dest, from, rate) {
-  const to = from + dest.length / rate;
+  const EPS = 1e-6, to = from + dest.length / rate, base = Math.round(from * rate);
+  st.next ??= base;
   for (;;) {
     if (!st.cur) {
       const r = await st.it.next();
       if (r.done) return;
-      const x = r.value, n = x.numberOfFrames, data = new Float32Array(n), plane = new Float32Array(n);
+      const x = r.value, n = x.numberOfFrames, plane = new Float32Array(n);
+      // 前のかたまりの最後の値を頭に置き、かたまりの境目もなめらかにつなぐ
+      const joined = st.tail && st.tail.rate === x.sampleRate && Math.abs(st.tail.end - x.timestamp) < 1.5 / x.sampleRate;
+      const head = joined ? 1 : 0, data = new Float32Array(n + head);
+      if (joined) data[0] = st.tail.value;
       for (let ch = 0; ch < x.numberOfChannels; ch++) {
         x.copyTo(plane, { planeIndex: ch, format: 'f32-planar' });
-        for (let i = 0; i < n; i++) data[i] += plane[i] / x.numberOfChannels;
+        for (let i = 0; i < n; i++) data[i + head] += plane[i] / x.numberOfChannels;
       }
-      st.cur = { t: x.timestamp, data, rate: x.sampleRate };
+      st.cur = { t: x.timestamp - head / x.sampleRate, data, rate: x.sampleRate };
+      st.tail = { rate: x.sampleRate, end: x.timestamp + n / x.sampleRate, value: data[n + head - 1] };
       x.close();
     }
-    const c = st.cur, end = c.t + c.data.length / c.rate;
-    const i0 = Math.max(0, Math.ceil((c.t - from) * rate)), i1 = Math.min(dest.length, Math.ceil((end - from) * rate));
+    const c = st.cur, end = c.t + (c.data.length - 1) / c.rate;  // 最後の値は次のかたまりの頭で使う
+    const i0 = Math.max(st.next - base, Math.ceil((c.t - from) * rate - EPS), 0);
+    const i1 = Math.min(dest.length, Math.ceil((end - from) * rate - EPS));
     for (let i = i0; i < i1; i++) {
-      const p = (from + i / rate - c.t) * c.rate, j = Math.floor(p), f = p - j;
-      dest[i] += (c.data[j] ?? 0) * (1 - f) + (c.data[j + 1] ?? c.data[j] ?? 0) * f;
+      const p = Math.max(0, (from + i / rate - c.t) * c.rate), j = Math.floor(p), f = p - j;
+      dest[i] += c.data[j] * (1 - f) + (c.data[j + 1] ?? c.data[j]) * f;
     }
-    if (end > to) return;
+    if (i1 > i0) st.next = base + i1;
+    if (end >= to) return;
     st.cur = null;
   }
 }
@@ -2044,19 +2059,21 @@ async function runFastSave(g, url, tier, onInput) {
     const sink = new M.VideoSampleSink(track), step = 1 / frameRate;
     let offset = 0, next = 0;
     for (const [x, y] of ranges) {
+      let first = true;  // 区間の最初のコマは必ず使う
       for await (const sample of sink.samples(x, y)) {
         try {
           checkStop();
-          const at = sample.timestamp, when = Math.max(offset, offset + at - x);
+          const at = sample.timestamp, raw = offset + at - x, when = Math.max(offset, raw);
           // コマを減らすときは、間のコマを飛ばす
-          if (when < next - step / 4) continue;
+          if (!first && raw < next - step / 4) continue;
           const frame = sample.toCanvasImageSource();
           fctx.drawImage(frame, 0, 0, W, H);
           drawMasks(fctx, frame, W, H, W, H, g, headsAt(g.n, at), at, false, false);
           if (!asIs) drawCrop(octx, full, W, H, crop, ow, oh);
           overlay(octx, at);
           await videoOut.add(when, step);
-          next = Math.max(next + step, when + step / 2);
+          next = first ? raw + step : Math.max(next + step, raw + step / 2);
+          first = false;
           showProgress(Math.min(0.999, (when + step) / total));
         } finally { sample.close(); }
       }
@@ -2076,7 +2093,7 @@ async function runFastSave(g, url, tier, onInput) {
         for (const src of sources) await mixAudio(src, block, x + pos / RATE, RATE);
         for (let i = 0; i < n; i++) {
           const edge = Math.min(pos + i, frames - 1 - pos - i);
-          block[i] = Math.min(1, Math.max(-1, block[i])) * (edge < FADE ? edge / FADE : 1);
+          block[i] = softClip(block[i]) * (edge < FADE ? edge / FADE : 1);
         }
         const piece = new M.AudioSample({ data: block, format: 'f32', numberOfChannels: 1, sampleRate: RATE, timestamp: written / RATE });
         await audioOut.add(piece);
@@ -2107,13 +2124,18 @@ async function runFastSave(g, url, tier, onInput) {
   try { store.set('savePace', JSON.stringify({ ...learnedPace(), [tier.key]: +(elapsed() / total).toFixed(3) })); } catch {}
   const link = document.createElement('a');
   link.href = URL.createObjectURL(new Blob([output.target.buffer], { type: 'video/mp4' }));
-  link.download = `${document.title.split(' ')[0]}-第${g.n}ゲーム.mp4`;
+  link.download = saveName(g, 'mp4');
   link.textContent = link.download;
   clipmsg.innerHTML = '';
   clipmsg.append(link);
   if (micLost) clipmsg.append('（マイクなし）');
   link.click();
   return true;
+}
+// 同じゲームを何度も保存しても分かるよう、保存した時刻を付ける
+function saveName(g, ext) {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${document.title.split(' ')[0]}-第${g.n}ゲーム-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
 }
 function pickMime() {
   const types = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
@@ -2247,7 +2269,7 @@ async function startSave(g, tier) {
     const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `${document.title.split(' ')[0]}-第${g.n}ゲーム.${ext}`;
+    link.download = saveName(g, ext);
     link.textContent = link.download;
     clipmsg.innerHTML = '';
     clipmsg.append(link);
