@@ -207,7 +207,7 @@ html.ov .stage .trim { bottom:auto; top:44px; }
 #drivepop .row > * { border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:8px; padding:6px 14px;
   cursor:pointer; font-size:.9rem; text-decoration:none; }
 #drivepop .go { background:var(--fg); color:var(--bg); border-color:var(--fg); }
-#infopop { position:fixed; top:56px; right:14px; width:min(380px, calc(100vw - 24px)); max-height:calc(100vh - 80px); overflow:auto;
+#infopop { position:fixed; top:56px; right:14px; width:min(380px, calc(100vw - 24px)); max-height:50vh; max-height:50dvh; overflow:auto;
   background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:20; }
 #infopop p { margin:4px 0 10px; font-size:.85rem; }
 /* 切り出し */
@@ -277,6 +277,8 @@ html.ov .stage .trim { bottom:auto; top:44px; }
 .stats th, .stats td { padding:5px 4px; text-align:center; font-variant-numeric:tabular-nums; border-top:1px solid var(--line); }
 .stats th:first-child, .stats tbody th { text-align:left; font-weight:500; }
 .stats thead th { color:var(--muted); font-weight:500; border-top:0; }
+.stats thead th.a { color:var(--a); font-weight:700; }
+.stats thead th.b { color:var(--b); font-weight:700; }
 
 /* ---- 横に広い画面（PC・横向きのスマホ）：1画面に収める ---- */
 html.wide body { height:100vh; height:100dvh; overflow:hidden; }
@@ -327,10 +329,10 @@ html.fs.rot body { position:fixed; left:0; top:0; width:100vh; width:100dvh; hei
 html:not(.wide), html:not(.wide) body { height:100%; overflow:hidden; }
 html:not(.wide) .app { box-sizing:border-box; height:100vh; height:100dvh; display:flex; flex-direction:column; gap:6px;
   padding:0 12px max(6px, env(safe-area-inset-bottom)); overflow:hidden; }
-html:not(.wide) .left { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; gap:4px; padding-top:6px; }
+html:not(.wide) .left { flex:none; display:flex; flex-direction:column; gap:4px; padding-top:6px; }
 html:not(.wide) header { flex:none; flex-wrap:nowrap; }
 html:not(.wide) header h1 { font-size:.8rem; }
-html:not(.wide) .stage { flex:1 1 auto; min-height:120px; }
+html:not(.wide) .stage { flex:none; height:min(calc((100vw - 24px) * 9 / 16), 34vh); height:min(calc((100vw - 24px) * 9 / 16), 34dvh); min-height:96px; }
 html:not(.wide) .seek, html:not(.wide) .controls { flex:none; }
 html:not(.wide) .total { font-size:1.3rem; }
 html:not(.wide) .controls { gap:4px 8px; }
@@ -339,19 +341,19 @@ html:not(.wide) .controls .grp { gap:2px; }
 html:not(.wide) .controls .time { margin-right:0; margin-left:auto; }
 html:not(.wide) .controls .brk { display:block; flex-basis:100%; height:0; }
 html:not(.wide) .controls .sepgrp { margin-left:auto; padding-left:4px; }
-/* 一覧や設定を開いている間は、動画を小さくして下に場所を空ける */
-html.gopen:not(.wide) .left, html.sheet:not(.wide) .left { flex:none; }
-html.gopen:not(.wide) .stage, html.sheet:not(.wide) .stage { flex:none; height:min(calc((100vw - 24px) * 9 / 16), 30vh); height:min(calc((100vw - 24px) * 9 / 16), 30dvh); min-height:96px; }
-html:not(.wide) .right { flex:none; min-height:0; display:flex; flex-direction:column; gap:4px; }
-html.gopen:not(.wide) .right { flex:1 1 0; }
-html:not(.wide) .gamesbar { flex:none; display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:40px; padding:4px 12px;
+/* ゲーム一覧：上の高さは変えず、残りの高さの中で開閉する */
+html:not(.wide) .right { flex:1 1 0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:auto 0fr; gap:4px; align-content:start;
+  transition:grid-template-rows .22s ease; }
+html.gopen:not(.wide) .right { grid-template-rows:auto 1fr; }
+html:not(.wide) .gamesbar { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:40px; padding:4px 12px;
   background:var(--card); border:1px solid var(--line); border-radius:10px; cursor:pointer; font-size:.9rem; }
 html:not(.wide) .gamesbar #gamesnow { display:flex; align-items:baseline; gap:10px; font-variant-numeric:tabular-nums; }
 html:not(.wide) .gamesbar b { font-weight:800; }
-html:not(.wide) .gamesbar svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; transition:transform .15s; }
+html:not(.wide) .gamesbar svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; transition:transform .22s ease; }
 html.gopen:not(.wide) .gamesbar svg { transform:rotate(180deg); }
-html:not(.wide):not(.gopen) .right .games { display:none; }
-html.gopen:not(.wide) .right .games { flex:1 1 0; min-height:0; overflow:auto; overscroll-behavior:contain; padding-bottom:0; }
+html:not(.wide) .right .games { min-height:0; overflow:auto; overscroll-behavior:contain; padding-bottom:0; visibility:hidden; transition:visibility 0s .22s; }
+html.gopen:not(.wide) .right .games { visibility:visible; transition:visibility 0s; }
+@media (prefers-reduced-motion: reduce) { html:not(.wide) .right, html:not(.wide) .right .games, html:not(.wide) .gamesbar svg { transition:none; } }
 html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; width:auto; max-height:52vh; border-radius:14px 14px 0 0; box-sizing:border-box; overflow:auto; }
 </style>
 </head>
@@ -747,7 +749,9 @@ function flowSVG(g, id, mark) {
 function setGamesOpen(on) {
   document.documentElement.classList.toggle('gopen', on);
   document.getElementById('gamesbar').setAttribute('aria-expanded', String(on));
-  if (on) requestAnimationFrame(() => document.querySelector('.game.sel')?.scrollIntoView({ block: 'nearest' }));
+  // 開く動きの途中でも位置がずれないよう、一覧の中だけを動かす
+  const box = document.getElementById('games'), sel = box.querySelector('.game.sel');
+  if (on && sel) box.scrollTop += sel.getBoundingClientRect().top - box.getBoundingClientRect().top;
 }
 document.getElementById('gamesbar').onclick = () => setGamesOpen(!document.documentElement.classList.contains('gopen'));
 function renderGames(mark) {
@@ -1431,6 +1435,8 @@ const RATES = [1, 2, 0.5];
 let rate = 1;
 document.getElementById('rate').onclick = () => {
   rate = RATES[(RATES.indexOf(rate) + 1) % RATES.length];
+  // 動画を切り替えると playbackRate は default に戻るので、両方に入れる
+  v.defaultPlaybackRate = rate;
   v.playbackRate = rate;
   document.getElementById('rate').textContent = `${rate}×`;
   document.getElementById('rate').classList.toggle('on', rate !== 1);
