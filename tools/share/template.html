@@ -134,6 +134,12 @@ html.ov.idle .stage .rotreset { opacity:0; pointer-events:none; }
 .seek .tip { position:absolute; top:-6px; transform:translate(-50%,-100%); background:var(--fg); color:var(--bg); font-size:.8rem;
   padding:3px 8px; border-radius:6px; white-space:nowrap; pointer-events:none; display:none; z-index:2; }
 
+/* ☆を付けた点の区間 */
+:root { --star:#e0a100; }
+.seek .starband { position:absolute; top:22px; height:24px; box-sizing:border-box; border:2px solid var(--star); border-radius:4px;
+  background:color-mix(in srgb, var(--star) 28%, transparent); pointer-events:none; z-index:1; }
+.controls #mark { font-size:1.25rem; color:var(--muted); }
+.controls #mark.on { color:var(--star); }
 /* スクロールバー：細く、目立たない色に */
 * { scrollbar-width:thin; scrollbar-color:color-mix(in srgb, var(--muted) 35%, transparent) transparent; }
 ::-webkit-scrollbar { width:8px; height:8px; }
@@ -208,6 +214,8 @@ html.ov.idle .stage .rotreset { opacity:0; pointer-events:none; }
   padding:4px 16px; font-size:.95rem; white-space:nowrap; }
 #clippop .seg button.on { color:var(--fg); font-weight:700; background:none; }
 #clippop #clipdl { color:var(--muted); font-size:.85rem; font-variant-numeric:tabular-nums; white-space:nowrap; }
+#clippop .chks { display:flex; gap:14px; }
+#clippop .chk[hidden] { display:none; }
 #clippop .chk { display:inline-flex; align-items:center; gap:6px; width:max-content; font-size:.85rem; color:var(--muted); cursor:pointer; }
 #clippop .chk input { width:15px; height:15px; margin:0; accent-color:var(--fg); }
 #clippop #clipgo { min-height:40px; }
@@ -347,6 +355,7 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
         <button id="prev" aria-label="前の点">⏮</button>
         <button id="next" aria-label="次の点">⏭</button>
         <button id="rate" aria-label="速さ">1×</button>
+        <button id="mark" aria-label="☆を付ける" aria-pressed="false">☆</button>
       </div>
       <span class="time" id="time">0:00 / 0:00</span>
       <div class="brk"></div>
@@ -381,7 +390,10 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
   <div class="pick" id="clippick" hidden>
     <div class="pickrow"><span id="clipseg"></span><span id="clipsize"></span></div>
     <div id="clipdl" hidden></div>
-    <label class="chk"><input type="checkbox" id="clipbar">スコアバー</label>
+    <div class="chks">
+      <label class="chk"><input type="checkbox" id="clipbar">スコアバー</label>
+      <label class="chk" id="clipstarbox" hidden><input type="checkbox" id="clipstar"><span></span></label>
+    </div>
     <button class="go" id="clipgo">保存</button>
   </div>
   <div class="msg" id="clipmsg"></div>
@@ -665,6 +677,7 @@ const store = { get(k) { try { return localStorage.getItem(k); } catch { return 
 
 // ---------- 流れのグラフ（中央線より上は A のリード、下は B のリード） ----------
 function flowSVG(g, id, mark) {
+  const gi = DATA.games.indexOf(g);
   const W = 300, H = 36, M = H / 2, n = g.points.length;
   const ds = [0, ...g.points.map(p => p.s[0] - p.s[1])];
   const max = Math.max(3, ...ds.map(Math.abs));
@@ -682,6 +695,11 @@ function flowSVG(g, id, mark) {
     <g clip-path="url(#t${id})"><path d="${area}" fill="var(--a-soft)"/><path d="${line}" fill="none" stroke="var(--a)" stroke-width="2" vector-effect="non-scaling-stroke"/></g>
     <g clip-path="url(#u${id})"><path d="${area}" fill="var(--b-soft)"/><path d="${line}" fill="none" stroke="var(--b)" stroke-width="2" vector-effect="non-scaling-stroke"/></g>
     <line x1="0" x2="${W}" y1="${M}" y2="${M}" stroke="var(--muted)" stroke-width="1" opacity=".55" vector-effect="non-scaling-stroke"/>
+    ${g.points.map((p, k) => {
+      if (!isStar(gi, k)) return '';
+      const px = x(k + 1).toFixed(1);
+      return `<line x1="${px}" x2="${px}" y1="0" y2="${H}" stroke="var(--star)" stroke-width="3" opacity=".6" vector-effect="non-scaling-stroke"/>`;
+    }).join('')}
     ${markX == null ? '' : `<line x1="${markX}" x2="${markX}" y1="0" y2="${H}" stroke="var(--fg)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`}
   </svg>`;
 }
@@ -723,7 +741,7 @@ function paintGame(path) {
 function points() { return DATA.games[current].points.filter(p => p.vt !== null); }
 
 function renderMarkers() {
-  seek.querySelectorAll('.mk, .band').forEach(m => m.remove());
+  seek.querySelectorAll('.mk, .band, .starband').forEach(m => m.remove());
   const d = v.duration;
   if (!d) return;
   const width = seek.clientWidth;
@@ -739,6 +757,14 @@ function renderMarkers() {
     b.style.width = `${Math.max(0.3, (e - a) / d * 100)}%`;
     b.style.background = p.w === 0 ? 'var(--a)' : 'var(--b)';
     track.appendChild(b);
+  });
+  // ☆を付けた点は、その区間を帯で見せる
+  starRanges(DATA.games[current]).forEach(([a, e]) => {
+    const b = document.createElement('div');
+    b.className = 'starband';
+    b.style.left = `${a / d * 100}%`;
+    b.style.width = `max(6px, ${(e - a) / d * 100}%)`;
+    seek.appendChild(b);
   });
   let lastX = [-99, -99];
   points().forEach(p => {
@@ -805,6 +831,11 @@ function updateHead() {
   showCaption();
   seek.querySelectorAll('.mk').forEach(m => m.classList.toggle('cur', !!p && +m.dataset.vt === p.vt));
   if (k !== lastMark) { lastMark = k; renderGames(k); }
+  const fi = focusIndex(), starred = fi >= 0 && isStar(current, fi);
+  const mb = document.getElementById('mark');
+  mb.textContent = starred ? '★' : '☆';
+  mb.classList.toggle('on', starred);
+  mb.setAttribute('aria-pressed', String(starred));
 }
 
 function jump(p) {
@@ -1094,6 +1125,39 @@ function select(i, autoplay) {
 // その点の見始め（サーブの少し前）
 function startOf(p) { return Math.max(0, p.r ? p.r[0] : p.vt - LEAD); }
 
+// ---------- ☆ ----------
+// 自分で付けた点。このブラウザにだけ覚える
+const MARK_KEY = `marks-${DATA.id}`;
+const keyOf = (gi, k) => `${DATA.games[gi].n}-${k + 1}`;
+let marks = {};
+try { marks = JSON.parse(store.get(MARK_KEY)) || {}; } catch {}
+function isStar(gi, k) { return marks[keyOf(gi, k)] === 1; }
+// ☆を付けた点の区間（重なりはつなぐ）
+function starRanges(g) {
+  const gi = DATA.games.indexOf(g), out = [];
+  const rs = g.points.flatMap((p, k) => !isStar(gi, k) ? [] : p.r ? [p.r] : p.vt !== null ? [[startOf(p), p.vt]] : [])
+    .sort((x, y) => x[0] - y[0]);
+  for (const [a, b] of rs) {
+    const last = out[out.length - 1];
+    if (last && a <= last[1]) last[1] = Math.max(last[1], b); else out.push([a, b]);
+  }
+  return out;
+}
+// いま見ている点：再生位置がラリーの中ならその点、そうでなければ直前に入った点
+function focusIndex() {
+  const ps = DATA.games[current].points, t = v.currentTime;
+  const inRally = ps.findIndex(p => p.vt !== null && startOf(p) - 1 <= t && t <= p.vt + 1);
+  return inRally >= 0 ? inRally : currentIndex();
+}
+function toggleMark() {
+  const k = focusIndex();
+  if (k < 0) return;
+  const key = keyOf(current, k);
+  if (marks[key] === 1) delete marks[key]; else marks[key] = 1;
+  store.set(MARK_KEY, JSON.stringify(marks));
+  renderMarkers(); lastMark = null; updateHead();
+}
+document.getElementById('mark').onclick = toggleMark;
 // ---------- 間を飛ばす ----------
 // 点の範囲（サーブの少し前から点を入れたところ）の間を飛ばす。ゲームの最後まで来たら次のゲームへ
 let rallyOnly = store.get('rallyOnly') !== '0';
@@ -1164,6 +1228,7 @@ addEventListener('keydown', e => {
   else if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
   else if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
   else if (e.key === 'ArrowDown') { e.preventDefault(); select(Math.min(current + 1, DATA.games.length - 1), true); }
+  else if (e.key === 'm' || e.key === 'M') { toggleMark(); }
   else if (e.key === 'ArrowUp') { e.preventDefault(); select(Math.max(current - 1, 0), true); }
 });
 addEventListener('resize', () => { renderMarkers(); applyView(); });
@@ -1792,8 +1857,12 @@ function drawCrop(c, src, W, H, crop, ow, oh) {
   c.drawImage(src, 0, 0, W, H);
   c.restore();
 }
-// 保存する区間：「試合だけ」がオンならラリーだけ、オフなら全部
-const keptRanges = (g, dur = g.dur || 0) => rallyOnly && g.spans?.length ? g.spans : [[0, dur]];
+// 保存する区間：「☆だけ」なら☆の点、「試合だけ」がオンならラリーだけ、オフなら全部
+let saveStarOnly = false;
+const keptRanges = (g, dur = g.dur || 0) => {
+  const stars = saveStarOnly ? starRanges(g) : [];
+  return stars.length ? stars : rallyOnly && g.spans?.length ? g.spans : [[0, dur]];
+};
 const lengthOf = ranges => ranges.reduce((sum, [a, b]) => sum + b - a, 0);
 let saveBar = store.get('saveBar') !== '0';
 // 上の点数・字幕・下のシークバーを映像に描く。t は元の動画の時刻
@@ -1814,7 +1883,8 @@ function saveOverlay(g, W, H, ranges) {
     const c = bar.getContext('2d'), y = barH / 2, px = Math.round(barH * 0.3);
     c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(0, 0, W, barH);
     c.fillStyle = 'rgba(255,255,255,.25)'; c.fillRect(pad, y - trackH / 2, W - pad * 2, trackH);
-    const ranged = g.points.filter(p => p.r);
+    const kept = x => ranges.some(([a, b]) => a <= x && x <= b);
+    const ranged = g.points.filter(p => p.r && kept(p.r[0]));
     ranged.forEach((p, k) => {
       const e = k + 1 < ranged.length ? Math.min(p.r[1], ranged[k + 1].r[0]) : p.r[1];
       c.fillStyle = COLORS[p.w];
@@ -1822,7 +1892,7 @@ function saveOverlay(g, W, H, ranges) {
     });
     c.font = `700 ${px}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
     const last = [-1e9, -1e9];
-    g.points.filter(p => p.vt !== null).forEach(p => {
+    g.points.filter(p => p.vt !== null && kept(p.vt)).forEach(p => {
       const x = xOf(p.vt), label = `${p.s[0]}-${p.s[1]}`, w = c.measureText(label).width + px * 0.4;
       c.fillStyle = COLORS[p.w];
       c.fillRect(x - 1, y - trackH, 2, trackH * 2);
@@ -2085,6 +2155,13 @@ document.getElementById('save').onclick = async () => {
   const barBtn = document.getElementById('clipbar');
   barBtn.checked = saveBar;
   barBtn.onchange = () => { saveBar = barBtn.checked; store.set('saveBar', saveBar ? '1' : '0'); };
+  const starBtn = document.getElementById('clipstar'), starBox = document.getElementById('clipstarbox');
+  const starCount = g.points.filter((p, k) => isStar(current, k)).length;
+  if (!starCount) saveStarOnly = false;
+  starBox.hidden = !starCount;
+  starBox.querySelector('span').textContent = `☆だけ（${starCount}）`;
+  starBtn.checked = saveStarOnly;
+  starBtn.onchange = () => { saveStarOnly = starBtn.checked; showSize(); };
   document.getElementById('clipgo').onclick = () => { clippick.hidden = true; startSave(g, SAVE_TIERS[saveTier]); };
   clippick.hidden = false;
   clippop.hidden = false; fitSheet(clippop);
@@ -2142,16 +2219,17 @@ async function startSave(g, tier) {
   const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: Math.round(FALLBACK_BITRATE * share) });
   rec.ondataavailable = e => e.data.size && chunks.push(e.data);
   // 最初の点のサーブ前から、最後の点を入れたところまで
-  const ranged = g.points.filter(p => p.r);
-  const a = ranged.length ? ranged[0].r[0] : 0;
-  const b = ranged.length ? ranged[ranged.length - 1].r[1] : src.duration;
+  const ranges = keptRanges(g, src.duration);
+  const a = ranges[0][0], b = Math.min(src.duration, ranges[ranges.length - 1][1]);
   src.currentTime = a;
   await new Promise(r => src.addEventListener('seeked', r, { once: true }));
   let done = false;
-  const overlay = saveOverlay(g, OW, OH, [[a, b]]);
+  const overlay = saveOverlay(g, OW, OH, ranges);
   const recStart = performance.now();
   const draw = () => {
     if (done) return;
+    const gap = ranges.find(([, y]) => src.currentTime < y);
+    if (gap && src.currentTime < gap[0] - 0.05) src.currentTime = gap[0];
     fctx.drawImage(src, 0, 0, W, H);
     drawMasks(fctx, src, W, H, W, H, g, headsAt(g.n, src.currentTime), src.currentTime, false, false);
     drawCrop(ctx, full, W, H, startCrop, OW, OH);
