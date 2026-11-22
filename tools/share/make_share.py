@@ -52,6 +52,14 @@ def load_session(store: Path, session_id: str):
     raise SystemExit(f"記録が見つかりません: {session_id}")
 
 
+def load_session_json(path: Path, session_id: str):
+    """アプリが PC に送った記録（{id, playerNames, log}）を読む。"""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if str(data.get("id", "")).upper() != session_id.upper():
+        raise SystemExit(f"記録が見つかりません: {session_id}")
+    return data["playerNames"], data["log"]
+
+
 def player_names(blob: bytes) -> list[str]:
     """NSKeyedArchiver に包まれた JSON の配列から名前を取り出す。"""
     objects = plistlib.loads(blob).get("$objects", [])
@@ -134,13 +142,15 @@ def join_videos(camera: Path, index: dict, game_index: int, out: Path, make: boo
             for c in clips:
                 f.write(f"file '{(camera / c['file']).resolve().as_posix()}'\n")
             listing = f.name
+        work = out.with_name(out.stem + ".tmp.mp4")
         subprocess.run(
             # iPhone の録画には映像・音声のほかに時刻などのデータの流れがあり、mp4 に入らないので映像と音声だけ。
             # 映像は HEVC のままだと Firefox などで再生できないので H.264 にする
             ["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", listing,
-             "-map", "0:v:0", "-map", "0:a:0?", *H264, "-c:a", "copy", "-movflags", "+faststart", str(out)],
+             "-map", "0:v:0", "-map", "0:a:0?", *H264, "-c:a", "copy", "-movflags", "+faststart", str(work)],
             check=True,
         )
+        work.replace(out)  # 途中で止まっても、作りかけを完成品と見なさない
         Path(listing).unlink()
     return parts
 
@@ -213,7 +223,9 @@ def stats(games: list[dict]) -> list[dict]:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--store", required=True, type=Path, help="iPad の default.store")
+    source = ap.add_mutually_exclusive_group(required=True)
+    source.add_argument("--store", type=Path, help="iPad の default.store")
+    source.add_argument("--session-json", type=Path, help="アプリが PC に送った session.json")
     ap.add_argument("--camera", required=True, type=Path, help="iPhone の Sessions/<フォルダ>")
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--no-video", action="store_true", help="動画を新しく作らない（まとめだけ作り直す）")
@@ -226,7 +238,7 @@ def main():
     args = ap.parse_args()
 
     index = json.loads((args.camera / "index.json").read_text(encoding="utf-8"))
-    names, log = load_session(args.store, index["id"])
+    names, log = load_session_json(args.session_json, index["id"]) if args.session_json else load_session(args.store, index["id"])
     games = build_games(log)
     voice_log = None
     if args.voice:

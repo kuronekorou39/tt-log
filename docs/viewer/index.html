@@ -673,10 +673,23 @@ async function driveText(path, url) {
   try { await cache?.put(cacheKey, new Response(text)); } catch {}
   return text;
 }
+// 開いてよいフォルダ（ID のハッシュ。tools/share/allow_folder.py で登録する）。ほかのフォルダには通信しない
+const ALLOWED_FOLDERS = [];
+async function folderAllowed(id) {
+  if (!ALLOWED_FOLDERS.length || ['localhost', '127.0.0.1'].includes(location.hostname)) return true;
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`tt-log:${id}`));
+  const hex = [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('');
+  return ALLOWED_FOLDERS.includes(hex);
+}
 async function loadPage() {
   if (EMBEDDED) return EMBEDDED;
   if (!DRIVE) throw new ViewError('見るまとめが指定されていません', '共有されたリンクをそのまま開いてください（# から後ろも必要です）。');
   if (!DRIVE_ID.test(DRIVE.folder)) throw new ViewError('リンクが正しくありません', '共有されたリンクをそのまま開いてください（d= の部分が壊れています）。');
+  if (!(await folderAllowed(DRIVE.folder))) {
+    DRIVE.folder = '';  // エラー画面にも、そのフォルダへのリンクを出さない
+    document.getElementById('drivelink').hidden = true;
+    throw new ViewError('このリンクでは開けません', '');
+  }
   if (!DRIVE.key) throw new ViewError('リンクにキーがありません', '共有されたリンクをそのまま開いてください（k= の部分も必要です）。');
   showLoading('フォルダを確認中…');
   DRIVE.mod = {};
@@ -791,7 +804,11 @@ function safeStats(html) {
 for (const g of DATA.games) {
   g.full = g.video;
   const small = g.video?.replace('videos/', 'videos-small/');
-  if (DRIVE && small && DRIVE.ids[DRIVE.base + small]) g.video = small;
+  if (DRIVE && small && DRIVE.ids[DRIVE.base + small]) {
+    // 古い回はドライブに元の動画を置かないので、保存も小さい版から作る
+    if (!DRIVE.ids[DRIVE.base + g.video]) g.full = small;
+    g.video = small;
+  }
 }
 document.title = PAGE.title;
 document.getElementById('date').textContent = PAGE.date;

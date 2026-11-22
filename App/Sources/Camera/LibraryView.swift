@@ -60,6 +60,9 @@ private struct SessionClipsView: View {
 
     var body: some View {
         List {
+            PCSendSection(sessionId: index.id, asksCameraSide: true) { sameSide in
+                try PCSendJob.camera(library: library, index: index, sameSide: sameSide)
+            }
             Section("録画") {
                 ForEach(index.clips) { clip in
                     NavigationLink {

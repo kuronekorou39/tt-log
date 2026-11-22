@@ -19,6 +19,11 @@ struct SessionDetailView: View {
             Section {
                 ResultHeader(session: session, log: log, names: names)
             }
+            if session.endedAt != nil, !games.isEmpty {
+                PCSendSection(sessionId: session.id.uuidString, asksCameraSide: false) { _ in
+                    try PCSendJob.scoreboard(session: session)
+                }
+            }
             if !games.isEmpty {
                 Section("内訳") {
                     StatsTable(stats: games.playerStats(), names: names)

@@ -38,14 +38,17 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         NSMicrophoneUsageDescription: 声で点数を操作するため、また録画に音を入れるためにマイクを使います。
         NSCameraUsageDescription: 試合を録画するためにカメラを使います。
-        NSLocalNetworkUsageDescription: スコアボードとカメラの端末を、同じ Wi-Fi の中でつなぐために使います。
+        NSLocalNetworkUsageDescription: スコアボードとカメラの端末をつなぎ、記録を同じ Wi-Fi の PC へ送るために使います。
         NSBonjourServices:
           - _ttlog._tcp
+          - _ttlog-recv._tcp
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         NSSpeechRecognitionUsageDescription: 「戻して」などの言葉を聞き取るために音声認識を使います。
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.rou39.ttlog
         TARGETED_DEVICE_FAMILY: "1,2"
-        MARKETING_VERSION: 0.9.4
-        CURRENT_PROJECT_VERSION: 16
+        MARKETING_VERSION: 0.9.5
+        CURRENT_PROJECT_VERSION: 17
         SWIFT_VERSION: "5.0"
