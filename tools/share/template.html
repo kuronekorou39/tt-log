@@ -659,8 +659,6 @@ const seek = document.getElementById('seek');
 let current = 0;
 let view = { zoom: 1, cx: 0.5, cy: 0.5, rot: 0 };
 
-// 以前の印がブラウザに残っていれば消す
-try { Object.keys(localStorage).filter(k => k.startsWith('marks-')).forEach(k => localStorage.removeItem(k)); } catch {}
 const fmt = s => { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
                 set(k, x) { try { localStorage.setItem(k, x); } catch {} } };
