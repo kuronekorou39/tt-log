@@ -881,6 +881,7 @@ let seeking = false, seekDown = null;
 // ☆の編集中は、タップで☆を選び、ドラッグで移動する
 seek.addEventListener('pointerdown', e => {
   if (e.target.closest('.mk')) return;
+  stopEndPreview();
   seeking = true; seekDown = { ...pt(e), moved: false };
   seek.setPointerCapture(e.pointerId);
   if (!starEdit) seekFromEvent(e);
@@ -935,6 +936,7 @@ function updateHead() {
 }
 
 function jump(p) {
+  stopEndPreview();
   v.currentTime = startOf(p);
   v.play();
 }
@@ -953,6 +955,7 @@ function stepStar(dir) {
 }
 
 function step(dir) {
+  stopEndPreview();
   if (playNow() === 'star') { stepStar(dir); return; }
   const ps = points();
   if (!ps.length) return;
@@ -1197,6 +1200,7 @@ if (DRIVE) {
 }
 
 function select(i, autoplay) {
+  stopEndPreview();
   current = i;
   trimClip = null;
   showStarEdit();
@@ -1339,6 +1343,7 @@ function changedStars() {
   refreshStars();
 }
 function pickClip(c) {
+  stopEndPreview();
   trimClip = c;
   refreshStars();
   v.pause();
@@ -1375,10 +1380,29 @@ function nudgeTrim(end, d) {
   const x = end ? Math.min(limit, Math.max(c.a + TRIM_MIN, c.b + d)) : Math.max(0, Math.min(c.b - TRIM_MIN, c.a + d));
   c[end ? 'b' : 'a'] = Math.round(x * 100) / 100;
   changedStars();
-  // 調整した位置の絵を見せる（終わりは、区間に入る最後のあたり）
+  stopEndPreview();
+  if (end) { previewEnd(trimClip.a, x); return; }
   v.pause();
-  v.currentTime = end ? Math.max(0, x - 0.05) : x;
+  v.currentTime = x;
 }
+// 終了の確認：少し前から再生して、終了の位置で止める
+const END_LEAD = 3;
+let endPreview = null;
+function stopEndPreview() {
+  clearInterval(endPreview);
+  endPreview = null;
+}
+function previewEnd(from, x) {
+  v.currentTime = Math.max(from, x - END_LEAD);
+  const timer = endPreview = setInterval(() => {
+    if (endPreview !== timer || (v.currentTime < x - 0.03 && !v.ended)) return;
+    stopEndPreview();
+    v.pause();
+    v.currentTime = Math.max(from, x - 0.05);
+  }, 25);
+  v.play()?.catch?.(() => { if (endPreview === timer) stopEndPreview(); });
+}
+v.addEventListener('pause', stopEndPreview);
 function removeClip(c) {
   const list = clipsOf(DATA.games[current]);
   list.splice(list.indexOf(c), 1);
@@ -1386,16 +1410,17 @@ function removeClip(c) {
   changedStars();
 }
 trimEl.querySelectorAll('[data-d]').forEach(b => { b.onclick = () => nudgeTrim(b.dataset.end === '1', +b.dataset.d); });
-document.getElementById('trimx').onclick = () => { trimClip = null; refreshStars(); };
+document.getElementById('trimx').onclick = () => { stopEndPreview(); trimClip = null; refreshStars(); };
 document.getElementById('trimreset').onclick = () => {
   const c = trimClip, auto = c && autoOf(c);
   if (!auto) return;
+  stopEndPreview();
   c.a = auto[0]; c.b = auto[1];
   changedStars();
   v.pause();
   v.currentTime = trimClip.a;
 };
-editBtn.onclick = () => { starEdit = !starEdit; if (!starEdit) trimClip = null; refreshStars(); };
+editBtn.onclick = () => { stopEndPreview(); starEdit = !starEdit; if (!starEdit) trimClip = null; refreshStars(); };
 ['pointerdown', 'pointerup', 'click', 'dblclick'].forEach(ev => trimEl.addEventListener(ev, e => e.stopPropagation()));
 addEventListener('resize', showTrim);
 // いま見ている点：再生位置がラリーの中ならその点、そうでなければ直前に入った点
@@ -1437,6 +1462,7 @@ function spans() {
   return out;
 }
 function skipToRally(e) {
+  if (endPreview) return;  // 終了の確認中は飛ばさない
   if (!(playNow() !== 'all' || CUTS_ONLY) || v.paused || v.seeking) return;
   const t = v.currentTime;
   const ss = spans();
