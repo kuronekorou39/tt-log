@@ -46,7 +46,6 @@ header h1 { margin:0; font-size:.95rem; font-weight:600; color:var(--muted); }
 header h1 .session { font:inherit; color:inherit; background:none; border:1px solid transparent; border-radius:8px;
   padding:2px 4px; cursor:pointer; }
 header h1 .session:hover { border-color:var(--line); }
-.total { font-size:1.6rem; font-weight:800; white-space:nowrap; }
 .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; }
 
 .stage { position:relative; overflow:hidden; background:#000; border-radius:10px; touch-action:none; }
@@ -245,6 +244,8 @@ html.ov.idle .stage .rotreset { opacity:0; pointer-events:none; }
 #clippop .seg button { position:relative; z-index:1; border:0; background:none; color:var(--muted); min-height:36px;
   padding:4px 16px; font-size:.95rem; white-space:nowrap; }
 #clippop .seg button.on { color:var(--fg); font-weight:700; background:none; }
+#clippop #clipwarn { color:#c2410c; font-size:.85rem; font-weight:700; white-space:nowrap; }
+@media (prefers-color-scheme: dark) { #clippop #clipwarn { color:#fb923c; } }
 #clippop #clipdl { color:var(--muted); font-size:.85rem; font-variant-numeric:tabular-nums; white-space:nowrap; }
 #clippop .chks { display:flex; gap:14px; }
 #clippop .chk[hidden] { display:none; }
@@ -308,7 +309,6 @@ html.wide .right .games { overflow:auto; }
   html.wide .app { gap:8px; padding:6px 8px; }
   html.wide .left { gap:4px; }
   html.wide header h1 { font-size:.75rem; }
-  html.wide .total { font-size:1.15rem; }
 }
 
 /* ---- 重ねる配置（全画面・横向きのスマホ）：動画を下まで広げ、シークバーとボタンを上に重ねる ---- */
@@ -349,7 +349,6 @@ html:not(.wide) header { flex:none; flex-wrap:nowrap; }
 html:not(.wide) header h1 { font-size:.8rem; }
 html:not(.wide) .stage { flex:none; height:min(calc((100vw - 24px) * 9 / 16), 34vh); height:min(calc((100vw - 24px) * 9 / 16), 34dvh); min-height:96px; }
 html:not(.wide) .seek, html:not(.wide) .controls { flex:none; }
-html:not(.wide) .total { font-size:1.3rem; }
 html:not(.wide) .controls { gap:4px 8px; }
 html:not(.wide) .controls button { padding:4px 5px; min-width:32px; }
 html:not(.wide) .controls .grp { gap:2px; }
@@ -378,7 +377,6 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
     <header>
       <h1 id="date"></h1>
       <div style="display:flex; align-items:center; gap:4px">
-        <div class="total" id="total"></div>
         <button class="info drivelink" id="drivelink" aria-label="ドライブで開く" title="ドライブで開く" aria-haspopup="dialog" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg></button>
         <button class="info" id="infobtn" aria-label="くわしいデータ">ⓘ</button>
       </div>
@@ -449,6 +447,7 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
   <div class="pick" id="clippick" hidden>
     <div class="pickrow"><span id="clipseg"></span><span id="clipsize"></span></div>
     <div id="clipdl" hidden></div>
+    <div id="clipwarn" hidden>⚠ スマホでは失敗しやすい</div>
     <div class="chks">
       <label class="chk"><input type="checkbox" id="clipbar">スコアバー</label>
     </div>
@@ -681,19 +680,60 @@ let PAGE;
 if (!EMBEDDED) {
   // データが来るまでの仮の枠
   document.getElementById('date').innerHTML = '<span class="skel skel-line" style="width:9em"></span>';
-  document.getElementById('total').innerHTML = '<span class="skel skel-line" style="width:6em"></span>';
   document.getElementById('games').innerHTML = '<div class="skel skel-game"></div>'.repeat(6);
 }
 try { PAGE = await loadPage(); }
 catch (e) {
   if (e !== CHOOSING) showError(e);
   document.getElementById('date').textContent = '';
-  document.getElementById('total').textContent = '';
   document.getElementById('games').innerHTML = '';
   return;
 }
 boot.hidden = true;
 const DATA = PAGE.data;
+// ドライブのデータはリンク次第で他人のものにもなるので、数値は数値に、文字は文字にそろえる
+{
+  const num = x => Number.isFinite(+x) ? +x : 0;
+  const side = x => x === 1 ? 1 : 0;
+  const pair = x => [num(x?.[0]), num(x?.[1])];
+  DATA.names = [String(DATA.names?.[0] ?? ''), String(DATA.names?.[1] ?? '')];
+  for (const g of DATA.games) {
+    g.n = num(g.n);
+    g.video = typeof g.video === 'string' ? g.video : null;
+    g.voice = typeof g.voice === 'string' ? g.voice : null;
+    g.dur = g.dur == null ? null : num(g.dur);
+    g.vl = side(g.vl);
+    g.winner = g.winner == null ? null : side(g.winner);
+    g.final = pair(g.final);
+    g.minutes = num(g.minutes);
+    g.spans = (g.spans || []).map(pair);
+    g.captions = (g.captions || []).map(c => [num(c?.[0]), num(c?.[1]), String(c?.[2] ?? '')]);
+    g.points = (g.points || []).map(x => ({ ...x, w: side(x.w), s: pair(x.s), vt: x.vt == null ? null : num(x.vt),
+      r: x.r ? pair(x.r) : null, t: String(x.t ?? ''), fx: !!x.fx }));
+  }
+}
+const esc = x => String(x).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// くわしいデータは、表に使う要素と色のクラスだけを残す（スクリプトや属性は通さない）
+function safeStats(html) {
+  const TAGS = new Set(['P', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'SMALL']), CLASSES = new Set(['stats', 'muted', 'a', 'b']);
+  const tpl = document.createElement('template');
+  tpl.innerHTML = String(html ?? '');
+  const copy = (from, to) => {
+    for (const n of from.childNodes) {
+      if (n.nodeType === Node.TEXT_NODE) to.append(n.textContent);
+      else if (n.nodeType === Node.ELEMENT_NODE && TAGS.has(n.tagName)) {
+        const el = document.createElement(n.tagName);
+        const cls = [...n.classList].filter(c => CLASSES.has(c));
+        if (cls.length) el.className = cls.join(' ');
+        copy(n, el);
+        to.append(el);
+      }
+    }
+  };
+  const out = document.createDocumentFragment();
+  copy(tpl.content, out);
+  return out;
+}
 // ドライブに小さい版があれば、見るのはそちら。g.full は元の動画
 for (const g of DATA.games) {
   g.full = g.video;
@@ -714,12 +754,7 @@ if (DRIVE && DRIVE.sessions?.length > 1) {
   h1.textContent = '';
   h1.append(sel);
 }
-{
-  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  document.getElementById('total').innerHTML =
-    `<span class="a">${esc(DATA.names[0])} ${PAGE.won[0]}</span> - <span class="b">${PAGE.won[1]} ${esc(DATA.names[1])}</span>`;
-  document.getElementById('infopop').innerHTML = PAGE.stats;
-}
+document.getElementById('infopop').replaceChildren(safeStats(PAGE.stats));
 // 範囲のない点は、点が入った時刻のこれだけ前から見せる
 const LEAD = 8;
 
@@ -785,6 +820,7 @@ function renderGames(mark) {
   }).join('');
   box.querySelectorAll('.game').forEach(b => b.onclick = e => {
     const i = +b.dataset.i, g = DATA.games[i];
+    if (i === current) { setGamesOpen(false); return; }  // 選択中なら読み直さない
     // ドライブで、まだ読んでいない動画は、すぐ切り替えずに読み込むか聞く
     if (DRIVE && g.video && i !== current && !have.has(g.video) && !blobUrls[g.video]) { e.stopPropagation(); openDl(i, b); return; }
     select(i, !DRIVE || have.has(g.video) || !!blobUrls[g.video]);
@@ -924,7 +960,7 @@ function updateHead() {
   const p = DATA.games[current].points[k];
   const g = DATA.games[current], l = g.vl, sc = p ? p.s : [0, 0];
   document.getElementById('now').innerHTML =
-    `<span class="${'ab'[l]}">${DATA.names[l]}</span> ${sc[l]} - ${sc[1 - l]} <span class="${'ab'[1 - l]}">${DATA.names[1 - l]}</span>`;
+    `<span class="${'ab'[l]}">${esc(DATA.names[l])}</span> ${sc[l]} - ${sc[1 - l]} <span class="${'ab'[1 - l]}">${esc(DATA.names[1 - l])}</span>`;
   showCaption();
   seek.querySelectorAll('.mk').forEach(m => m.classList.toggle('cur', !!p && +m.dataset.vt === p.vt));
   if (k !== lastMark) { lastMark = k; renderGames(k); }
@@ -968,6 +1004,8 @@ function step(dir) {
 // ドライブから見るときは、押されるまで動画を読まない（ドライブは何度も読むと弾くため）。
 // 読む前の位置と長さは覚えておき、play() されたら読み込んで、その位置から再生する
 let pending = null, pendingTime = 0, activate = null;
+// settling：動画を入れて、長さが分かるまでの間。wantPlay：その間に押された再生
+let settling = false, wantPlay = false, loadToken = 0;
 const bigplay = document.getElementById('bigplay');
 
 // ドライブの動画を、少しずつ何度も読むと Google に機械的なアクセスとみなされて止められる。
@@ -1168,13 +1206,14 @@ if (DRIVE) {
   const time = Object.getOwnPropertyDescriptor(proto, 'currentTime');
   const dur = Object.getOwnPropertyDescriptor(proto, 'duration');
   Object.defineProperty(v, 'currentTime', {
-    get() { return pending ? pendingTime : time.get.call(v); },
-    set(x) { if (pending) { pendingTime = x; updateHead(); } else time.set.call(v, x); },
+    get() { return pending || settling ? pendingTime : time.get.call(v); },
+    set(x) { if (pending || settling) { pendingTime = x; updateHead(); } else time.set.call(v, x); },
   });
   Object.defineProperty(v, 'duration', { get() { return pending ? DATA.games[current].dur || NaN : dur.get.call(v); } });
   // 動画を読み込んで（残っていればそこから）その位置に。play なら再生も
   activate = async function (play) {
-    const path = pending, at = pendingTime, game = current;
+    const path = pending, game = current;
+    if (play) wantPlay = true;
     bigplay.hidden = true;
     if (!have.has(path) && !blobUrls[path]) showLoading('動画を読み込み中…');
     const total = sizeOf(path);
@@ -1189,13 +1228,25 @@ if (DRIVE) {
       throw e;
     }
     if (current !== game || pending !== path) return;  // 読み込み中にゲームを切り替えた
-    pending = null;
+    const token = ++loadToken;
+    pending = null; settling = true;
     v.src = url;
-    await new Promise(res => v.addEventListener('loadedmetadata', res, { once: true }));
-    time.set.call(v, at);
-    if (play) return proto.play.call(v);
+    const ok = await new Promise(res => {
+      v.addEventListener('loadedmetadata', () => res(true), { once: true });
+      v.addEventListener('error', () => res(false), { once: true });
+    });
+    if (token !== loadToken) return;  // 待っている間にゲームを切り替えた
+    settling = false;
+    const go = wantPlay;
+    wantPlay = false;
+    if (!ok) return;
+    time.set.call(v, pendingTime);  // 読み込み中に動かした位置へ
+    if (go) return proto.play.call(v);
   };
-  v.play = function () { return pending ? activate(true) : proto.play.call(v); };
+  v.play = function () {
+    if (settling) { wantPlay = true; return Promise.resolve(); }
+    return pending ? activate(true) : proto.play.call(v);
+  };
   bigplay.onclick = e => { e.stopPropagation(); v.play().catch(() => {}); };
   bigplay.addEventListener('pointerdown', e => e.stopPropagation());
   bigplay.addEventListener('pointerup', e => e.stopPropagation());
@@ -1203,6 +1254,7 @@ if (DRIVE) {
 
 function select(i, autoplay) {
   stopEndPreview();
+  loadToken++; settling = false; wantPlay = false;
   current = i;
   trimClip = null;
   showStarEdit();
@@ -1404,7 +1456,7 @@ function previewEnd(from, x) {
   }, 25);
   v.play()?.catch?.(() => { if (endPreview === timer) stopEndPreview(); });
 }
-v.addEventListener('pause', stopEndPreview);
+v.addEventListener('pause', () => { if (!v.ended) stopEndPreview(); });
 function removeClip(c) {
   const list = clipsOf(DATA.games[current]);
   list.splice(list.indexOf(c), 1);
@@ -1441,6 +1493,8 @@ function toggleMark() {
   if (c) { removeClip(c); return; }
   const k = focusIndex(), r = k >= 0 && autoRange(DATA.games[current].points[k]);
   if (!r) return;
+  // 「☆だけ」のまま☆のないゲームへ来たときは、付けた瞬間に再生の範囲を変えない
+  if (playMode === 'star' && !clipsOf(DATA.games[current]).length) { playMode = 'rally'; store.set('playMode', 'rally'); }
   clipsOf(DATA.games[current]).push({ a: r[0], b: r[1], ks: [k] });
   changedStars();
 }
@@ -1465,22 +1519,46 @@ function spans() {
 }
 function skipToRally(e) {
   if (endPreview) return;  // 終了の確認中は飛ばさない
-  if (!(playNow() !== 'all' || CUTS_ONLY) || v.paused || v.seeking) return;
+  if (seeking || !(playNow() !== 'all' || CUTS_ONLY) || v.paused || v.seeking) return;
   const t = v.currentTime;
   const ss = spans();
+  if (!ss.length) return;  // 範囲が分からないゲームは、そのまま流す
   if (ss.some(([a, b]) => a <= t && t < b)) return;
   const next = ss.find(([a]) => a > t);
   if (next) { v.currentTime = next[0]; return; }
-  // ☆だけは、最後の☆で止めて最初の☆に戻る（止まった所から押すと頭から）
-  if (!CUTS_ONLY && playNow() === 'star') {
+  afterLastRange(e, ss);
+}
+// 再生する範囲を最後まで見たとき
+function afterLastRange(e, ss) {
+  const rewind = () => {
     if (e?.type !== 'play') v.pause();
-    v.currentTime = ss[0][0];
+    v.currentTime = ss[0][0];  // 止まった所から押すと頭から
+  };
+  if (!CUTS_ONLY && playNow() === 'star') { rewind(); return; }
+  const i = current + 1;
+  if (i >= DATA.games.length) { rewind(); return; }
+  const g = DATA.games[i];
+  // まだ読んでいない動画は、通信量がかかるので聞いてから
+  if (DRIVE && g.video && !have.has(g.video) && !blobUrls[g.video]) {
+    v.pause();
+    askNextGame(i);
     return;
   }
-  // このゲームのラリーは終わり。次のゲームの最初のラリーへ
-  if (current + 1 < DATA.games.length) select(current + 1, true);
-  else v.pause();
+  select(i, true);
 }
+function askNextGame(i) {
+  const c = document.documentElement.classList;
+  const card = document.querySelector(`.game[data-i="${i}"]`);
+  if (c.contains('fs')) { openDl(i, document.getElementById('stage')); return; }
+  if (c.contains('wide') || c.contains('gopen')) { card.scrollIntoView({ block: 'nearest' }); openDl(i, card); return; }
+  openDl(i, document.getElementById('gamesbar'));
+}
+// 区間の途中で動画が終わったとき
+v.addEventListener('ended', e => {
+  if (endPreview || (playNow() === 'all' && !CUTS_ONLY)) return;
+  const ss = spans();
+  if (ss.length) afterLastRange(e, ss);
+});
 v.addEventListener('timeupdate', skipToRally);
 v.addEventListener('play', skipToRally);
 function showRallyOnly() {
@@ -1578,6 +1656,7 @@ function syncMic(force) {
   if (!voiceOn || !g.voice) { mic.pause(); return; }
   if (mic.dataset.path !== g.voice) {
     if (DRIVE) {
+      if (failed[g.voice]) { mic.pause(); return; }
       if (!blobUrls[g.voice]) { mediaBlob(g.voice, { urgent: true }).then(() => syncMic(true)).catch(() => {}); mic.pause(); return; }
       mic.src = blobUrls[g.voice];
     } else mic.src = media(g.voice);
@@ -1592,7 +1671,10 @@ function showVoice() {
   b.hidden = !DATA.games.some(g => g.voice);
   b.classList.toggle('on', voiceOn);
 }
-document.getElementById('voice').onclick = () => { voiceOn = !voiceOn; store.set('voiceOn', voiceOn ? '1' : '0'); showVoice(); syncMic(true); };
+document.getElementById('voice').onclick = () => {
+  voiceOn = !voiceOn; store.set('voiceOn', voiceOn ? '1' : '0');
+  if (voiceOn) delete failed[DATA.games[current].voice];  // 押し直したらもう一度試す
+  showVoice(); syncMic(true); };
 ['play', 'pause', 'seeked', 'ratechange'].forEach(ev => v.addEventListener(ev, () => syncMic(true)));
 v.addEventListener('timeupdate', () => syncMic(false));
 v.addEventListener('emptied', () => mic.pause());
@@ -1672,6 +1754,7 @@ const twist = () => { const [a, b] = [...touches.values()]; return Math.atan2(b.
 const turned = (from, to) => ((to - from + 540) % 360) - 180;
 const TWIST_START = 6, PINCH_START = 0.1, TWIST_SPEED = 0.4;  // 微調整しやすいよう、指の動きより小さく回す
 stage.addEventListener('pointerdown', e => {
+  if (e.target.closest('.boot')) return;
   touches.set(e.pointerId, pt(e));
   stage.setPointerCapture(e.pointerId);
   if (touches.size === 2) { pinch = { d: spread(), zoom: view.zoom, a: twist(), rot: view.rot, mode: null }; drag = null; return; }
@@ -1857,15 +1940,42 @@ function labelAt(g, head, t, labels = faceLabels) {
 }
 
 
+// 顔の検出は途切れることがあるので、同じ頭の前後の位置から補って隠し続ける
+const FACE_GAP_MAX = 3, FACE_HOLD = 0.35;  // 補う最長の途切れ、現れる前と消えた後も隠す長さ（秒）
+const FACE_GAP_GROW = 0.5;                 // 途切れの間は動いている分だけ、隠す範囲を最大この割合広げる
+const faceTracks = {};
+function tracksOf(n) {
+  if (faceTracks[n]) return faceTracks[n];
+  const byId = new Map();
+  FACES[n].frames.forEach((heads, i) => (heads || []).forEach(h => {
+    if (!byId.has(h[3])) byId.set(h[3], { at: [], heads: [] });
+    const tr = byId.get(h[3]);
+    tr.at.push(i); tr.heads.push(h);
+  }));
+  return (faceTracks[n] = [...byId.values()]);
+}
 function headsAt(n, t) {
   const F = FACES[n];
   if (!F) return [];
-  const k = t * F.fps, i = Math.floor(k), f = k - i;
-  const a = F.frames[i] || [], b = F.frames[i + 1] || [];
-  return a.map(h => {
-    const o = b.find(o => o[3] === h[3]);
-    return o ? [h[0] + (o[0] - h[0]) * f, h[1] + (o[1] - h[1]) * f, h[2] + (o[2] - h[2]) * f, h[3]] : h;
-  });
+  const k = t * F.fps, hold = FACE_HOLD * F.fps, maxGap = FACE_GAP_MAX * F.fps, out = [];
+  for (const { at, heads } of tracksOf(n)) {
+    if (k < at[0] - hold || k > at[at.length - 1] + hold) continue;
+    // k 以下で一番近い検出
+    let lo = 0, hi = at.length - 1;
+    while (lo < hi) { const m = Math.ceil((lo + hi) / 2); if (at[m] <= k) lo = m; else hi = m - 1; }
+    const a = heads[lo], fa = at[lo], fb = at[lo + 1];
+    if (k < fa) { out.push(a); continue; }           // 現れる直前
+    if (fb === undefined) { out.push(a); continue; }  // 消えた直後
+    const span = fb - fa, f = (k - fa) / span, b = heads[lo + 1];
+    if (span > maxGap) {
+      // 長く途切れたら別の場面なので、端の近くだけ隠す
+      if (k - fa <= hold) out.push(a); else if (fb - k <= hold) out.push(b);
+      continue;
+    }
+    const grow = span > 1 ? 1 + Math.min(FACE_GAP_GROW, span / F.fps * FACE_GAP_GROW) * Math.sin(Math.PI * f) : 1;
+    out.push([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, (a[2] + (b[2] - a[2]) * f) * grow, a[3]]);
+  }
+  return out;
 }
 const tile = document.createElement('canvas');
 // 映像 src（幅 sw・高さ sh）の上の頭を、ctx（幅 w・高さ h）に隠して描く。
@@ -1876,7 +1986,8 @@ function drawMasks(ctx, src, sw, sh, w, h, g, heads, t, allTags, ids, faces = nu
     const [x, y, , tid] = head;
     const label = labelAt(g, head, t, faces?.faceLabels || faceLabels);
     const set = (faces?.faceSet || faceSet)[label] || { mode: 'none', text: '', tag: false, size: 'm' };
-    const mode = set.mode, emoji = set.text;
+    const emoji = String(set.text ?? '').trim();
+    const mode = set.mode === 'text' && !emoji ? 'mosaic' : set.mode;
     const scale = (SIZES.find(z => z[0] === set.size) || SIZES[1])[2];
     const r = head[2] * scale;
     const R = r * w;  // 描く先のピクセルでの半径
@@ -2139,10 +2250,11 @@ const SAVE_PACE = {
   phone: { high: 1.6, mid: 1, low: 0.5 },
 };
 const canFastSave = () => !!(window.VideoEncoder && window.VideoDecoder && window.OffscreenCanvas);
+const MOBILE = /Android|iPhone|iPad/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 function learnedPace() { try { return JSON.parse(store.get('savePace')) || {}; } catch { return {}; } }
 function paceOf(key) {
   if (!canFastSave()) return 1;  // 再生しながら録るので、動画の長さと同じ
-  return learnedPace()[key] ?? SAVE_PACE[/Android|iPhone|iPad/.test(navigator.userAgent) ? 'phone' : 'pc'][key];
+  return learnedPace()[key] ?? SAVE_PACE[MOBILE ? 'phone' : 'pc'][key];
 }
 const fmtWait = sec => sec < 60 ? '1分未満' : `約${Math.ceil(sec / 60)}分`;
 const FALLBACK_BITRATE = 12e6;      // 元の大きさが分からないとき
@@ -2476,6 +2588,13 @@ document.getElementById('save').onclick = async () => {
   const g = DATA.games[current];
   if (!g.video) return;
   facepop.hidden = true;
+  if (!FACES[g.n]) {
+    clippick.hidden = true;
+    document.getElementById('clipstop').hidden = true;
+    clipmsg.textContent = '顔データがないため保存できません';
+    clippop.hidden = false; fitSheet(clippop);
+    return;
+  }
   clipmsg.textContent = '';
   document.getElementById('clipstop').hidden = true;
   const size = document.getElementById('clipsize');
@@ -2484,6 +2603,7 @@ document.getElementById('save').onclick = async () => {
     const tier = SAVE_TIERS[saveTier];
     // 小さい版を見ているときも、大きさは元の動画で見積もる
     const W = g.full === g.video && v.videoWidth || 1920, H = g.full === g.video && v.videoHeight || 1080;
+    document.getElementById('clipwarn').hidden = !MOBILE || tier.key === 'low';
     const path = saveSource(g, tier), dl = document.getElementById('clipdl');
     dl.hidden = !DRIVE || path === g.video || have.has(path) || !!blobUrls[path];
     if (!dl.hidden) dl.textContent = `元動画を読み込み ${mb(sizeOf(path))}`;
@@ -2494,7 +2614,7 @@ document.getElementById('save').onclick = async () => {
     size.textContent = bytes && g.dur ? `${range}・約${mb(bytes * share * len / g.dur)}・${wait}` : `${range}・${wait}`;
   };
   const host = document.getElementById('clipseg');
-  host.replaceChildren(segmented(Object.entries(SAVE_TIERS).map(([k, x]) => [k, x.label]), () => saveTier,
+  host.replaceChildren(segmented(Object.entries(SAVE_TIERS).map(([k, x]) => [k, MOBILE && k !== 'low' ? `${x.label} ⚠` : x.label]), () => saveTier,
     k => { saveTier = k; store.set('saveTier', k); showSize(); }));
   showSize();
   const barBtn = document.getElementById('clipbar');
@@ -2523,7 +2643,7 @@ const endSave = snap => { if (activeSave === snap) activeSave = null; };
 // 保存中に閉じたり更新したりすると作りかけが消えるので、ブラウザの確認を出す
 addEventListener('beforeunload', e => { if (activeSave) { e.preventDefault(); e.returnValue = ''; } });
 async function startSave(g, tier) {
-  if (activeSave) return;
+  if (activeSave || !FACES[g.n]) return;
   const snap = activeSave = takeSnapshot(g, tier);
   try { await runSave(g, tier, snap); }
   catch (e) { console.warn('保存に失敗', e); clipmsg.textContent = '保存できませんでした'; snap.hold = false; }

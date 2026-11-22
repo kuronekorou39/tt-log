@@ -3,7 +3,7 @@ import XCTest
 
 /// 例は 2026-11-12 の練習の音声ログから。単語の区切りはアプリ側（CFStringTokenizer）の区切り方に合わせる。
 final class WordSpotterTests: XCTestCase {
-    private let matcher = VoiceCommandMatcher(playerWords: [["ひだり", "ろう"], ["みぎ", "とも"]])
+    private let matcher = VoiceCommandMatcher(playerWords: [["ひだり", "たろ"], ["みぎ", "はな"]])
 
     private func hits(_ tokens: [String]) -> [WordSpotter.Hit] {
         WordSpotter.hits(tokens: tokens, matcher: matcher)
@@ -51,7 +51,7 @@ final class WordSpotterTests: XCTestCase {
     func testPointWordsAcrossTokens() {
         // 「左点」→「ひだり」「てん」は1つの言葉
         XCTAssertEqual(hits(["ひだり", "てん"]), [.init(player: 0, tokenIndex: 0, status: .pending)])
-        XCTAssertEqual(hits(["とも", "くん", "の", "ぽいんと"]).map(\.player), [1])
+        XCTAssertEqual(hits(["はな", "くん", "の", "ぽいんと"]).map(\.player), [1])
     }
 
     func testWordInsideAnotherWordIsIgnored() {
@@ -62,6 +62,6 @@ final class WordSpotterTests: XCTestCase {
     func testMisheardAndNames() {
         XCTAssertEqual(hits(["ひだ"]).map(\.player), [0]) // 飛騨
         XCTAssertEqual(hits(["みさと"]).map(\.player), [1]) // 美里
-        XCTAssertEqual(hits(["ろう"]).map(\.player), [0])
+        XCTAssertEqual(hits(["たろ"]).map(\.player), [0])
     }
 }
