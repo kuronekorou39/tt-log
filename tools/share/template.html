@@ -79,6 +79,9 @@ header h1 .session:hover { border-color:var(--line); }
 .stage .zoomtag { position:absolute; right:8px; top:8px; background:rgba(0,0,0,.55); color:#fff; font-size:.75rem;
   padding:2px 8px; border-radius:99px; pointer-events:none; opacity:0; transition:opacity .2s; }
 .stage .zoomtag.show { opacity:1; }
+.stage .rotreset { position:absolute; left:8px; top:8px; z-index:5; border:0; border-radius:99px; background:rgba(0,0,0,.55); color:#fff;
+  font-size:.75rem; padding:3px 9px; cursor:pointer; font-variant-numeric:tabular-nums; white-space:nowrap; }
+html.ov.idle .stage .rotreset { opacity:0; pointer-events:none; }
 .stage .now { position:absolute; left:50%; transform:translateX(-50%); top:8px; background:rgba(0,0,0,.6); color:#fff; font-weight:800;
   font-size:1.1rem; padding:2px 12px; border-radius:8px; pointer-events:none; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .stage .now .a { color:#ff9aa6; } .stage .now .b { color:#8fd3ef; }
@@ -100,21 +103,29 @@ header h1 .session:hover { border-color:var(--line); }
 .controls .grp { display:flex; gap:6px; align-items:center; }
 .controls .brk { display:none; }
 .controls .sepgrp { border-left:1px solid var(--line); padding-left:10px; }
-.controls button.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
+/* オンオフ：オンは明るく下にランプ、オフは薄く */
+.controls button.tg { position:relative; color:var(--muted); }
+.controls button.tg svg { opacity:.5; }
+.controls button.tg::after { content:''; position:absolute; left:22%; right:22%; bottom:1px; height:3px; border-radius:2px; background:transparent; }
+.controls button.tg.on { color:var(--fg); }
+.controls button.tg.on svg { opacity:1; }
+.controls button.tg.on::after { background:#2fae66; }
+.controls #rate.on { font-weight:800; background:var(--track); }
+.controls #save.on { background:var(--track); }
 .controls #play { width:44px; height:44px; border-radius:50%; background:var(--fg); color:var(--bg); font-size:1.1rem; }
 .controls #play:hover { background:var(--fg); opacity:.85; }
 .controls .time { font-variant-numeric:tabular-nums; color:var(--muted); margin-right:auto; padding-left:4px; }
 .controls .sep { width:1px; height:20px; background:var(--line); margin:0 4px; }
 
 /* 得点を並べたシークバー。上の段が A、下の段が B の点 */
-/* 上の段（赤）：☆・点数・印、帯、下の段（青）：印・点数・☆。☆ がなくてもその分を空けて、位置をそろえる */
-.seek { position:relative; height:100px; cursor:pointer; user-select:none; }
-.seek .track { position:absolute; left:0; right:0; top:42px; height:12px; border-radius:6px; background:var(--track); overflow:hidden; }
+/* 上の段（赤）：点数・印、帯、下の段（青）：印・点数 */
+.seek { position:relative; height:72px; cursor:pointer; user-select:none; }
+.seek .track { position:absolute; left:0; right:0; top:28px; height:12px; border-radius:6px; background:var(--track); overflow:hidden; }
 .seek .played { position:absolute; left:0; top:0; bottom:0; background:var(--played); }
 .seek .band { position:absolute; top:0; bottom:0; opacity:.3; box-shadow:inset -1px 0 0 var(--card); }
-.seek .head { position:absolute; top:34px; width:3px; height:28px; margin-left:-1px; background:var(--fg); border-radius:2px; pointer-events:none; }
+.seek .head { position:absolute; top:20px; width:3px; height:28px; margin-left:-1px; background:var(--fg); border-radius:2px; pointer-events:none; }
 .seek .mk { position:absolute; width:20px; margin-left:-10px; display:flex; flex-direction:column; align-items:center; }
-.seek .mk.a { top:0; } .seek .mk.b { top:58px; flex-direction:column-reverse; }
+.seek .mk.a { top:0; } .seek .mk.b { top:44px; flex-direction:column-reverse; }
 .seek .mk i { display:block; width:4px; height:10px; border-radius:2px; background:currentColor; }
 .seek .mk b { font-size:.72rem; font-weight:700; line-height:1.25; white-space:nowrap; font-variant-numeric:tabular-nums; }
 .seek .mk.hide b { visibility:hidden; }
@@ -123,17 +134,11 @@ header h1 .session:hover { border-color:var(--line); }
 .seek .tip { position:absolute; top:-6px; transform:translate(-50%,-100%); background:var(--fg); color:var(--bg); font-size:.8rem;
   padding:3px 8px; border-radius:6px; white-space:nowrap; pointer-events:none; display:none; z-index:2; }
 
-/* 印（★ は自分で付けたもの、☆ は長いラリーの候補） */
-:root { --star:#e0a100; }
 /* スクロールバー：細く、目立たない色に */
 * { scrollbar-width:thin; scrollbar-color:color-mix(in srgb, var(--muted) 35%, transparent) transparent; }
 ::-webkit-scrollbar { width:8px; height:8px; }
 ::-webkit-scrollbar-track { background:transparent; }
 ::-webkit-scrollbar-thumb { background:color-mix(in srgb, var(--muted) 35%, transparent); border-radius:4px; }
-.seek .mk .st { font-size:.8rem; line-height:1; height:14px; color:var(--star); }
-.seek .mk.cand .st { opacity:.55; }
-.seek .mk.marked b, .seek .mk.cand b { visibility:visible; }
-.controls #mark.on { background:var(--star); border-color:var(--star); color:#fff; }
 
 /* ゲームの一覧と流れ */
 .games { display:flex; flex-direction:column; padding-bottom:var(--clip-h, 0px); }
@@ -203,6 +208,8 @@ header h1 .session:hover { border-color:var(--line); }
   padding:4px 16px; font-size:.95rem; white-space:nowrap; }
 #clippop .seg button.on { color:var(--fg); font-weight:700; background:none; }
 #clippop #clipdl { color:var(--muted); font-size:.85rem; font-variant-numeric:tabular-nums; white-space:nowrap; }
+#clippop .chk { display:inline-flex; align-items:center; gap:6px; width:max-content; font-size:.85rem; color:var(--muted); cursor:pointer; }
+#clippop .chk input { width:15px; height:15px; margin:0; accent-color:var(--fg); }
 #clippop #clipgo { min-height:40px; }
 #facepop { position:fixed; right:14px; bottom:14px; width:min(340px, calc(100vw - 24px)); max-height:calc(100vh - 80px);
   overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px;
@@ -327,6 +334,7 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
       <div class="now" id="now"></div>
       <div class="cap" id="cap" hidden></div>
       <div class="zoomtag" id="zoomtag"></div>
+      <button class="rotreset" id="rotreset" aria-label="角度を戻す" hidden></button>
     </div>
     <div class="seek" id="seek">
       <div class="track"><div class="played" id="played"></div></div>
@@ -339,19 +347,18 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
         <button id="prev" aria-label="前の点">⏮</button>
         <button id="next" aria-label="次の点">⏭</button>
         <button id="rate" aria-label="速さ">1×</button>
-        <button id="rallyonly" aria-label="試合をしているところだけ再生"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg><span class="lbl">試合だけ</span></button>
-        <button id="mark" aria-label="★を付ける" style="font-size:1.25rem">☆</button>
       </div>
       <span class="time" id="time">0:00 / 0:00</span>
       <div class="brk"></div>
       <div class="grp toggles">
-        <button id="score" aria-label="動画の上の点数"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg><span class="lbl">点数</span></button>
-        <button id="caps" aria-label="字幕" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M15 15h2M7 11h2M13 11h4"/></svg><span class="lbl">字幕</span></button>
-        <button id="voice" aria-label="胸元マイクの音" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg><span class="lbl">音声</span></button>
-        <button id="fullscreen" aria-label="全画面"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span class="lbl">全画面</span></button>
-        <button id="face" class="menu" aria-label="顔の隠し方の設定" aria-haspopup="dialog" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg><span class="lbl">顔</span><svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+        <button id="rallyonly" class="tg" aria-label="試合をしているところだけ再生"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg><span class="lbl">試合だけ</span></button>
+        <button id="score" class="tg" aria-label="動画の上の点数"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg><span class="lbl">点数</span></button>
+        <button id="caps" class="tg" aria-label="字幕" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M15 15h2M7 11h2M13 11h4"/></svg><span class="lbl">字幕</span></button>
+        <button id="voice" class="tg" aria-label="胸元マイクの音" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg><span class="lbl">音声</span></button>
       </div>
       <div class="grp sepgrp">
+        <button id="face" class="menu" aria-label="顔の隠し方の設定" aria-haspopup="dialog" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg><span class="lbl">顔</span><svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+        <button id="fullscreen" aria-label="全画面"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span class="lbl">全画面</span></button>
         <button id="save" aria-label="このゲームを動画で保存"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg><span class="lbl">保存</span></button>
       </div>
     </div>
@@ -374,7 +381,7 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
   <div class="pick" id="clippick" hidden>
     <div class="pickrow"><span id="clipseg"></span><span id="clipsize"></span></div>
     <div id="clipdl" hidden></div>
-    <button id="clipbar">シークバー</button>
+    <label class="chk"><input type="checkbox" id="clipbar">スコアバー</label>
     <button class="go" id="clipgo">保存</button>
   </div>
   <div class="msg" id="clipmsg"></div>
@@ -650,15 +657,16 @@ const v = document.getElementById('v');
 const stage = document.getElementById('stage');
 const seek = document.getElementById('seek');
 let current = 0;
-let view = { zoom: 1, cx: 0.5, cy: 0.5 };
+let view = { zoom: 1, cx: 0.5, cy: 0.5, rot: 0 };
 
+// 以前の印がブラウザに残っていれば消す
+try { Object.keys(localStorage).filter(k => k.startsWith('marks-')).forEach(k => localStorage.removeItem(k)); } catch {}
 const fmt = s => { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
                 set(k, x) { try { localStorage.setItem(k, x); } catch {} } };
 
 // ---------- 流れのグラフ（中央線より上は A のリード、下は B のリード） ----------
 function flowSVG(g, id, mark) {
-  const gi = DATA.games.indexOf(g);
   const W = 300, H = 36, M = H / 2, n = g.points.length;
   const ds = [0, ...g.points.map(p => p.s[0] - p.s[1])];
   const max = Math.max(3, ...ds.map(Math.abs));
@@ -676,12 +684,6 @@ function flowSVG(g, id, mark) {
     <g clip-path="url(#t${id})"><path d="${area}" fill="var(--a-soft)"/><path d="${line}" fill="none" stroke="var(--a)" stroke-width="2" vector-effect="non-scaling-stroke"/></g>
     <g clip-path="url(#u${id})"><path d="${area}" fill="var(--b-soft)"/><path d="${line}" fill="none" stroke="var(--b)" stroke-width="2" vector-effect="non-scaling-stroke"/></g>
     <line x1="0" x2="${W}" y1="${M}" y2="${M}" stroke="var(--muted)" stroke-width="1" opacity=".55" vector-effect="non-scaling-stroke"/>
-    ${g.points.map((p, k) => {
-      const m = markOf(gi, k);
-      if (!m) return '';
-      const px = x(k + 1).toFixed(1);
-      return `<line x1="${px}" x2="${px}" y1="0" y2="${H}" stroke="var(--star)" stroke-width="${m === 'star' ? 3 : 2}" opacity="${m === 'star' ? .55 : .25}" vector-effect="non-scaling-stroke"/>`;
-    }).join('')}
     ${markX == null ? '' : `<line x1="${markX}" x2="${markX}" y1="0" y2="${H}" stroke="var(--fg)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`}
   </svg>`;
 }
@@ -747,10 +749,7 @@ function renderMarkers() {
     m.className = `mk ${p.w === 0 ? 'a' : 'b'}`;
     m.style.left = `${x}px`;
     m.style.color = p.w === 0 ? 'var(--a)' : 'var(--b)';
-    const mark = markOf(current, DATA.games[current].points.indexOf(p));
-    const star = `<span class="st">${mark ? (mark === 'star' ? '★' : '☆') : ''}</span>`;
-    m.innerHTML = p.w === 0 ? `${star}<b>${p.s[0]}-${p.s[1]}</b><i></i>` : `${star}<b>${p.s[0]}-${p.s[1]}</b><i></i>`;
-    if (mark) m.classList.add(mark === 'star' ? 'marked' : 'cand');
+    m.innerHTML = `<b>${p.s[0]}-${p.s[1]}</b><i></i>`;
     // 文字が重なるところは数字を隠す（触れると出る）
     const label = `${p.s[0]}-${p.s[1]}`.length * 7 + 8;
     if (x - lastX[p.w] < label) m.classList.add('hide'); else lastX[p.w] = x;
@@ -808,11 +807,6 @@ function updateHead() {
   showCaption();
   seek.querySelectorAll('.mk').forEach(m => m.classList.toggle('cur', !!p && +m.dataset.vt === p.vt));
   if (k !== lastMark) { lastMark = k; renderGames(k); }
-  const fi = focusIndex();
-  const fm = fi >= 0 ? markOf(current, fi) : null;
-  const mb = document.getElementById('mark');
-  mb.textContent = fm === 'star' ? '★' : '☆';
-  mb.classList.toggle('on', fm === 'star');
 }
 
 function jump(p) {
@@ -1102,39 +1096,6 @@ function select(i, autoplay) {
 // その点の見始め（サーブの少し前）
 function startOf(p) { return Math.max(0, p.r ? p.r[0] : p.vt - LEAD); }
 
-// ---------- 印 ----------
-// 点ごとの印。1 = ★、0 = 外した（候補の ☆ も出さない）。ないものは、候補なら ☆
-// このブラウザにだけ覚える（あとで自分で見返す用）
-const MARK_KEY = `marks-${DATA.id}`;
-const keyOf = (gi, k) => `${DATA.games[gi].n}-${k + 1}`;
-let marks = {};
-try { marks = JSON.parse(store.get(MARK_KEY)) || {}; } catch {}
-
-function markOf(gi, k) {
-  const key = keyOf(gi, k);
-  if (marks[key] === 1) return 'star';
-  if (marks[key] === 0) return null;
-  return DATA.candidates.includes(key) ? 'cand' : null;
-}
-
-// いま見ている点：再生位置がラリーの中ならその点、そうでなければ直前に入った点
-function focusIndex() {
-  const ps = DATA.games[current].points, t = v.currentTime;
-  const inRally = ps.findIndex(p => p.vt !== null && startOf(p) - 1 <= t && t <= p.vt + 1);
-  return inRally >= 0 ? inRally : currentIndex();
-}
-
-function toggleMark() {
-  const k = focusIndex();
-  if (k < 0) return;
-  const key = keyOf(current, k);
-  marks[key] = markOf(current, k) === 'star' ? 0 : 1;
-  store.set(MARK_KEY, JSON.stringify(marks));
-  renderMarkers(); lastMark = null; updateHead();
-}
-
-
-document.getElementById('mark').onclick = toggleMark;
 // ---------- 間を飛ばす ----------
 // 点の範囲（サーブの少し前から点を入れたところ）の間を飛ばす。ゲームの最後まで来たら次のゲームへ
 let rallyOnly = store.get('rallyOnly') !== '0';
@@ -1205,7 +1166,6 @@ addEventListener('keydown', e => {
   else if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
   else if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
   else if (e.key === 'ArrowDown') { e.preventDefault(); select(Math.min(current + 1, DATA.games.length - 1), true); }
-  else if (e.key === 'm' || e.key === 'M') { toggleMark(); }
   else if (e.key === 'ArrowUp') { e.preventDefault(); select(Math.max(current - 1, 0), true); }
 });
 addEventListener('resize', () => { renderMarkers(); applyView(); });
@@ -1272,54 +1232,106 @@ showVoice();
 
 // ---------- 画角（拡大と、ドラッグで位置合わせ） ----------
 // 映像が枠に収まる大きさ（contain）を基準に、zoom 倍して、映像上の (cx, cy) を枠の中央に置く
+// 傾けると四隅に黒が出るので、そのぶんだけ大きくする倍率
+function tiltScale(w, h) {
+  const r = Math.abs(view.rot) * Math.PI / 180;
+  return r ? Math.cos(r) + Math.max(w / h, h / w) * Math.sin(r) : 1;
+}
+// 映像（大きさ w×h）の中で、見える範囲（bw×bh）がはみ出さない中心
+function clampCenter(w, h, bw, bh) {
+  const r = Math.abs(view.rot) * Math.PI / 180, c = Math.cos(r), n = Math.sin(r);
+  const ex = (bw * c + bh * n) / 2 / w, ey = (bw * n + bh * c) / 2 / h;
+  const fit = (x, e) => e >= 0.5 ? 0.5 : Math.min(Math.max(x, e), 1 - e);
+  return [fit(view.cx, ex), fit(view.cy, ey)];
+}
 function applyView() {
   const W = stage.clientWidth, H = stage.clientHeight;
   const vw = v.videoWidth || 16, vh = v.videoHeight || 9;
   const base = Math.min(W / vw, H / vh);
-  const s = base * view.zoom;
+  const s = base * view.zoom * tiltScale(vw, vh);
   const dw = vw * s, dh = vh * s;
-  // 黒い余白が出ないよう、中心の動ける範囲を絞る
-  const clamp = (c, size, box) => size <= box ? 0.5 : Math.min(Math.max(c, box / 2 / size), 1 - box / 2 / size);
-  view.cx = clamp(view.cx, dw, W); view.cy = clamp(view.cy, dh, H);
-  const tx = W / 2 - view.cx * dw, ty = H / 2 - view.cy * dh;
+  // 見える枠：動画の枠と画面の重なり
+  const bw = Math.min(W, vw * base * view.zoom), bh = Math.min(H, vh * base * view.zoom);
+  [view.cx, view.cy] = clampCenter(dw, dh, bw, bh);
+  const px = view.cx * dw, py = view.cy * dh, rad = view.rot * Math.PI / 180;
   v.style.objectFit = 'fill';
   v.style.width = `${dw}px`; v.style.height = `${dh}px`;
   v.style.left = '0'; v.style.top = '0'; v.style.right = 'auto'; v.style.bottom = 'auto';
-  v.style.transform = `translate(${tx}px, ${ty}px)`;
+  v.style.transform = `translate(${W / 2}px, ${H / 2}px) rotate(${view.rot}deg) translate(${-px}px, ${-py}px)`;
+  // 傾いた映像の端が、動画の枠の外に見えないように切る
+  const cos = Math.cos(rad), sin = Math.sin(rad);
+  const clip = view.rot ? `polygon(${[[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => {
+    const ax = x * bw / 2, ay = y * bh / 2;
+    return `${(ax * cos + ay * sin + px).toFixed(1)}px ${(-ax * sin + ay * cos + py).toFixed(1)}px`;
+  }).join(',')})` : '';
+  v.style.clipPath = clip;
   const m = document.getElementById('mask');
-  m.style.width = `${dw}px`; m.style.height = `${dh}px`; m.style.transform = v.style.transform;
-  store.set('view', JSON.stringify(view));
+  m.style.width = `${dw}px`; m.style.height = `${dh}px`; m.style.transform = v.style.transform; m.style.clipPath = clip;
+  store.set('view', JSON.stringify({ zoom: view.zoom, cx: view.cx, cy: view.cy }));
 }
+const MAX_TILT = 10, rotKey = `rot-${DATA.id}`;
+const rotBtn = document.getElementById('rotreset');
+function setRot(deg) {
+  const d = Math.min(Math.max(deg, -MAX_TILT), MAX_TILT);
+  view.rot = Math.abs(d) < 0.15 ? 0 : Math.round(d * 10) / 10;  // 0 の近くはぴったり 0 に
+  rotBtn.hidden = !view.rot;
+  rotBtn.textContent = `↺ ${view.rot > 0 ? '+' : ''}${view.rot.toFixed(1)}°`;
+  store.set(rotKey, String(view.rot));
+  applyView();
+}
+rotBtn.addEventListener('pointerdown', e => e.stopPropagation());
+rotBtn.addEventListener('pointerup', e => e.stopPropagation());
+rotBtn.onclick = e => { e.stopPropagation(); setRot(0); };
 function setZoom(z, keepCenter) {
-  view.zoom = Math.min(Math.max(z, 1), 3);
+  view.zoom = z < 1.03 ? 1 : Math.min(z, 3);  // 1倍の近くはぴったり 1 に
   const tag = document.getElementById('zoomtag');
   tag.textContent = `${view.zoom.toFixed(2)}×`; tag.classList.add('show');
   clearTimeout(setZoom.t); setZoom.t = setTimeout(() => tag.classList.remove('show'), 800);
   applyView();
 }
-stage.addEventListener('wheel', e => { e.preventDefault(); setZoom(view.zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08)); }, { passive: false });
+stage.addEventListener('wheel', e => {
+  e.preventDefault();
+  // Shift + ホイールで角度
+  if (e.shiftKey) { setRot(view.rot + ((e.deltaY || e.deltaX) < 0 ? 0.2 : -0.2)); return; }
+  setZoom(view.zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08));
+}, { passive: false });
 
-// ドラッグで動かす。2本指で広げる・縮める。動かさずに離したら再生／一時停止
+// ドラッグで動かす。2本指で広げる・縮める、ひねると角度。動かさずに離したら再生／一時停止
 let drag = null, pinch = null;
 const touches = new Map();
 const spread = () => { const [a, b] = [...touches.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+const twist = () => { const [a, b] = [...touches.values()]; return Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI; };
+const turned = (from, to) => ((to - from + 540) % 360) - 180;
+const TWIST_START = 6, PINCH_START = 0.1, TWIST_SPEED = 0.4;  // 微調整しやすいよう、指の動きより小さく回す
 stage.addEventListener('pointerdown', e => {
   touches.set(e.pointerId, pt(e));
   stage.setPointerCapture(e.pointerId);
-  if (touches.size === 2) { pinch = { d: spread(), zoom: view.zoom }; drag = null; return; }
+  if (touches.size === 2) { pinch = { d: spread(), zoom: view.zoom, a: twist(), rot: view.rot, mode: null }; drag = null; return; }
   drag = { ...pt(e), cx: view.cx, cy: view.cy, moved: false };
 });
 const release = e => { touches.delete(e.pointerId); if (touches.size < 2) pinch = null; };
 stage.addEventListener('pointercancel', e => { release(e); drag = null; });
 stage.addEventListener('pointermove', e => {
   if (touches.has(e.pointerId)) touches.set(e.pointerId, pt(e));
-  if (pinch && touches.size === 2) { setZoom(pinch.zoom * spread() / pinch.d); return; }
+  if (pinch && touches.size === 2) {
+    // 最初の動きで、拡大か角度のどちらかに決める（拡大中に傾かないように）
+    const ratio = spread() / pinch.d, deg = turned(pinch.a, twist());
+    if (!pinch.mode) {
+      if (Math.abs(deg) >= TWIST_START) { pinch.mode = 'twist'; pinch.a = twist(); }
+      else if (Math.abs(ratio - 1) >= PINCH_START) pinch.mode = 'zoom';
+    }
+    if (pinch.mode === 'zoom') setZoom(pinch.zoom * ratio);
+    else if (pinch.mode === 'twist') setRot(pinch.rot + turned(pinch.a, twist()) * TWIST_SPEED);
+    return;
+  }
   if (!drag) return;
   const p = pt(e), dx = p.x - drag.x, dy = p.y - drag.y;
   if (Math.abs(dx) + Math.abs(dy) > 6) drag.moved = true;
-  if (!drag.moved || view.zoom === 1) return;
+  if (!drag.moved || (view.zoom === 1 && !view.rot)) return;
   const w = parseFloat(v.style.width), h = parseFloat(v.style.height);
-  view.cx = drag.cx - dx / w; view.cy = drag.cy - dy / h;
+  // 傾いているときは、指の向きを映像の向きに直す
+  const rad = view.rot * Math.PI / 180, c = Math.cos(rad), n = Math.sin(rad);
+  view.cx = drag.cx - (dx * c + dy * n) / w; view.cy = drag.cy - (-dx * n + dy * c) / h;
   applyView();
 });
 stage.addEventListener('pointerup', e => {
@@ -1764,6 +1776,24 @@ function outputOf(tier, W, H, cw, ch) {
   const full = tier.h ? Math.min(H, tier.h) ** 2 * (W / H) : W * H;
   return { ow, oh, share: tier.share * Math.min(1, ow * oh / full) };
 }
+// 今の拡大と角度で切り出す範囲（元の映像のピクセル）
+function viewCrop(W, H) {
+  const rad = view.rot * Math.PI / 180;
+  // 丸めで四隅に黒が残らないよう、傾けたときは少しだけ余分に
+  const Z = view.zoom * tiltScale(W, H) * (view.rot ? 1.002 : 1);
+  const cw = even(W / Z), ch = even(H / Z);
+  const [cx, cy] = clampCenter(W, H, cw, ch);
+  return { rad, cw, ch, cx, cy };
+}
+function drawCrop(c, src, W, H, crop, ow, oh) {
+  c.save();
+  c.translate(ow / 2, oh / 2);
+  c.rotate(crop.rad);
+  c.scale(ow / crop.cw, oh / crop.ch);
+  c.translate(-crop.cx * W, -crop.cy * H);
+  c.drawImage(src, 0, 0, W, H);
+  c.restore();
+}
 // 保存する区間：「試合だけ」がオンならラリーだけ、オフなら全部
 const keptRanges = (g, dur = g.dur || 0) => rallyOnly && g.spans?.length ? g.spans : [[0, dur]];
 const lengthOf = ranges => ranges.reduce((sum, [a, b]) => sum + b - a, 0);
@@ -1894,14 +1924,11 @@ async function runFastSave(g, url, tier, onInput) {
   if (!track) return false;
   const W = track.displayWidth, H = track.displayHeight;
   // 拡大している部分を切り取る（引き伸ばさず、そのままの細かさで）
-  const z = view.zoom;
-  const cw = even(W / z), ch = even(H / z);
-  const cx = Math.min(Math.max(view.cx, 0.5 / z), 1 - 0.5 / z), cy = Math.min(Math.max(view.cy, 0.5 / z), 1 - 0.5 / z);
-  const sx = Math.min(Math.max(0, Math.round(cx * W - cw / 2)), W - cw), sy = Math.min(Math.max(0, Math.round(cy * H - ch / 2)), H - ch);
+  const crop = viewCrop(W, H), { cw, ch } = crop;
   const { ow, oh, share } = outputOf(tier, W, H, cw, ch);
   if (!(await M.canEncodeVideo('avc', { width: ow, height: oh }).catch(() => false))) return false;
   const full = new OffscreenCanvas(W, H), fctx = full.getContext('2d');
-  const asIs = ow === W && oh === H;  // 切り取りも縮小もなければ、1回ぶん描かずに済む
+  const asIs = ow === W && oh === H && !view.rot;  // 切り取りも縮小もなければ、1回ぶん描かずに済む
   const out = asIs ? full : new OffscreenCanvas(ow, oh), octx = asIs ? fctx : out.getContext('2d');
   const duration = await input.computeDuration();
   const ranges = keptRanges(g, duration).map(([x, y]) => [Math.max(0, x), Math.min(duration, y)]).filter(([x, y]) => y > x);
@@ -1958,7 +1985,7 @@ async function runFastSave(g, url, tier, onInput) {
           const frame = sample.toCanvasImageSource();
           fctx.drawImage(frame, 0, 0, W, H);
           drawMasks(fctx, frame, W, H, W, H, g, headsAt(g.n, at), at, false, false);
-          if (!asIs) octx.drawImage(full, sx, sy, cw, ch, 0, 0, ow, oh);
+          if (!asIs) drawCrop(octx, full, W, H, crop, ow, oh);
           overlay(octx, at);
           await videoOut.add(when, step);
           next = Math.max(next + step, when + step / 2);
@@ -2048,7 +2075,7 @@ document.getElementById('save').onclick = async () => {
     const path = saveSource(g, tier), dl = document.getElementById('clipdl');
     dl.hidden = !DRIVE || path === g.video || have.has(path) || !!blobUrls[path];
     if (!dl.hidden) dl.textContent = `元動画を読み込み ${mb(sizeOf(path))}`;
-    const { share } = outputOf(tier, W, H, even(W / view.zoom), even(H / view.zoom));
+    const { cw, ch } = viewCrop(W, H), { share } = outputOf(tier, W, H, cw, ch);
     const len = lengthOf(keptRanges(g));
     const wait = `作成に${fmtWait(paceOf(tier.key) * len)}`;
     size.textContent = bytes && g.dur ? `約${mb(bytes * share * len / g.dur)}・${wait}` : wait;
@@ -2058,8 +2085,8 @@ document.getElementById('save').onclick = async () => {
     k => { saveTier = k; store.set('saveTier', k); showSize(); }));
   showSize();
   const barBtn = document.getElementById('clipbar');
-  barBtn.classList.toggle('on', saveBar);
-  barBtn.onclick = () => { saveBar = !saveBar; store.set('saveBar', saveBar ? '1' : '0'); barBtn.classList.toggle('on', saveBar); };
+  barBtn.checked = saveBar;
+  barBtn.onchange = () => { saveBar = barBtn.checked; store.set('saveBar', saveBar ? '1' : '0'); };
   document.getElementById('clipgo').onclick = () => { clippick.hidden = true; startSave(g, SAVE_TIERS[saveTier]); };
   clippick.hidden = false;
   clippop.hidden = false; fitSheet(clippop);
@@ -2098,17 +2125,13 @@ async function startSave(g, tier) {
   src.playsInline = true; src.preload = 'auto'; src.src = url;
   await new Promise(r => src.addEventListener('loadedmetadata', r, { once: true }));
   const W = src.videoWidth, H = src.videoHeight;
-  const { ow: OW, oh: OH, share } = outputOf(tier, W, H, even(W / view.zoom), even(H / view.zoom));
+  const startCrop = viewCrop(W, H);
+  const { ow: OW, oh: OH, share } = outputOf(tier, W, H, startCrop.cw, startCrop.ch);
   const canvas = document.createElement('canvas'); canvas.width = OW; canvas.height = OH;
   const ctx = canvas.getContext('2d');
   // 顔を隠した1コマを描いてから、そのときの拡大のぶんを切り取る
   const full = document.createElement('canvas'); full.width = W; full.height = H;
   const fctx = full.getContext('2d');
-  const cropOf = () => {
-    const z = view.zoom, cw = 1 / z, ch = 1 / z;
-    const cx = Math.min(Math.max(view.cx, cw / 2), 1 - cw / 2), cy = Math.min(Math.max(view.cy, ch / 2), 1 - ch / 2);
-    return [(cx - cw / 2) * W, (cy - ch / 2) * H, cw * W, ch * H];
-  };
   const stream = canvas.captureStream(30);
   // 音：映像の音を録音にも、スピーカーにも流す
   const ac = new AudioContext();
@@ -2133,7 +2156,7 @@ async function startSave(g, tier) {
     if (done) return;
     fctx.drawImage(src, 0, 0, W, H);
     drawMasks(fctx, src, W, H, W, H, g, headsAt(g.n, src.currentTime), src.currentTime, false, false);
-    ctx.drawImage(full, ...cropOf(), 0, 0, OW, OH);
+    drawCrop(ctx, full, W, H, startCrop, OW, OH);
     overlay(ctx, src.currentTime);
     clipmsg.textContent = `第${g.n}ゲーム（画質：${tier.label}）を保存中 ${fmt(src.currentTime - a)} / ${fmt(b - a)}　経過${fmt((performance.now() - recStart) / 1000)}`;
     if (src.currentTime >= b || src.ended) { rec.stop(); return; }
@@ -2166,7 +2189,9 @@ async function startSave(g, tier) {
     clipmsg.textContent = '再生できませんでした'; }
 }
 
-try { const saved = JSON.parse(store.get('view')); if (saved && saved.zoom) view = saved; } catch {}
+try { const saved = JSON.parse(store.get('view')); if (saved && saved.zoom) view = { ...view, ...saved, rot: 0 }; } catch {}
+// 角度はカメラの傾きなので、回ごとに覚える
+setRot(+store.get(rotKey) || 0);
 select(0, false);
 })();
 </script>

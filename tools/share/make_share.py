@@ -13,7 +13,7 @@ iPad のスコアボードの記録（SwiftData の default.store）と、iPhone
     python tools/share/make_share.py --store <default.store> --camera <Sessions/フォルダ> --voice <VoiceLogs> --out share/2026-11-20
 
 動画をつなぐのに ffmpeg / ffprobe を使う（PATH にあること）。
-ラリーを探すのに numpy / scipy を使う（rallies.py）。見どころの候補（☆）は highlights.py で選ぶ。ページで付けた印（★）は見た人のブラウザにだけ残る。
+ラリーを探すのに numpy / scipy を使う（rallies.py）。
 """
 
 import argparse
@@ -28,7 +28,6 @@ import subprocess
 import tempfile
 import uuid
 
-import highlights
 from pathlib import Path
 
 # SwiftData（Core Data）の日時は 2001-01-01 からの秒
@@ -357,7 +356,7 @@ def write_html(path: Path, session_id: str, names: list[str], log: dict, games: 
         "date": f"{started.year}年{started.month}月{started.day}日",
         "won": won,
         "stats": rows,
-        "data": {"id": session_id, "names": names, "games": data, "candidates": highlights.candidates(games)},
+        "data": {"id": session_id, "names": names, "games": data},
     }
     # 顔を隠すための頭の位置（faces.py で作る）。file:// でも読めるようスクリプトで読む
     faces = sorted(path.parent.glob("data/faces-game*.js"))
