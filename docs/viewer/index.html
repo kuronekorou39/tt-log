@@ -322,21 +322,37 @@ html.fs #facepop, html.fs #clippop { z-index:30; }
 /* 縦向きのまま横向きにできないスマホ（iPhone など）：画面ごと90度回す */
 html.fs.rot body { position:fixed; left:0; top:0; width:100vh; width:100dvh; height:100vw; transform-origin:0 0; transform:translateX(100vw) rotate(90deg); }
 
-/* ---- 縦長（スマホ）：縦に並べてスクロール ---- */
-html:not(.wide) .app { display:flex; flex-direction:column; gap:12px; padding:0 12px 40px; overflow-x:clip; }
-html:not(.wide) .left { display:flex; flex-direction:column; gap:6px; position:sticky; top:0; z-index:5; background:var(--bg); padding-top:10px; padding-bottom:4px; }
-html:not(.wide) header { flex-wrap:nowrap; }
+/* ---- 縦長（スマホ）：スクロールなしで1画面に収める。ゲーム一覧は開閉式 ---- */
+.gamesbar { display:none; }
+html:not(.wide), html:not(.wide) body { height:100%; overflow:hidden; }
+html:not(.wide) .app { box-sizing:border-box; height:100vh; height:100dvh; display:flex; flex-direction:column; gap:6px;
+  padding:0 12px max(6px, env(safe-area-inset-bottom)); overflow:hidden; }
+html:not(.wide) .left { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; gap:4px; padding-top:6px; }
+html:not(.wide) header { flex:none; flex-wrap:nowrap; }
 html:not(.wide) header h1 { font-size:.8rem; }
-html:not(.wide) .stage { aspect-ratio:auto; height:min(calc((100vw - 24px) * 9 / 16), 45vh); }
+html:not(.wide) .stage { flex:1 1 auto; min-height:120px; }
+html:not(.wide) .seek, html:not(.wide) .controls { flex:none; }
 html:not(.wide) .total { font-size:1.3rem; }
-html:not(.wide) .right { display:flex; flex-direction:column; gap:12px; }
-html:not(.wide) .controls button { padding:4px 7px; }
+html:not(.wide) .controls { gap:4px 8px; }
+html:not(.wide) .controls button { padding:4px 5px; min-width:32px; }
+html:not(.wide) .controls .grp { gap:2px; }
 html:not(.wide) .controls .time { margin-right:0; margin-left:auto; }
 html:not(.wide) .controls .brk { display:block; flex-basis:100%; height:0; }
-html:not(.wide) .controls .sepgrp { margin-left:auto; }
-html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; width:auto; max-height:52vh; border-radius:14px 14px 0 0; }
-/* 低い窓：動画とボタンを固定すると下が見えないので、全体をスクロール */
-@media (max-height: 640px) { html:not(.wide) .left { position:static; } }
+html:not(.wide) .controls .sepgrp { margin-left:auto; padding-left:4px; }
+/* 一覧や設定を開いている間は、動画を小さくして下に場所を空ける */
+html.gopen:not(.wide) .left, html.sheet:not(.wide) .left { flex:none; }
+html.gopen:not(.wide) .stage, html.sheet:not(.wide) .stage { flex:none; height:min(calc((100vw - 24px) * 9 / 16), 30vh); height:min(calc((100vw - 24px) * 9 / 16), 30dvh); min-height:96px; }
+html:not(.wide) .right { flex:none; min-height:0; display:flex; flex-direction:column; gap:4px; }
+html.gopen:not(.wide) .right { flex:1 1 0; }
+html:not(.wide) .gamesbar { flex:none; display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:40px; padding:4px 12px;
+  background:var(--card); border:1px solid var(--line); border-radius:10px; cursor:pointer; font-size:.9rem; }
+html:not(.wide) .gamesbar #gamesnow { display:flex; align-items:baseline; gap:10px; font-variant-numeric:tabular-nums; }
+html:not(.wide) .gamesbar b { font-weight:800; }
+html:not(.wide) .gamesbar svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; transition:transform .15s; }
+html.gopen:not(.wide) .gamesbar svg { transform:rotate(180deg); }
+html:not(.wide):not(.gopen) .right .games { display:none; }
+html.gopen:not(.wide) .right .games { flex:1 1 0; min-height:0; overflow:auto; overscroll-behavior:contain; padding-bottom:0; }
+html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; width:auto; max-height:52vh; border-radius:14px 14px 0 0; box-sizing:border-box; overflow:auto; }
 </style>
 </head>
 <body>
@@ -398,6 +414,7 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
   </section>
 
   <section class="right">
+    <button class="gamesbar" id="gamesbar" aria-expanded="false" aria-controls="games" aria-label="ゲーム一覧"><span id="gamesnow"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
     <div class="panel games" id="games"></div>
   </section>
 </div>
@@ -726,8 +743,17 @@ function flowSVG(g, id, mark) {
   </svg>`;
 }
 
+// スマホのゲーム一覧：誤タップしないよう、ふだんは閉じておく
+function setGamesOpen(on) {
+  document.documentElement.classList.toggle('gopen', on);
+  document.getElementById('gamesbar').setAttribute('aria-expanded', String(on));
+  if (on) requestAnimationFrame(() => document.querySelector('.game.sel')?.scrollIntoView({ block: 'nearest' }));
+}
+document.getElementById('gamesbar').onclick = () => setGamesOpen(!document.documentElement.classList.contains('gopen'));
 function renderGames(mark) {
   const box = document.getElementById('games');
+  const now = DATA.games[current], side = now.winner === null ? '' : now.winner === 0 ? 'a' : 'b';
+  document.getElementById('gamesnow').innerHTML = `<span>第${now.n}ゲーム</span><b class="${side}">${now.final[0]} - ${now.final[1]}</b>`;
   box.innerHTML = DATA.games.map((g, i) => {
     const cls = g.winner === null ? '' : (g.winner === 0 ? 'a' : 'b');
     return `<button class="game ${i === current ? 'sel' : ''}" data-i="${i}">
@@ -741,6 +767,7 @@ function renderGames(mark) {
     // ドライブで、まだ読んでいない動画は、すぐ切り替えずに読み込むか聞く
     if (DRIVE && g.video && i !== current && !have.has(g.video) && !blobUrls[g.video]) { e.stopPropagation(); openDl(i, b); return; }
     select(i, !DRIVE || have.has(g.video) || !!blobUrls[g.video]);
+    setGamesOpen(false);
   });
   DATA.games.forEach(g => g.video && paintGame(g.video));
 }
@@ -1922,9 +1949,17 @@ document.getElementById('faceclose').onclick = () => { facepop.hidden = true; };
 function fitSheet(pop) {
   if (document.documentElement.classList.contains('wide')) { pop.style.maxHeight = ''; return; }
   const bottom = document.querySelector('.controls').getBoundingClientRect().bottom;
-  pop.style.maxHeight = `${Math.max(200, innerHeight - bottom - 6)}px`;
+  pop.style.maxHeight = `${Math.max(160, innerHeight - bottom - 6)}px`;
 }
 addEventListener('resize', () => [facepop, clippop].forEach(p => !p.hidden && fitSheet(p)));
+{
+  const sheets = [facepop, document.getElementById('clippop')];
+  const syncSheet = () => {
+    document.documentElement.classList.toggle('sheet', sheets.some(p => !p.hidden));
+    sheets.forEach(p => !p.hidden && fitSheet(p));
+  };
+  sheets.forEach(p => new MutationObserver(syncSheet).observe(p, { attributes: true, attributeFilter: ['hidden'] }));
+}
 document.getElementById('facex').onclick = () => { facepop.hidden = true; };
 document.getElementById('clipx').onclick = () => { clippop.hidden = true; };
 document.getElementById('facemore').onclick = () => {
@@ -2459,6 +2494,7 @@ async function startSave(g, tier) {
 try { const saved = JSON.parse(store.get('view')); if (saved && saved.zoom) view = { ...view, ...saved, rot: 0 }; } catch {}
 // 角度はカメラの傾きなので、回ごとに覚える
 setRot(+store.get(rotKey) || 0);
+new ResizeObserver(() => applyView()).observe(stage);
 select(0, false);
 })();
 </script>
