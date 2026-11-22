@@ -138,23 +138,38 @@ html.ov.idle .stage .rotreset { opacity:0; pointer-events:none; }
 :root { --star:#e0a100; }
 .seek .starband { position:absolute; top:22px; height:24px; box-sizing:border-box; border:2px solid var(--star); border-radius:4px;
   background:color-mix(in srgb, var(--star) 28%, transparent); pointer-events:none; z-index:1; }
-.seek .starband.edit { border-width:3px; background:color-mix(in srgb, var(--star) 48%, transparent); }
-.stage .trim { position:absolute; left:50%; bottom:8px; transform:translateX(-50%); z-index:7; display:grid;
-  grid-template-columns:repeat(7, auto); gap:4px 4px; max-width:calc(100% - 8px); align-items:center; padding:6px 8px; border-radius:10px;
-  background:rgba(0,0,0,.76); color:#fff; font-size:.78rem; white-space:nowrap; }
-.stage .trim[hidden] { display:none; }
-.stage .trim b { min-width:3.3em; text-align:right; font-variant-numeric:tabular-nums; }
-.stage .trim button { min-width:34px; min-height:30px; padding:2px 3px; border:1px solid rgba(255,255,255,.35); border-radius:6px;
-  background:none; color:#fff; font-size:.78rem; cursor:pointer; font-variant-numeric:tabular-nums; }
-.stage .trim .side { grid-column:7; grid-row:1 / 3; display:grid; grid-template-columns:auto auto; gap:4px; margin-left:2px; }
-.stage .trim #trimdel { grid-column:1 / 3; color:#ffb4b4; }
-html.ov .stage .trim { bottom:auto; top:44px; }
+/* 編集で選んでいる☆：濃く太くして両端に持ち手。ほかの☆は薄く */
+.seek .starband.edit { top:17px; height:34px; border-width:2px; z-index:3; background:color-mix(in srgb, var(--star) 58%, transparent);
+  box-shadow:0 0 0 2px var(--card), 0 0 10px 2px var(--star); }
+.seek .starband.edit::before, .seek .starband.edit::after { content:''; position:absolute; top:-4px; bottom:-4px; width:4px; border-radius:2px; background:var(--star); }
+.seek .starband.edit::before { left:-3px; } .seek .starband.edit::after { right:-3px; }
+.seek.picking .starband:not(.edit) { opacity:.4; }
+/* ☆の編集パネル：左が開始、右が終了 */
+.trim { box-sizing:border-box; display:grid; gap:8px; padding:8px 10px 10px; background:var(--card); color:var(--fg);
+  border:1px solid var(--star); border-radius:12px; -webkit-user-select:none; user-select:none; }
+.trim[hidden] { display:none; }
+.stage .trim { position:absolute; left:50%; top:44px; transform:translateX(-50%); z-index:7; width:min(460px, calc(100% - 16px)); box-shadow:0 6px 20px rgba(0,0,0,.35); }
+.trim .thead { display:flex; align-items:center; gap:8px; font-size:.9rem; font-variant-numeric:tabular-nums; }
+.trim .thead > b { color:var(--star); white-space:nowrap; }
+.trim #trimLen { color:var(--muted); margin-right:auto; white-space:nowrap; }
+.trim button { min-height:36px; padding:2px; border:1px solid var(--line); border-radius:7px; background:none; color:var(--fg);
+  font-size:.82rem; cursor:pointer; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.trim .thead button { min-height:30px; padding:2px 10px; }
+.trim #trimx { border-color:transparent; padding:2px 6px; }
+.trim #trimreset:disabled { opacity:.35; cursor:default; }
+.trim .tcols { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:0; }
+.trim .tcol { display:grid; gap:5px; min-width:0; }
+.trim .tcol:first-child { padding-right:9px; border-right:1px solid var(--line); }
+.trim .tcol:last-child { padding-left:9px; }
+.trim .tlabel { display:flex; align-items:baseline; justify-content:space-between; gap:6px; }
+.trim .tlabel span { color:var(--muted); font-size:.8rem; }
+.trim .tlabel b { font-size:1.05rem; font-variant-numeric:tabular-nums; }
+.trim .tbtns { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:3px; }
+@media (max-width: 359px) { .trim { padding:6px 7px 8px; } .trim .tbtns button { font-size:.7rem; } .trim .tcol:first-child { padding-right:5px; } .trim .tcol:last-child { padding-left:5px; } }
 .seek.editing { outline:1px dashed var(--star); outline-offset:1px; border-radius:4px; }
 .controls #rallyonly .lbl { display:inline; }
 /* タップや長押しで操作するところは、文字を選択しない */
 .stage, .seek, .controls, .game, button, label, .seg { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
-.stage .trim #trimx { border-color:transparent; }
-.stage .trim #trimreset:disabled { opacity:.35; cursor:default; }
 .controls #mark { font-size:1.25rem; color:var(--muted); }
 .controls #mark.on { color:var(--star); }
 /* スクロールバー：細く、目立たない色に */
@@ -378,9 +393,11 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
       <div class="cap" id="cap" hidden></div>
       <div class="zoomtag" id="zoomtag"></div>
       <div class="trim" id="trim" hidden>
-        <span>始まり</span><button data-end="0" data-d="-5">−5</button><button data-end="0" data-d="-0.5">−0.5</button><button data-end="0" data-d="0.5">+0.5</button><button data-end="0" data-d="5">+5</button><b id="trimA"></b>
-        <span>終わり</span><button data-end="1" data-d="-5">−5</button><button data-end="1" data-d="-0.5">−0.5</button><button data-end="1" data-d="0.5">+0.5</button><button data-end="1" data-d="5">+5</button><b id="trimB"></b>
-        <div class="side"><button id="trimreset">戻す</button><button id="trimx" aria-label="閉じる">✕</button><button id="trimdel">削除</button></div>
+        <div class="thead"><b>★ <span id="trimNo"></span></b><span id="trimLen"></span><button id="trimreset">戻す</button><button id="trimx" aria-label="閉じる">✕</button></div>
+        <div class="tcols">
+          <div class="tcol"><div class="tlabel"><span>開始</span><b id="trimA"></b></div><div class="tbtns"><button data-end="0" data-d="-5">−5</button><button data-end="0" data-d="-0.5">−0.5</button><button data-end="0" data-d="0.5">+0.5</button><button data-end="0" data-d="5">+5</button></div></div>
+          <div class="tcol"><div class="tlabel"><span>終了</span><b id="trimB"></b></div><div class="tbtns"><button data-end="1" data-d="-5">−5</button><button data-end="1" data-d="-0.5">−0.5</button><button data-end="1" data-d="0.5">+0.5</button><button data-end="1" data-d="5">+5</button></div></div>
+        </div>
       </div>
       <button class="rotreset" id="rotreset" aria-label="角度を戻す" hidden></button>
     </div>
@@ -1222,50 +1239,81 @@ function select(i, autoplay) {
 function startOf(p) { return Math.max(0, p.r ? p.r[0] : p.vt - LEAD); }
 
 // ---------- ☆ ----------
-// ☆は残したい区間。点に結びついたもの（k：点の番号）と、カットされた所から足したもの（k なし）がある。
-// このブラウザにだけ覚える
+// ☆は残したい区間（a〜b）。ks は含んでいる点の番号（カット部分から足したものは空）。
+// 重なった☆は1つにまとめる。このブラウザにだけ覚える
 const CLIP_KEY = `star-clips-${DATA.id}`;
 const keyOf = (gi, k) => `${DATA.games[gi].n}-${k + 1}`;
 const autoRange = p => p.r ? p.r : p.vt !== null ? [startOf(p), p.vt] : null;
+let starEdit = false, trimClip = null, refreshSaveSize = null;
+function mergeClips(list) {
+  const out = [];
+  for (const c of [...list].sort((x, y) => x.a - y.a)) {
+    const last = out[out.length - 1];
+    if (last && c.a <= last.b) {
+      last.b = Math.max(last.b, c.b);
+      last.ks = [...new Set([...last.ks, ...c.ks])];
+      if (trimClip === c) trimClip = last;
+    } else out.push(c);
+  }
+  list.splice(0, list.length, ...out);
+  return list;
+}
 function loadClips() {
-  try { const saved = JSON.parse(store.get(CLIP_KEY)); if (saved) return saved; } catch {}
-  // 以前の形（点ごとの印と調整）から引き継ぐ
-  let marks = {}, trims = {};
-  try { marks = JSON.parse(store.get(`marks-${DATA.id}`)) || {}; } catch {}
-  try { trims = JSON.parse(store.get(`star-trims-${DATA.id}`)) || {}; } catch {}
-  const out = {};
-  DATA.games.forEach((g, gi) => g.points.forEach((p, k) => {
-    if (marks[keyOf(gi, k)] !== 1) return;
-    const r = trims[keyOf(gi, k)] || autoRange(p);
-    if (r) (out[g.n] ||= []).push({ a: r[0], b: r[1], k });
-  }));
+  let out = null;
+  try {
+    const saved = JSON.parse(store.get(CLIP_KEY));
+    if (saved) {
+      out = {};
+      for (const n in saved) out[n] = saved[n].map(c => ({ a: c.a, b: c.b, ks: c.ks || (c.k != null ? [c.k] : []) }));
+    }
+  } catch {}
+  if (!out) {
+    // 以前の形（点ごとの印と調整）から引き継ぐ
+    let marks = {}, trims = {};
+    try { marks = JSON.parse(store.get(`marks-${DATA.id}`)) || {}; } catch {}
+    try { trims = JSON.parse(store.get(`star-trims-${DATA.id}`)) || {}; } catch {}
+    out = {};
+    DATA.games.forEach((g, gi) => g.points.forEach((p, k) => {
+      if (marks[keyOf(gi, k)] !== 1) return;
+      const r = trims[keyOf(gi, k)] || autoRange(p);
+      if (r) (out[g.n] ||= []).push({ a: r[0], b: r[1], ks: [k] });
+    }));
+  }
+  Object.values(out).forEach(mergeClips);
   return out;
 }
 let clips = loadClips();
 const saveClips = () => store.set(CLIP_KEY, JSON.stringify(clips));
 const clipsOf = g => clips[g.n] ||= [];
-const isStar = (gi, k) => clipsOf(DATA.games[gi]).some(c => c.k === k);
-// 再生と保存に使う区間（重なりはつなぐ）
-function starRanges(g) {
-  const out = [];
-  for (const { a, b } of [...clipsOf(g)].sort((x, y) => x.a - y.a)) {
-    const last = out[out.length - 1];
-    if (last && a <= last[1]) last[1] = Math.max(last[1], b); else out.push([a, b]);
-  }
-  return out;
-}
+// その点が☆の中に残っているか（縮めて外した点は☆ではない）
+const isStar = (gi, k) => {
+  const g = DATA.games[gi], r = autoRange(g.points[k]);
+  return !!r && clipsOf(g).some(c => c.ks.includes(k) && c.a < r[1] && r[0] < c.b);
+};
+// 再生と保存に使う区間
+const starRanges = g => clipsOf(g).map(c => [c.a, c.b]);
 // ---- ☆の編集 ----
 const TRIM_MIN = 0.5, NEW_CLIP_SIDE = 3;  // 区間の最短、カット部分から足すときの前後（秒）
 const trimEl = document.getElementById('trim'), editBtn = document.getElementById('staredit');
-let starEdit = false, trimClip = null, refreshSaveSize = null;
 const fmtTenth = x => `${fmt(x)}.${Math.floor(x * 10 + 1e-6) % 10}`;
+// 自動の範囲（含んでいる点の全体）
+function autoOf(c) {
+  const ps = DATA.games[current].points, rs = c.ks.map(k => autoRange(ps[k])).filter(Boolean);
+  return rs.length ? [Math.min(...rs.map(r => r[0])), Math.max(...rs.map(r => r[1]))] : null;
+}
 function showTrim() {
-  const g = DATA.games[current], c = trimClip;
+  const c = trimClip;
+  // 横長では動画の上に、縦長ではボタンの下に出す
+  const stageEl = document.getElementById('stage');
+  const home = document.documentElement.classList.contains('wide') ? stageEl : stageEl.parentElement;
+  if (trimEl.parentElement !== home) home.append(trimEl);
   trimEl.hidden = !c;
   if (!c) return;
+  const list = clipsOf(DATA.games[current]), auto = autoOf(c);
+  document.getElementById('trimNo').textContent = `${list.indexOf(c) + 1} / ${list.length}`;
+  document.getElementById('trimLen').textContent = `${(c.b - c.a).toFixed(1)}秒`;
   document.getElementById('trimA').textContent = fmtTenth(c.a);
   document.getElementById('trimB').textContent = fmtTenth(c.b);
-  const auto = c.k != null ? autoRange(g.points[c.k]) : null;
   document.getElementById('trimreset').disabled = !auto || (Math.abs(c.a - auto[0]) < 0.005 && Math.abs(c.b - auto[1]) < 0.005);
 }
 function showStarEdit() {
@@ -1275,6 +1323,7 @@ function showStarEdit() {
   editBtn.classList.toggle('on', starEdit);
   editBtn.setAttribute('aria-pressed', String(starEdit));
   seek.classList.toggle('editing', starEdit);
+  seek.classList.toggle('picking', !!trimClip);
   showTrim();
 }
 // ☆が変わったら、関係する表示をまとめて直す
@@ -1284,7 +1333,11 @@ function refreshStars() {
   renderMarkers(); lastMark = null; updateHead();
   refreshSaveSize?.();
 }
-function changedStars() { saveClips(); refreshStars(); }
+function changedStars() {
+  mergeClips(clipsOf(DATA.games[current]));
+  saveClips();
+  refreshStars();
+}
 function pickClip(c) {
   trimClip = c;
   refreshStars();
@@ -1309,11 +1362,13 @@ function editTap(at) {
   // 足す範囲は、カットされた部分の中だけ
   const from = Math.max(0, ...ranged.filter(p => p.r[1] < at).map(p => p.r[1]));
   const to = Math.min(g.dur || v.duration, ...ranged.filter(p => p.r[0] > at).map(p => p.r[0]));
-  const c = { a: Math.max(from, at - NEW_CLIP_SIDE), b: Math.min(to, at + NEW_CLIP_SIDE) };
+  const c = { a: Math.max(from, at - NEW_CLIP_SIDE), b: Math.min(to, at + NEW_CLIP_SIDE), ks: [] };
   if (c.b - c.a < TRIM_MIN) return;
   list.push(c);
+  trimClip = c;
+  mergeClips(list);
   saveClips();
-  pickClip(c);
+  pickClip(trimClip);
 }
 function nudgeTrim(end, d) {
   const c = trimClip, limit = DATA.games[current].dur || v.duration || c.b;
@@ -1332,15 +1387,17 @@ function removeClip(c) {
 }
 trimEl.querySelectorAll('[data-d]').forEach(b => { b.onclick = () => nudgeTrim(b.dataset.end === '1', +b.dataset.d); });
 document.getElementById('trimx').onclick = () => { trimClip = null; refreshStars(); };
-document.getElementById('trimdel').onclick = () => { if (trimClip) removeClip(trimClip); };
 document.getElementById('trimreset').onclick = () => {
-  const c = trimClip, auto = c && c.k != null && autoRange(DATA.games[current].points[c.k]);
+  const c = trimClip, auto = c && autoOf(c);
   if (!auto) return;
   c.a = auto[0]; c.b = auto[1];
   changedStars();
+  v.pause();
+  v.currentTime = trimClip.a;
 };
 editBtn.onclick = () => { starEdit = !starEdit; if (!starEdit) trimClip = null; refreshStars(); };
 ['pointerdown', 'pointerup', 'click', 'dblclick'].forEach(ev => trimEl.addEventListener(ev, e => e.stopPropagation()));
+addEventListener('resize', showTrim);
 // いま見ている点：再生位置がラリーの中ならその点、そうでなければ直前に入った点
 function focusIndex() {
   const ps = DATA.games[current].points, t = v.currentTime;
@@ -1349,15 +1406,15 @@ function focusIndex() {
 }
 // いまの位置の☆
 function clipHere() {
-  const list = clipsOf(DATA.games[current]), t = v.currentTime;
-  return list.find(c => c.a <= t && t < c.b) || list.find(c => c.k === focusIndex());
+  const t = v.currentTime;
+  return clipsOf(DATA.games[current]).find(c => c.a <= t && t < c.b);
 }
 function toggleMark() {
   const c = clipHere();
   if (c) { removeClip(c); return; }
   const k = focusIndex(), r = k >= 0 && autoRange(DATA.games[current].points[k]);
   if (!r) return;
-  clipsOf(DATA.games[current]).push({ a: r[0], b: r[1], k });
+  clipsOf(DATA.games[current]).push({ a: r[0], b: r[1], ks: [k] });
   changedStars();
 }
 document.getElementById('mark').onclick = toggleMark;
@@ -1632,6 +1689,7 @@ let locked = false;
 function relayout() {
   root.classList.toggle('rot', isFull() && !locked && COARSE.matches && PORTRAIT.matches);
   setWide();
+  showTrim();
   requestAnimationFrame(() => { renderMarkers(); applyView(); });
 }
 async function setFull(on) {
