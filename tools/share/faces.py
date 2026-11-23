@@ -208,10 +208,14 @@ def write_script(data: dict, game: int, path: Path) -> None:
 if __name__ == "__main__":
     import argparse
 
-    ap = argparse.ArgumentParser(description="まとめの動画から頭の位置を探して data/faces-gameNN.js に書く")
-    ap.add_argument("out", type=Path, help="まとめのフォルダ（videos/ と data/ がある）")
+    from make_share import work_dir
+
+    ap = argparse.ArgumentParser(description="まとめの動画から頭の位置を探して、上げないものの置き場（.work）の faces-gameNN.js に書く")
+    ap.add_argument("out", type=Path, help="まとめのフォルダ（videos/ がある）")
     ap.add_argument("--games", type=int, nargs="*", help="ゲームの番号（なければ全部）")
     args = ap.parse_args()
+    work = work_dir(args.out)
+    work.mkdir(parents=True, exist_ok=True)
     videos = sorted((args.out / "videos").glob("game[0-9][0-9].mp4"))
     for v in videos:
         n = int(v.stem[4:])
@@ -220,6 +224,6 @@ if __name__ == "__main__":
         # 見つけた頭は、共有するフォルダの外（隣）に残す
         cache = args.out.parent / ".faces-cache" / args.out.name / f"game{n:02d}.json"
         data = find_heads(v, cache)
-        write_script(data, n, args.out / "data" / f"faces-game{n:02d}.js")
+        write_script(data, n, work / f"faces-game{n:02d}.js")
         sides = [t["side"] for t in data["tracks"].values()]
         print(f"game{n}: frames={len(data['frames'])} tracks={len(sides)} L={sides.count('L')} R={sides.count('R')}", flush=True)

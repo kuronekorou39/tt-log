@@ -22,6 +22,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SHARE = ROOT / "share"
 TOOLS = ROOT / "tools" / "share"
+sys.path.insert(0, str(TOOLS))
+from make_share import work_dir  # noqa: E402
+
 APPLE_EPOCH = dt.datetime(2001, 1, 1, tzinfo=dt.timezone.utc)
 JST = dt.timezone(dt.timedelta(hours=9))
 FULL_VIDEO = "videos/game[0-9][0-9].mp4"
@@ -55,7 +58,7 @@ def out_folder(session: dict, sid: str) -> Path:
     base, n = f"{started:%Y-%m-%d}", 1
     while True:
         out = SHARE / (base if n == 1 else f"{base}-{n}")
-        index = out / "data" / "camera-index.json"
+        index = work_dir(out) / "camera-index.json"
         if not out.exists():
             return out
         if index.exists() and json.loads(index.read_text(encoding="utf-8")).get("id", "").upper() == sid:

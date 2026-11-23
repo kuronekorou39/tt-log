@@ -3,11 +3,16 @@
 iPad のスコアボードの記録（SwiftData の default.store）と、iPhone のカメラの記録
 （Sessions/<フォルダ>/index.json と動画）から、次を作る。
 
-    <出力>/
-      index.html        結果のまとめ（ブラウザで開く。動画もここから見られる）
-      videos/gameNN.mp4 ゲームごとの動画（途中で分かれた録画は1本につなぐ。再エンコードしない）
-      data/points.csv   1点ずつの記録
-      data/session.json スコアボードの記録そのもの
+    <出力>/                    このフォルダをそのままドライブへ上げる
+      data/page.json          まとめのデータ
+      videos/gameNN.mp4       ゲームごとの動画（途中で分かれた録画は1本につなぐ。再エンコードしない）
+      videos/gameNN-voice.m4a 声の音声
+      videos-small/gameNN.mp4 見る用の小さい動画
+    <出力の親>/.work/<出力の名前>/  上げないもの
+      points.csv              1点ずつの記録
+      session.json            スコアボードの記録そのもの
+      camera-index.json       カメラの記録
+      faces-gameNN.js         頭の位置（page.json に入れる元）
 
 使い方:
     python tools/share/make_share.py --store <default.store> --camera <Sessions/フォルダ> --voice <VoiceLogs> --out share/2026-11-20
@@ -246,9 +251,11 @@ def main():
         voice_log = voice.load_log(args.voice)
 
     out = args.out
+    work = work_dir(out)
     (out / "data").mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(args.camera / "index.json", out / "data" / "camera-index.json")
-    (out / "data" / "session.json").write_text(json.dumps(log, ensure_ascii=False, indent=1), encoding="utf-8")
+    work.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(args.camera / "index.json", work / "camera-index.json")
+    (work / "session.json").write_text(json.dumps(log, ensure_ascii=False, indent=1), encoding="utf-8")
 
     for g in games:
         name = f"game{g['index'] + 1:02d}.mp4"
@@ -282,7 +289,7 @@ def main():
             p["range"] = r
         g["spans"] = play_spans([p["range"] for p in g["points"]])
 
-    with open(out / "data" / "points.csv", "w", newline="", encoding="utf-8-sig") as f:
+    with open(work / "points.csv", "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
         w.writerow(["ゲーム", "点", "時刻", "取った人", names[0], names[1], "サーブ", "動画の秒", "ラリーの始まり", "ラリーの秒数",
                     "押した時刻（直す前）"])
@@ -301,7 +308,7 @@ def main():
         board_left = first_left if g["index"] % 2 == 0 else 1 - first_left
         # 2026-11-20 はカメラがスコアボードと向かい合う側にあり、左右が逆だった
         g["video_left"] = board_left if args.camera_same_side else 1 - board_left
-    write_html(out / "index.html", index["id"], names, log, games)
+    write_page(out, index["id"], names, log, games)
     if args.viewer:
         write_viewer(args.viewer)
     print(f"できました: {out.resolve()}")
@@ -310,7 +317,12 @@ def main():
 TEMPLATE = Path(__file__).with_name("template.html")
 
 
-def write_html(path: Path, session_id: str, names: list[str], log: dict, games: list[dict]):
+def work_dir(out: Path) -> Path:
+    """ドライブへ上げないものの置き場。上げるフォルダの外（隣）に置く。"""
+    return out.parent / ".work" / out.name
+
+
+def write_page(out: Path, session_id: str, names: list[str], log: dict, games: list[dict]):
     started = apple_time(log["startedAt"]).astimezone(JST)
     won = [sum(1 for g in games if g["winner"] == p) for p in range(2)]
     st = stats(games)
@@ -370,18 +382,12 @@ def write_html(path: Path, session_id: str, names: list[str], log: dict, games: 
         "stats": rows,
         "data": {"id": session_id, "names": names, "games": data},
     }
-    # 顔を隠すための頭の位置（faces.py で作る）。file:// でも読めるようスクリプトで読む
-    faces = sorted(path.parent.glob("data/faces-game*.js"))
-    # Web に置いたページ（write_viewer）がドライブから読む。ドライブは一度に多く読むと弾くので、顔の位置も1つにまとめる
+    # Web に置いたページ（write_viewer）がドライブから読む。ドライブは一度に多く読むと弾くので、顔の位置（faces.py で作る）も1つにまとめる
     web = dict(content, faces={})
-    for f in faces:
+    for f in sorted(work_dir(out).glob("faces-game*.js")):
         text = f.read_text(encoding="utf-8")
         web["faces"][int(f.stem[len("faces-game"):])] = json.loads(text[text.index("] = ") + 4 : text.rindex(";")])
-    (path.parent / "data" / "page.json").write_text(json.dumps(web, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    page = TEMPLATE.read_text(encoding="utf-8")
-    page = page.replace("{{FACES}}", "\n".join(f'<script src="data/{f.name}"></script>' for f in faces))
-    page = page.replace("{{PAGE}}", json.dumps(content, ensure_ascii=False).replace("</", "<\\/"))
-    path.write_text(page, encoding="utf-8")
+    (out / "data" / "page.json").write_text(json.dumps(web, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
 
 def write_viewer(path: Path):
