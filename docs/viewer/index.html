@@ -66,6 +66,9 @@ header h1 .session:hover { border-color:var(--line); }
 .boot h2 { margin:0; font-size:1.05rem; color:#fff; }
 .boot p { margin:0; font-size:.85rem; color:#aaa; max-width:32em; line-height:1.6; }
 .boot button { margin-top:4px; border:1px solid #666; background:none; color:#fff; border-radius:8px; padding:6px 16px; cursor:pointer; }
+.boot .lbar { width:min(260px, 62vw); height:4px; border-radius:2px; background:rgba(255,255,255,.2); overflow:hidden; }
+.boot .lbar i { display:block; height:100%; background:#fff; transform-origin:0 50%; transform:scaleX(0); }
+.boot .lbar + p { font-variant-numeric:tabular-nums; }
 .boot .err { font-size:1.8rem; }
 .boot .choose { display:flex; flex-direction:column; gap:8px; min-width:200px; max-height:60vh; overflow:auto; }
 .boot .choose button { font-size:1rem; padding:10px 16px; }
@@ -206,6 +209,8 @@ html.ov.idle .stage .rotreset { opacity:0; pointer-events:none; }
   background:linear-gradient(to right, transparent var(--p, 0%), var(--dim) var(--p, 0%)); }
 .game.err .no::after { content:' ⚠'; }
 @media (prefers-color-scheme: dark) { .game { --dim:rgba(0,0,0,.5); } }
+/* 読み込みの確認の外側：押すと閉じるだけで、後ろには届かない */
+#dlshade { position:fixed; inset:0; z-index:20; touch-action:none; }
 #dlpop { position:fixed; width:220px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px;
   box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:21; display:grid; gap:6px; font-size:.9rem; }
 #dlpop .sub { margin:0; color:var(--muted); font-variant-numeric:tabular-nums; }
@@ -224,7 +229,7 @@ html.ov.idle .stage .rotreset { opacity:0; pointer-events:none; }
 .boot a.drive, .boot button { white-space:nowrap; }
 .boot a.drive { margin-top:4px; color:#fff; border:1px solid #666; border-radius:8px; padding:6px 16px; text-decoration:none; }
 .info { border:0; background:none; cursor:pointer; color:var(--muted); font-size:1.1rem; width:32px; height:32px; border-radius:50%; }
-.info:hover { background:var(--track); }
+.info:hover, .info.open { background:var(--track); }
 #infopop, #howpop, #facepop, #clippop { overscroll-behavior:contain; }
 #drivepop { position:fixed; top:52px; right:14px; width:min(300px, calc(100vw - 24px)); background:var(--card); border:1px solid var(--line);
   border-radius:12px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:21; display:grid; gap:10px; font-size:.9rem; }
@@ -391,6 +396,7 @@ html:not(.wide) .controls .grp { gap:2px; }
 html:not(.wide) .controls .time { margin:0 auto; padding-left:0; min-width:0; overflow:hidden; font-size:.75rem; white-space:nowrap; }
 html:not(.wide) .controls .sepgrp { padding-left:4px; }
 html:not(.wide) #morepop { bottom:auto; top:calc(100% + 6px); }
+html.ov #morepop { top:auto; bottom:calc(100% + 6px); }
 /* ゲーム一覧：バーは一番下に置き、一覧は上に向かって開く */
 html:not(.wide) .right { flex:1 1 0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:0fr auto; row-gap:0; align-content:end;
   transition:grid-template-rows .22s ease, row-gap .22s ease; }
@@ -414,6 +420,7 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
     <header>
       <h1 id="date"></h1>
       <div style="display:flex; align-items:center; gap:4px">
+        <button class="info drivelink" id="face" aria-label="顔の隠し方の設定" title="顔" aria-haspopup="dialog" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg></button>
         <button class="info drivelink" id="drivelink" aria-label="ドライブで開く" title="ドライブで開く" aria-haspopup="dialog" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg></button>
         <button class="info" id="infobtn" aria-label="くわしいデータ">ⓘ</button>
         <button class="info" id="howbtn" aria-label="このサイトの仕組み" title="仕組み" aria-haspopup="dialog">?</button>
@@ -459,11 +466,10 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
         <button id="rallyonly" class="tg" aria-label="試合をしているところだけ再生"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg><span class="lbl">試合だけ</span></button>
         <button id="score" class="tg" aria-label="動画の上の点数"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg><span class="lbl">点数</span></button>
         <button id="caps" class="tg" aria-label="字幕" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M15 15h2M7 11h2M13 11h4"/></svg><span class="lbl">字幕</span></button>
-        <button id="voice" class="tg" aria-label="胸元マイクの音" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg><span class="lbl">音声</span></button>
-        <button id="face" class="menu" aria-label="顔の隠し方の設定" aria-haspopup="dialog" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg><span class="lbl">顔</span></button>
+        <button id="voice" class="tg" aria-label="胸元マイクの音" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg><span class="lbl">マイク</span></button>
+        <button id="fullscreen" class="tg" aria-label="全画面"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span class="lbl">全画面</span></button>
           </div>
         </div>
-        <button id="fullscreen" aria-label="全画面"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span class="lbl">全画面</span></button>
         <button id="save" aria-label="このゲームを動画で保存"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg><span class="lbl">保存</span></button>
       </div>
     </div>
@@ -488,6 +494,7 @@ html:not(.wide) #facepop, html:not(.wide) #clippop { left:0; right:0; bottom:0; 
   </ol>
   <p class="free">サーバなし・無料</p>
 </div>
+<div id="dlshade" hidden></div>
 <div id="dlpop" hidden></div>
 <div id="datanote" hidden><span></span><button aria-label="閉じる">✕</button></div>
 <div id="drivepop" hidden>
@@ -1219,17 +1226,17 @@ function cancelMedia(path) {
 }
 const mb = n => `${Math.round(n / 1e6)}MB`;
 // 読み込みの確認
-const dlpop = document.getElementById('dlpop');
+const dlpop = document.getElementById('dlpop'), dlshade = document.getElementById('dlshade');
 let dlFor = null;
 function openDl(i, card) {
   dlFor = i;
   fillDl();
-  dlpop.hidden = false;
+  dlpop.hidden = dlshade.hidden = false;
   const r = card.getBoundingClientRect(), h = dlpop.offsetHeight, w = dlpop.offsetWidth;
   dlpop.style.left = `${Math.max(8, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 8))}px`;
   dlpop.style.top = `${r.bottom + 6 + h < innerHeight ? r.bottom + 6 : Math.max(8, r.top - h - 6)}px`;
 }
-function closeDl() { dlpop.hidden = true; dlFor = null; }
+function closeDl() { dlpop.hidden = dlshade.hidden = true; dlFor = null; }
 function fillDl() {
   const g = DATA.games[dlFor], path = g.video;
   if (have.has(path) || blobUrls[path]) { closeDl(); return; }
@@ -1250,7 +1257,8 @@ function fillDl() {
     btn('やめる', '', closeDl);
   }
 }
-document.addEventListener('click', e => { if (!dlpop.hidden && !dlpop.contains(e.target)) closeDl(); });
+dlshade.onclick = closeDl;
+addEventListener('keydown', e => { if (e.key === 'Escape' && !dlpop.hidden) closeDl(); });
 // 通信量の注意（閉じたら、このブラウザでは出さない）
 if (DRIVE && store.get('dataNote') !== '0') {
   const sizes = DATA.games.map(g => g.video && sizeOf(g.video)).filter(Boolean);
@@ -1280,17 +1288,47 @@ if (DRIVE) {
     set(x) { if (pending || settling) { pendingTime = x; updateHead(); } else time.set.call(v, x); },
   });
   Object.defineProperty(v, 'duration', { get() { return pending ? DATA.games[current].dur || NaN : dur.get.call(v); } });
+  // 読み込みのバー。押したらすぐ少しずつ進め、実際のデータが届いたら、そこから実際の進みに合わせる
+  const BAR = { creep: 0.14, creepMs: 2500, real: 0.94, finish: 0.995, finishMs: 1500, ease: 0.12 };
+  let loadBar = null;
+  function startLoadBar(path) {
+    if (loadBar?.path === path && !boot.hidden && loadBar.fill.isConnected) return loadBar;
+    boot.innerHTML = '<div class="lbar"><i></i></div><p>動画を読み込み中…</p>';
+    boot.hidden = false;
+    const bar = loadBar = { path, fill: boot.querySelector('.lbar i'), text: boot.querySelector('p'),
+                            t0: performance.now(), real: null, from: 0, shown: 0, doneAt: null };
+    const frame = now => {
+      if (loadBar !== bar || boot.hidden || !bar.fill.isConnected) return;
+      const target = bar.doneAt !== null ? BAR.real + (BAR.finish - BAR.real) * (1 - Math.exp(-(now - bar.doneAt) / BAR.finishMs))
+        : bar.real !== null ? bar.from + (BAR.real - bar.from) * bar.real
+        : BAR.creep * (1 - Math.exp(-(now - bar.t0) / BAR.creepMs));
+      bar.shown += Math.max(0, target - bar.shown) * BAR.ease;  // 戻らない
+      bar.fill.style.transform = `scaleX(${bar.shown})`;
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+    return bar;
+  }
+  function moveLoadBar(bar, f, total) {
+    if (!(f > 0)) return;
+    if (bar.real === null) bar.from = bar.shown;
+    bar.real = f;
+    if (f >= 0.99) {  // 全部届いた。ここからブラウザへの保存と動画の準備で少しかかる
+      bar.doneAt ??= performance.now();
+      bar.text.textContent = '再生の準備中…';
+    } else if (total) bar.text.textContent = `動画を読み込み中… ${mb(f * total)} / ${mb(total)}`;
+  }
   // 動画を読み込んで（残っていればそこから）その位置に。play なら再生も
   activate = async function (play) {
     const path = pending, game = current;
     if (play) wantPlay = true;
     bigplay.hidden = true;
-    if (!have.has(path) && !blobUrls[path]) showLoading('動画を読み込み中…');
+    const bar = !have.has(path) && !blobUrls[path] ? startLoadBar(path) : null;
     const total = sizeOf(path);
     let url;
     try {
       url = await mediaBlob(path, { urgent: true, onProgress: f => {
-        if (current === game && f !== null) showLoading(`動画を読み込み中… ${Math.floor(f * 100)}%${total ? `（${mb(f * total)} / ${mb(total)}）` : ''}`);
+        if (bar && current === game && f !== null) moveLoadBar(bar, f, total);
       } });
     } catch (e) {
       if (e.name === 'AbortError') return;
@@ -1905,7 +1943,7 @@ async function setFull(on) {
   }
   relayout();
 }
-fsBtn.onclick = () => setFull(!isFull());
+fsBtn.onclick = () => { setMore(false); setFull(!isFull()); };
 stage.addEventListener('dblclick', () => setFull(!isFull()));
 // Esc や戻る操作でブラウザの全画面が解けたら、こちらも戻す
 document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && isFull()) setFull(false); else relayout(); });
