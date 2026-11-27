@@ -91,6 +91,7 @@ private struct SessionClipsView: View {
             }
         }
         .navigationTitle("\(index.name(0)) 対 \(index.name(1))")
+        .pcPairSheet()
     }
 
     /// 最初の録画の少し前から、最後の録画の少し後まで。

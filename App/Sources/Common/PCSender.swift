@@ -213,6 +213,10 @@ final class PCSender: ObservableObject {
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var activeSession: String?
     @Published private(set) var isPaired = PCToken.load() != nil
+    /// 「PCとつなぐ」を出しているか。出す部品が作り直されても閉じないよう、ここで持つ。
+    @Published var showsPairing = false
+    /// つないだあとに続ける送信。
+    var afterPairing: (@MainActor () -> Void)?
 
     private var task: Task<Void, Never>?
     private var host: String? {
@@ -430,7 +434,6 @@ struct PCSendSection: View {
 
     @ObservedObject private var sender = PCSender.shared
     @AppStorage("pc.cameraSameSide") private var cameraSameSide = false
-    @State private var pairing = false
     @State private var buildError: String?
 
     var body: some View {
@@ -454,9 +457,6 @@ struct PCSendSection: View {
                     Label("PCへ送る", systemImage: "laptopcomputer.and.arrow.down")
                 }
             }
-        }
-        .sheet(isPresented: $pairing) {
-            PCPairView { start() }
         }
     }
 
@@ -486,7 +486,8 @@ struct PCSendSection: View {
     @MainActor
     private func start() {
         guard sender.isPaired else {
-            pairing = true
+            sender.afterPairing = { start() }
+            sender.showsPairing = true
             return
         }
         do {
@@ -494,6 +495,26 @@ struct PCSendSection: View {
             sender.send(try makeJob(cameraSameSide))
         } catch {
             buildError = error.localizedDescription
+        }
+    }
+}
+
+extension View {
+    /// 「PCへ送る」を置いた画面に付ける。「PCとつなぐ」はここから出す。
+    /// List の行（PCSendSection）に付けると、iPhone では行が作り直されたときにすぐ閉じてしまう。
+    func pcPairSheet() -> some View { modifier(PCPairSheet()) }
+}
+
+private struct PCPairSheet: ViewModifier {
+    @ObservedObject private var sender = PCSender.shared
+
+    func body(content: Content) -> some View {
+        content.sheet(isPresented: $sender.showsPairing) {
+            PCPairView {
+                let next = sender.afterPairing
+                sender.afterPairing = nil
+                next?()
+            }
         }
     }
 }

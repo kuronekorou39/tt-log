@@ -61,6 +61,7 @@ struct SessionDetailView: View {
             }
         }
         .task { renderShareImage() }
+        .pcPairSheet()
     }
 
     private func name(_ player: Int) -> String {
