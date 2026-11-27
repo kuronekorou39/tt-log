@@ -236,8 +236,9 @@ def main():
     ap.add_argument("--no-video", action="store_true", help="動画を新しく作らない（まとめだけ作り直す）")
     ap.add_argument("--small", action="store_true", help="見る用の小さい動画を作る（--no-video でも作る）")
     ap.add_argument("--no-rally", action="store_true", help="動画の音からラリーを探さない")
-    ap.add_argument("--camera-same-side", action="store_true",
-                    help="カメラがスコアボードと同じ向きから撮っている（動画の左にいる人＝スコアボードの左の人）")
+    ap.add_argument("--camera-facing-board", action="store_true",
+                    help="カメラが台をはさんでスコアボードの画面と向き合っている（動画の左にいる人＝スコアボードの左の人）。"
+                         "付けなければ、カメラはスコアボードのそばにある（左右が逆）")
     ap.add_argument("--voice", type=Path, help="iPad の VoiceLogs（log.tsv と audio/）。あれば声の音声と字幕を動画に重ねられる")
     ap.add_argument("--viewer", type=Path, help="Web に置く、データの入っていないページの書き出し先（例：docs/viewer/index.html）")
     args = ap.parse_args()
@@ -306,8 +307,8 @@ def main():
         # スコアボードの左にいる人。ゲームごとにエンドを替える（連続形式。最終ゲームの途中の交代はない）
         first_left = log["config"]["firstLeft"]
         board_left = first_left if g["index"] % 2 == 0 else 1 - first_left
-        # 2026-11-20 はカメラがスコアボードと向かい合う側にあり、左右が逆だった
-        g["video_left"] = board_left if args.camera_same_side else 1 - board_left
+        # スコアボードの画面は選手の方を向くので、そばに置いたカメラからは左右が逆に見える（2026-11-20・11-27 で確認）
+        g["video_left"] = board_left if args.camera_facing_board else 1 - board_left
     write_page(out, index["id"], names, log, games)
     if args.viewer:
         write_viewer(args.viewer)

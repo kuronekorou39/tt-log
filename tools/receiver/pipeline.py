@@ -116,8 +116,9 @@ def process(folder: Path, camera_same_side: bool, config: dict, stage):
             "--camera", str(folder / "camera"), "--out", str(out)]
     if (folder / "scoreboard" / "voice" / "log.tsv").exists():
         base += ["--voice", str(folder / "scoreboard" / "voice")]
-    if camera_same_side:
-        base.append("--camera-same-side")
+    if not camera_same_side:
+        # アプリの「向かい側」＝カメラが台をはさんでスコアボードの画面と向き合っている
+        base.append("--camera-facing-board")
 
     stage("動画を作成中")
     run([*base, "--small"], log, "動画を作れませんでした")
