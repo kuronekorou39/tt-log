@@ -1,22 +1,5 @@
 import AVFoundation
 
-/// 受信機（DJI Mic など）をつないでいるときの、効果音の出し先。
-enum ToneOutput: String, CaseIterable, Identifiable {
-    case device, receiver, both
-
-    static let storageKey = "sound.output"
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .device: return "本体"
-        case .receiver: return "受信機"
-        case .both: return "両方"
-        }
-    }
-}
-
 /// 操作したときの控えめな効果音。操作ごとに音を変える。
 ///
 /// 音はその場で正弦波から作る（音源ファイルを持たない）。
@@ -28,7 +11,6 @@ final class TonePlayer {
     }
 
     var volume: Float = 0.3
-    var output = ToneOutput.device
 
     private var engine = AVAudioEngine()
     private var player = AVAudioPlayerNode()
@@ -46,12 +28,8 @@ final class TonePlayer {
     }
 
     func play(_ kind: Kind) {
-        let map = Self.channelMap(for: output)
-        if stale || map != appliedMap {
-            // 止めて割り当てを変えるだけだと、前のつなぎ方のまま鳴ることがあるので、エンジンごと作り直す
-            build()
-            applyChannelMap(map)
-        }
+        // 止めて動かし直すだけだと、前のつなぎ方のまま鳴ることがあるので、エンジンごと作り直す
+        if stale { build() }
         // 音声認識が音声の設定を切り替えると、エンジンが止まることがある。そのつど動かし直す
         if !engine.isRunning {
             engine.stop()
@@ -70,38 +48,11 @@ final class TonePlayer {
         player = AVAudioPlayerNode()
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: format)
-        appliedMap = nil
         stale = false
         // 受信機の抜き差しなどで出し先が変わった
         configObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
         ) { [weak self] _ in self?.stale = true }
-    }
-
-    /// 出し先のチャンネルの割り当て（いま反映しているもの）。nil はそのまま。
-    private var appliedMap: [Int32]?
-
-    /// 受信機と本体のスピーカーを同時に使っているとき（multiRoute）、選んだ出し先だけから鳴らす割り当て。
-    /// 全部の出し先のチャンネルを並べ、鳴らす位置にだけ音を入れる。それ以外のつなぎ方なら nil。
-    private static func channelMap(for output: ToneOutput) -> [Int32]? {
-        let session = AVAudioSession.sharedInstance()
-        guard session.category == .multiRoute else { return nil }
-        let outputs = session.currentRoute.outputs
-        guard outputs.count > 1, outputs.contains(where: { $0.portType == .builtInSpeaker }) else { return nil }
-        var map: [Int32] = []
-        for port in outputs {
-            let n = max(port.channels?.count ?? 1, 1)
-            let on = port.portType == .builtInSpeaker ? output != .receiver : output != .device
-            map += Array(repeating: on ? 0 : -1, count: n)
-        }
-        return map
-    }
-
-    private func applyChannelMap(_ map: [Int32]?) {
-        appliedMap = map
-        guard var map, let unit = engine.outputNode.audioUnit else { return }
-        AudioUnitSetProperty(unit, kAudioOutputUnitProperty_ChannelMap, kAudioUnitScope_Output, 0,
-                             &map, UInt32(map.count * MemoryLayout<Int32>.size))
     }
 
     /// (周波数 Hz, 長さ 秒) の並び。

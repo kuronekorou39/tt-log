@@ -10,7 +10,6 @@ struct ScoreboardSettingsView: View {
     @AppStorage(ScoreboardTheme.storageKey) private var themeRaw = ScoreboardTheme.simple.rawValue
     @AppStorage("sound.enabled") private var soundEnabled = true
     @AppStorage("sound.volume") private var volume = 0.3
-    @AppStorage(ToneOutput.storageKey) private var toneOutput = ToneOutput.device.rawValue
     @AppStorage(CallStyle.storageKey) private var callStyleRaw = CallStyle.side.rawValue
     @AppStorage("voice.leftWord") private var leftWord = "ひだり"
     @AppStorage("voice.rightWord") private var rightWord = "みぎ"
@@ -20,6 +19,7 @@ struct ScoreboardSettingsView: View {
     @AppStorage("voice.recordsAudio") private var recordsAudio = true
     @AppStorage("voice.taskHint") private var taskHint = SFSpeechRecognitionTaskHint.confirmation.rawValue
     @AppStorage(MicMode.storageKey) private var micMode = MicMode.standard.rawValue
+    @AppStorage(MicPick.storageKey) private var micPick = MicPick.both.rawValue
 
     @State private var exportURL: URL?
     @State private var exportError: String?
@@ -97,6 +97,11 @@ struct ScoreboardSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     MicRouteRows(listener: listener)
+                    if listener.receiverChannels >= 2 {
+                        Picker("聞き取るマイク", selection: $micPick) {
+                            ForEach(MicPick.allCases) { Text($0.title).tag($0.rawValue) }
+                        }
+                    }
                     Toggle("言葉が出たらすぐ反映", isOn: $instantMode)
                     Stepper(value: $silenceMs, in: 300...1500, step: 100) {
                         Text("区切りの無音: \(silenceMs) ミリ秒")
@@ -128,11 +133,6 @@ struct ScoreboardSettingsView: View {
                     HStack {
                         Text("音量")
                         Slider(value: $volume, in: 0.05...1.0)
-                    }
-                    if listener.receiverConnected {
-                        Picker("出し先", selection: $toneOutput) {
-                            ForEach(ToneOutput.allCases) { Text($0.title).tag($0.rawValue) }
-                        }
                     }
                 }
                 Section {

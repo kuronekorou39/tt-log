@@ -90,6 +90,10 @@ public enum ScoreCallParser {
                 if numbers.isEmpty, d0 == 1 {
                     search(s, from: i + 2, numbers: [10, d1], into: &results)
                 }
+                // 逆に「きゅうじゅう」（9-10）は「90」と返す
+                if numbers.isEmpty, d1 == 0, d0 >= 2 {
+                    search(s, from: i + 2, numbers: [d0, 10], into: &results)
+                }
             }
         }
         for (word, value) in words where matches(s, word, at: i) {

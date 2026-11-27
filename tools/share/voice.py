@@ -46,7 +46,7 @@ def load_log(voice_dir: Path) -> list[dict]:
 
 def _read_mono(path: Path, rate: int) -> np.ndarray:
     x, sr = sf.read(path, dtype="float32", always_2d=True)
-    mono = x[:, 0]
+    mono = x.mean(axis=1)  # 受信機にマイク2台（左右）なら両方の声を混ぜる
     if sr != rate:
         g = np.gcd(sr, rate)
         mono = resample_poly(mono, rate // g, sr // g).astype(np.float32)

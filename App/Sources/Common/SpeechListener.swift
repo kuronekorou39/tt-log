@@ -38,6 +38,33 @@ enum MicMode: String, CaseIterable {
     }
 }
 
+/// 受信機に2台のマイクをつないだとき（ステレオ：1台目が左、2台目が右）、どちらの声を聞き取るか。
+/// 発話の録音はいつも両方を残す。
+enum MicPick: String, CaseIterable, Identifiable {
+    case both, first, second
+
+    static let storageKey = "voice.micPick"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .both: return "両方"
+        case .first: return "1台目"
+        case .second: return "2台目"
+        }
+    }
+
+    /// 聞き取りに使うチャンネル。nil は全部を混ぜる。
+    var channel: Int? {
+        switch self {
+        case .both: return nil
+        case .first: return 0
+        case .second: return 1
+        }
+    }
+}
+
 /// マイクの音声を端末内で認識し、発話ごとに操作へ変換する。
 ///
 /// 発話の区切り：認識結果の更新が `silenceInterval` 止まったら1発話とみなし、
@@ -79,8 +106,8 @@ final class SpeechListener: ObservableObject {
     @Published private(set) var outputName = ""
     /// 効果音が内蔵スピーカー以外（つないだ受信機など）から出ているか。
     @Published private(set) var outputIsExternal = false
-    /// 受信機（DJI Mic など）をつないでいるか。効果音の出し先を選べるのはこのときだけ。
-    @Published private(set) var receiverConnected = false
+    /// 受信機のマイクのチャンネル数（2ならマイク2台を左右に分けて受け取れる）。
+    @Published private(set) var receiverChannels = 0
 
     /// 受け付けた操作を受け取る。
     var onCommand: ((VoiceCommand) -> Void)?
@@ -122,6 +149,11 @@ final class SpeechListener: ObservableObject {
             stop()
             Task { await start() }
         }
+    }
+
+    /// 受信機のどちらのマイクを聞き取るか。
+    var micPick = MicPick.both {
+        didSet { audioBox.listenChannel = micPick.channel }
     }
 
     let store = VoiceLogStore()
@@ -222,7 +254,7 @@ final class SpeechListener: ObservableObject {
             statusMessage = "マイクの処理を切り替えられません: \(error.localizedDescription)"
         }
         input.removeTap(onBus: 0)
-        Self.installTap(on: input, box: audioBox, channel: multiRoute ? Self.externalInputChannel() : nil)
+        Self.installTap(on: input, box: audioBox, channels: multiRoute ? Self.externalInputChannels() : nil)
         engine.prepare()
         do {
             try engine.start()
@@ -253,15 +285,16 @@ final class SpeechListener: ObservableObject {
         return ok
     }
 
-    /// multiRoute でマイクが複数あるとき、受信機の最初のチャンネルの位置（全マイクを並べた通し番号）。
+    /// multiRoute でマイクが複数あるとき、受信機のチャンネルの位置（全マイクを並べた通し番号）。
     /// 受信機だけなら nil（そのまま使う）。
-    private static func externalInputChannel() -> Int? {
+    private static func externalInputChannels() -> [Int]? {
         let inputs = AVAudioSession.sharedInstance().currentRoute.inputs
         guard inputs.count > 1 else { return nil }
         var offset = 0
         for port in inputs {
-            if externalInputs.contains(port.portType) { return offset }
-            offset += port.channels?.count ?? 1
+            let n = max(port.channels?.count ?? 1, 1)
+            if externalInputs.contains(port.portType) { return Array(offset..<(offset + n)) }
+            offset += n
         }
         return nil
     }
@@ -542,7 +575,7 @@ final class SpeechListener: ObservableObject {
         inputName = route.inputs.map(\.portName).joined(separator: "、")
         outputName = route.outputs.map(\.portName).joined(separator: "、")
         outputIsExternal = !route.outputs.isEmpty && !route.outputs.contains { $0.portType == .builtInSpeaker }
-        receiverConnected = Self.hasReceiver(route)
+        receiverChannels = route.inputs.first { Self.externalInputs.contains($0.portType) }?.channels?.count ?? 0
     }
 
     private func routeChanged(_ reason: AVAudioSession.RouteChangeReason?) {
@@ -631,15 +664,16 @@ final class SpeechListener: ObservableObject {
 
     // 以下は音声スレッド／認識スレッドから呼ばれるので、メインアクターから切り離しておく。
 
-    /// `channel` を指定したら、そのチャンネルだけを1チャンネルで受け取る（マイクが複数あるとき）。
-    nonisolated private static func installTap(on node: AVAudioInputNode, box: AudioBox, channel: Int?) {
+    /// `channels` を指定したら、そのチャンネルだけを受け取る（マイクが複数あるとき）。
+    nonisolated private static func installTap(on node: AVAudioInputNode, box: AudioBox, channels: [Int]?) {
         var format = node.outputFormat(forBus: 0)
-        if let channel, let unit = node.audioUnit,
-           let mono = AVAudioFormat(standardFormatWithSampleRate: node.inputFormat(forBus: 0).sampleRate, channels: 1) {
-            var map: [Int32] = [Int32(channel)]
+        if let channels, !channels.isEmpty, let unit = node.audioUnit,
+           let picked = AVAudioFormat(standardFormatWithSampleRate: node.inputFormat(forBus: 0).sampleRate,
+                                      channels: AVAudioChannelCount(channels.count)) {
+            var map = channels.map(Int32.init)
             let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_ChannelMap, kAudioUnitScope_Input, 1,
-                                              &map, UInt32(MemoryLayout<Int32>.size))
-            if status == noErr { format = mono }
+                                              &map, UInt32(map.count * MemoryLayout<Int32>.size))
+            if status == noErr { format = picked }
         }
         node.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
             box.append(buffer)
@@ -701,8 +735,16 @@ private final class AudioBox: @unchecked Sendable {
     func setRequest(_ newRequest: SFSpeechAudioBufferRecognitionRequest, replay: [AVAudioPCMBuffer]) {
         lock.lock()
         defer { lock.unlock() }
-        for b in replay { newRequest.append(b) }
+        for b in replay { newRequest.append(Self.mix(b, channel: _listenChannel)) }
         _request = newRequest
+    }
+
+    private var _listenChannel: Int?
+
+    /// 聞き取りに使うチャンネル。nil は全部を混ぜる。手元に残す音声（録音）は全部のチャンネルのまま。
+    var listenChannel: Int? {
+        get { lock.lock(); defer { lock.unlock() }; return _listenChannel }
+        set { lock.lock(); _listenChannel = newValue; lock.unlock() }
     }
 
     /// いま大きな音が続いていないか。
@@ -715,11 +757,12 @@ private final class AudioBox: @unchecked Sendable {
             request?.append(buffer)
             return
         }
-        let level = Self.levelDB(copy)
+        let listened = Self.mix(copy, channel: listenChannel)
+        let level = Self.levelDB(listened)
         lock.lock()
         defer { lock.unlock() }
         // 差し替え（聞き直しの音声を流している最中）と順番が入れ替わらないよう、ロックの中で流す
-        _request?.append(copy)
+        _request?.append(listened)
         let loud = level > floorDB + Self.burstMarginDB
         floorDB += (level - floorDB) * (loud ? 0.002 : 0.02)
         if loud {
@@ -771,6 +814,24 @@ private final class AudioBox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return recent
+    }
+
+    /// 聞き取り用の1チャンネルにする。`channel` を指定したらそのチャンネルだけ、nil なら全部を平均する。
+    private static func mix(_ buffer: AVAudioPCMBuffer, channel: Int?) -> AVAudioPCMBuffer {
+        let count = Int(buffer.format.channelCount)
+        guard count > 1, !buffer.format.isInterleaved, let src = buffer.floatChannelData,
+              let mono = AVAudioFormat(standardFormatWithSampleRate: buffer.format.sampleRate, channels: 1),
+              let out = AVAudioPCMBuffer(pcmFormat: mono, frameCapacity: buffer.frameLength),
+              let dst = out.floatChannelData?[0] else { return buffer }
+        out.frameLength = buffer.frameLength
+        let picked = channel.map { [min($0, count - 1)] } ?? Array(0..<count)
+        let scale = 1 / Float(picked.count)
+        for i in 0..<Int(buffer.frameLength) {
+            var v: Float = 0
+            for ch in picked { v += src[ch][i] }
+            dst[i] = v * scale
+        }
+        return out
     }
 
     /// 1チャンネル目の音の大きさ（dB）。

@@ -20,7 +20,6 @@ struct ScoreboardView: View {
     @AppStorage(ScoreboardTheme.storageKey) private var themeRaw = ScoreboardTheme.simple.rawValue
     @AppStorage("sound.enabled") private var soundEnabled = true
     @AppStorage("sound.volume") private var volume = 0.3
-    @AppStorage(ToneOutput.storageKey) private var toneOutput = ToneOutput.device.rawValue
     @AppStorage(CallStyle.storageKey) private var callStyle = CallStyle.side.rawValue
     @AppStorage("voice.leftWord") private var leftWord = "ひだり"
     @AppStorage("voice.rightWord") private var rightWord = "みぎ"
@@ -30,6 +29,7 @@ struct ScoreboardView: View {
     @AppStorage("voice.recordsAudio") private var recordsAudio = true
     @AppStorage("voice.taskHint") private var taskHint = SFSpeechRecognitionTaskHint.confirmation.rawValue
     @AppStorage(MicMode.storageKey) private var micMode = MicMode.standard.rawValue
+    @AppStorage(MicPick.storageKey) private var micPick = MicPick.both.rawValue
     /// 声でも受け付ける得点以外の操作（キーをカンマ区切り）。誤反応しやすいので既定は「次のゲーム」だけ。
     @AppStorage("voice.operations") private var voiceOperationsRaw = "nextGame"
 
@@ -324,14 +324,13 @@ struct ScoreboardView: View {
     // MARK: - 設定の反映
 
     private var settingsKey: [String] {
-        [String(soundEnabled), String(volume), toneOutput, callStyle, leftWord, rightWord, String(deadTime),
-         String(silenceMs), String(instantMode), String(recordsAudio), String(taskHint), micMode, voiceOperationsRaw]
+        [String(soundEnabled), String(volume), callStyle, leftWord, rightWord, String(deadTime),
+         String(silenceMs), String(instantMode), String(recordsAudio), String(taskHint), micMode, micPick, voiceOperationsRaw]
     }
 
     private func applySettings() {
         model.soundEnabled = soundEnabled
         model.tones.volume = Float(volume)
-        model.tones.output = ToneOutput(rawValue: toneOutput) ?? .device
         model.callStyle = CallStyle(rawValue: callStyle) ?? .side
         model.customWords = (leftWord, rightWord)
         model.voiceOperations = voiceOperations
@@ -341,6 +340,7 @@ struct ScoreboardView: View {
         model.listener.recordsAudio = recordsAudio
         model.listener.taskHint = SFSpeechRecognitionTaskHint(rawValue: taskHint) ?? .confirmation
         model.listener.micMode = MicMode(rawValue: micMode) ?? .standard
+        model.listener.micPick = MicPick(rawValue: micPick) ?? .both
     }
 }
 

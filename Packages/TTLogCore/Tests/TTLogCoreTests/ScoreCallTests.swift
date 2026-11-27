@@ -96,6 +96,11 @@ final class ScoreCallResolverTests: XCTestCase {
         XCTAssertEqual(ScoreCallResolver.resolve(pairs: ScoreCallParser.pairs(in: "19"), log: log(8, 10)), .points(player: 0, count: 1))
         // 1-8 のつもりのときは今まで通り
         XCTAssertEqual(ScoreCallResolver.resolve(pairs: ScoreCallParser.pairs(in: "18"), log: log(1, 7)), .points(player: 1, count: 1))
+        // 8-10 で「きゅうじゅう」→「90」
+        XCTAssertEqual(ScoreCallResolver.resolve(pairs: ScoreCallParser.pairs(in: "90"), log: log(8, 10)), .points(player: 0, count: 1))
+        XCTAssertNotNil(ScoreCallResolver.resolve(pairs: ScoreCallParser.pairs(in: "90"), log: log(9, 9)))
+        // 8-0 から 9-0 のつもりのときは今まで通り
+        XCTAssertEqual(ScoreCallResolver.resolve(pairs: ScoreCallParser.pairs(in: "90"), log: log(8, 0)), .points(player: 0, count: 1))
     }
 
     func testEitherOrderIsAccepted() {
