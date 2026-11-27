@@ -10,6 +10,7 @@ struct ScoreboardSettingsView: View {
     @AppStorage(ScoreboardTheme.storageKey) private var themeRaw = ScoreboardTheme.simple.rawValue
     @AppStorage("sound.enabled") private var soundEnabled = true
     @AppStorage("sound.volume") private var volume = 0.3
+    @AppStorage(ToneOutput.storageKey) private var toneOutput = ToneOutput.device.rawValue
     @AppStorage(CallStyle.storageKey) private var callStyleRaw = CallStyle.side.rawValue
     @AppStorage("voice.leftWord") private var leftWord = "ひだり"
     @AppStorage("voice.rightWord") private var rightWord = "みぎ"
@@ -127,6 +128,11 @@ struct ScoreboardSettingsView: View {
                     HStack {
                         Text("音量")
                         Slider(value: $volume, in: 0.05...1.0)
+                    }
+                    if listener.receiverConnected {
+                        Picker("出し先", selection: $toneOutput) {
+                            ForEach(ToneOutput.allCases) { Text($0.title).tag($0.rawValue) }
+                        }
                     }
                 }
                 Section {

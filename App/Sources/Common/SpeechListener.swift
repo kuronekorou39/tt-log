@@ -79,6 +79,8 @@ final class SpeechListener: ObservableObject {
     @Published private(set) var outputName = ""
     /// 効果音が内蔵スピーカー以外（つないだ受信機など）から出ているか。
     @Published private(set) var outputIsExternal = false
+    /// 受信機（DJI Mic など）をつないでいるか。効果音の出し先を選べるのはこのときだけ。
+    @Published private(set) var receiverConnected = false
 
     /// 受け付けた操作を受け取る。
     var onCommand: ((VoiceCommand) -> Void)?
@@ -164,6 +166,7 @@ final class SpeechListener: ObservableObject {
     var supportsOnDevice: Bool { recognizer?.supportsOnDeviceRecognition ?? false }
 
     init() {
+        prepareIdleRoute()
         refreshRoute()
         routeObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
@@ -290,6 +293,26 @@ final class SpeechListener: ObservableObject {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         partialText = ""
         statusMessage = "停止中"
+        prepareIdleRoute()
+    }
+
+    /// 聞き取っていない間も、受信機をつないでいれば効果音を本体から出せる形（multiRoute）にしておく。
+    /// そのままだと iPad は音も受信機へ送るので、聞き取りを止めている間に受信機をつなぐと効果音が聞こえなくなる。
+    private func prepareIdleRoute() {
+        guard !isListening else { return }
+        let session = AVAudioSession.sharedInstance()
+        if Self.hasReceiver(session.currentRoute) {
+            if session.category != .multiRoute {
+                try? session.setCategory(.multiRoute, mode: .default, options: [.mixWithOthers])
+            }
+        } else if session.category == .multiRoute {
+            try? session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+        }
+    }
+
+    /// 受信機のマイクか、受信機への出力があるか（聞き取りを止めている間はマイクが見えないことがあるので、出力も見る）。
+    private static func hasReceiver(_ route: AVAudioSessionRouteDescription) -> Bool {
+        route.inputs.contains { externalInputs.contains($0.portType) } || route.outputs.contains { $0.portType == .usbAudio }
     }
 
     /// 画面のログと、保存した音声・ログファイルを消す。
@@ -519,9 +542,11 @@ final class SpeechListener: ObservableObject {
         inputName = route.inputs.map(\.portName).joined(separator: "、")
         outputName = route.outputs.map(\.portName).joined(separator: "、")
         outputIsExternal = !route.outputs.isEmpty && !route.outputs.contains { $0.portType == .builtInSpeaker }
+        receiverConnected = Self.hasReceiver(route)
     }
 
     private func routeChanged(_ reason: AVAudioSession.RouteChangeReason?) {
+        prepareIdleRoute()
         refreshRoute()
         // 聞き取り中にマイクを抜き差しすると録音の形式が変わって止まるので、作り直す。
         // 自分で聞き取りを止めたときの変化（.categoryChange など）では作り直さない。

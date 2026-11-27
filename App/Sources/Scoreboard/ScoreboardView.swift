@@ -20,6 +20,7 @@ struct ScoreboardView: View {
     @AppStorage(ScoreboardTheme.storageKey) private var themeRaw = ScoreboardTheme.simple.rawValue
     @AppStorage("sound.enabled") private var soundEnabled = true
     @AppStorage("sound.volume") private var volume = 0.3
+    @AppStorage(ToneOutput.storageKey) private var toneOutput = ToneOutput.device.rawValue
     @AppStorage(CallStyle.storageKey) private var callStyle = CallStyle.side.rawValue
     @AppStorage("voice.leftWord") private var leftWord = "ひだり"
     @AppStorage("voice.rightWord") private var rightWord = "みぎ"
@@ -323,13 +324,14 @@ struct ScoreboardView: View {
     // MARK: - 設定の反映
 
     private var settingsKey: [String] {
-        [String(soundEnabled), String(volume), callStyle, leftWord, rightWord, String(deadTime),
+        [String(soundEnabled), String(volume), toneOutput, callStyle, leftWord, rightWord, String(deadTime),
          String(silenceMs), String(instantMode), String(recordsAudio), String(taskHint), micMode, voiceOperationsRaw]
     }
 
     private func applySettings() {
         model.soundEnabled = soundEnabled
         model.tones.volume = Float(volume)
+        model.tones.output = ToneOutput(rawValue: toneOutput) ?? .device
         model.callStyle = CallStyle(rawValue: callStyle) ?? .side
         model.customWords = (leftWord, rightWord)
         model.voiceOperations = voiceOperations
